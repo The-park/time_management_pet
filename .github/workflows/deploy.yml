@@ -1,0 +1,37 @@
+name: Deploy Laravel to TMD Hosting Time
+
+# 1. THE TRIGGER: This tells GitHub to run this script ONLY when you push to the 'main' branch.
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    # 2. GET CODE: GitHub downloads a fresh copy of your code onto its temporary server.
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    # 3. PREPARE PHP: Laravel needs PHP to install its dependencies.
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.2' # Update this if your Laravel uses PHP 8.1 or 8.3
+
+    # 4. INSTALL LARAVEL PACKAGES: Runs composer to build the vendor folder.
+    - name: Install Composer Dependencies
+      run: composer install --no-dev --optimize-autoloader
+
+    # 5. UPLOAD TO SERVER: Securely copies files to TMD Hosting using your secrets.
+    - name: Copy files via SSH
+      uses: appleboy/scp-action@v0.1.7
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        password: ${{ secrets.PASSWORD }}
+        port: ${{ secrets.PORT }}
+        source: "."
+        # VERY IMPORTANT: Update "YOUR_CPANEL_USERNAME" below to your actual cPanel username!
+        target: "/home/taurius/time.tauriustech.com"

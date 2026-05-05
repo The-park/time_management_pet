@@ -1,5 +1,7 @@
 @extends('layouts.guest')
 
+@section('page_title', 'Create account')
+
 @section('content')
     <h1 class="text-2xl font-semibold mb-6">Create account</h1>
 

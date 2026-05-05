@@ -1,5 +1,7 @@
 @extends('layouts.app')
 
+@section('page_title', 'Settings')
+
 @section('content')
     @php
         $user = $user ?? auth()->user();
@@ -42,12 +44,6 @@
             <p class="text-slate-300 text-sm mt-2">Daily schedule and detection preferences.</p>
         </div>
     </div>
-
-    @if (session('status') === 'settings-updated')
-        <div class="mb-6 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
-            Settings saved.
-        </div>
-    @endif
 
     <div class="space-y-6">
         <form method="POST" action="{{ route('settings.update') }}" class="space-y-6">
@@ -147,10 +143,59 @@
             </div>
         </form>
 
-        {{-- ─── Account info / dangerous actions placeholder ────────────── --}}
+        {{-- ─── Account ─────────────────────────────────────────────────── --}}
         <section class="chrono-panel rounded-2xl p-6 md:p-8">
             <h2 class="font-display text-sm uppercase tracking-[0.3em] text-slate-300 mb-1">Account</h2>
-            <p class="text-xs text-slate-500 mb-4">Identity and password changes live on the <a class="text-[var(--chrono-blue)] hover:underline" href="{{ route('profile.show') }}">Profile page</a>.</p>
+            <p class="text-xs text-slate-500 mb-4">
+                Identity and password changes live on the
+                <a class="text-[var(--chrono-blue)] hover:underline" href="{{ route('profile.show') }}">Profile page</a>.
+            </p>
+        </section>
+
+        {{-- ─── Danger zone ─────────────────────────────────────────────── --}}
+        <section class="rounded-2xl border border-rose-700/50 bg-rose-950/20 p-6 md:p-8">
+            <h2 class="font-display text-sm uppercase tracking-[0.3em] text-rose-300 mb-1">Danger zone</h2>
+            <p class="text-xs text-slate-400 mb-5">
+                Permanently delete your account. Your name, email, and saved preferences are removed.
+                Time blocks stored in your browser are not touched by this action — clear them from the
+                History page's test-data tools if you also want a clean slate.
+            </p>
+
+            <details class="rounded-xl border border-rose-800/40 bg-rose-950/30 p-4">
+                <summary class="cursor-pointer text-sm text-rose-300 hover:text-rose-200">
+                    Delete my account
+                </summary>
+                <form method="POST" action="{{ route('account.destroy') }}" class="mt-4 space-y-3">
+                    @csrf
+                    @method('DELETE')
+
+                    <p class="text-xs text-slate-300">
+                        Confirm by entering your password and typing
+                        <code class="text-rose-300">delete my account</code> below.
+                    </p>
+
+                    <div>
+                        <label class="block text-xs uppercase tracking-[0.2em] text-slate-400 mb-1" for="delete_password">Password</label>
+                        <input id="delete_password" name="password" type="password" autocomplete="current-password" required
+                            class="w-full rounded-lg bg-slate-900/70 border border-slate-700 px-3 py-2 text-slate-100">
+                        @error('password')<p class="mt-1 text-xs text-rose-400">{{ $message }}</p>@enderror
+                    </div>
+
+                    <div>
+                        <label class="block text-xs uppercase tracking-[0.2em] text-slate-400 mb-1" for="delete_confirm">Type "delete my account"</label>
+                        <input id="delete_confirm" name="confirm_text" type="text" required autocomplete="off"
+                            class="w-full rounded-lg bg-slate-900/70 border border-slate-700 px-3 py-2 text-slate-100">
+                        @error('confirm_text')<p class="mt-1 text-xs text-rose-400">{{ $message }}</p>@enderror
+                    </div>
+
+                    <div class="pt-1">
+                        <button type="submit"
+                            class="rounded-lg bg-rose-500 hover:bg-rose-400 text-white font-semibold px-4 py-2">
+                            Delete account permanently
+                        </button>
+                    </div>
+                </form>
+            </details>
         </section>
     </div>
 @endsection

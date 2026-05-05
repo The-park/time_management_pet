@@ -1,5 +1,7 @@
 @extends('layouts.app')
 
+@section('page_title', auth()->check() ? 'Dashboard' : 'Track Your Time')
+
 @section('content')
     @php
         $user = auth()->user();
@@ -22,13 +24,17 @@
         $signupTimestamp = $signupAt?->toIso8601String();
         $signupDateLabel = $signupAt?->format('M j, Y');
     @endphp
-    <div class="relative overflow-hidden rounded-2xl border border-slate-800/60 bg-[radial-gradient(circle_at_top,_rgba(0,224,255,0.15),_transparent_45%)] p-8 mb-10">
-        <div class="absolute -right-24 -top-24 h-56 w-56 rounded-full bg-[radial-gradient(circle,_rgba(255,107,26,0.35),_transparent_70%)] blur-2xl"></div>
-        <div class="relative">
-            <h1 class="font-display text-3xl tracking-[0.3em] uppercase">Dashboard</h1>
-            <p class="text-slate-300 text-sm mt-2">Track today, close the loops, and beat the deadline.</p>
+    @auth
+        <div class="relative overflow-hidden rounded-2xl border border-slate-800/60 bg-[radial-gradient(circle_at_top,_rgba(0,224,255,0.15),_transparent_45%)] p-8 mb-10">
+            <div class="absolute -right-24 -top-24 h-56 w-56 rounded-full bg-[radial-gradient(circle,_rgba(255,107,26,0.35),_transparent_70%)] blur-2xl"></div>
+            <div class="relative">
+                <h1 class="font-display text-3xl tracking-[0.3em] uppercase">Dashboard</h1>
+                <p class="text-slate-300 text-sm mt-2">Track today, close the loops, and beat the deadline.</p>
+            </div>
         </div>
-    </div>
+    @else
+        @include('partials.guest-hero')
+    @endauth
 
     <div class="space-y-8">
         <section class="chrono-panel rounded-2xl p-6 md:p-8">
@@ -50,7 +56,7 @@
             <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-6">
                 <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-4">
                     <div class="text-xs uppercase tracking-[0.2em] text-slate-400">End of day</div>
-                    <div class="mt-2 font-digital text-2xl chrono-glow-blue">
+                    <div class="mt-2 font-digital text-2xl chrono-glow-blue chrono-pulse">
                         <span data-remaining-time>00:00:00</span>
                     </div>
                     <div class="text-xs text-slate-500 mt-1">
@@ -210,7 +216,7 @@
             </div>
         </section>
 
-        <section class="chrono-panel rounded-2xl p-6 md:p-8">
+        <section id="custom-countdown" class="chrono-panel rounded-2xl p-6 md:p-8">
             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
                 <div class="flex-1">
                     <h2 class="font-display text-sm uppercase tracking-[0.3em] text-slate-300">Custom countdown</h2>

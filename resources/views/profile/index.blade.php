@@ -1,5 +1,7 @@
 @extends('layouts.app')
 
+@section('page_title', 'Profile')
+
 @section('content')
     @php
         $user = $user ?? auth()->user();
@@ -47,20 +49,6 @@
             </div>
         </div>
     </div>
-
-    @if (session('status') === 'profile-updated' || session('status') === 'profile-updated-email-changed')
-        <div class="mb-6 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
-            Profile updated.
-            @if (session('status') === 'profile-updated-email-changed')
-                A verification link has been sent to your new email.
-            @endif
-        </div>
-    @endif
-    @if (session('status') === 'password-updated')
-        <div class="mb-6 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
-            Password updated.
-        </div>
-    @endif
 
     <div class="space-y-6">
         {{-- ─── Personal info form ──────────────────────────────────────── --}}

@@ -3,7 +3,7 @@
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>{{ config('app.name', 'ChronoLog') }}</title>
+        <title>@hasSection('page_title')@yield('page_title') · @endif{{ config('app.name', 'Track Your Time') }}</title>
         @vite(['resources/css/app.css', 'resources/js/app.js'])
         @livewireStyles
         <script>
@@ -20,7 +20,7 @@
                 <div class="mx-auto max-w-6xl px-6 py-4 flex items-center justify-between">
                     <div class="flex items-center gap-3">
                         <div class="h-3 w-3 rounded-full bg-[var(--chrono-blue)] shadow-[0_0_12px_var(--chrono-blue)]"></div>
-                        <span class="font-display text-lg tracking-[0.2em]">ChronoLog</span>
+                        <a href="{{ route('dashboard') }}" class="font-display text-lg tracking-[0.2em] hover:text-[var(--chrono-blue)] transition-colors">Track Your Time</a>
                     </div>
                     <nav class="text-sm uppercase tracking-[0.2em] flex items-center gap-6">
                         <a href="{{ route('dashboard') }}" class="hover:text-[var(--chrono-blue)]">Dashboard</a>
@@ -44,9 +44,44 @@
             </header>
 
             <main class="mx-auto max-w-6xl px-6 py-10">
+                @if (session('status') || session('toast'))
+                    @php($toastMessage = session('toast') ?? match (session('status')) {
+                        'profile-updated' => 'Profile saved.',
+                        'profile-updated-email-changed' => 'Profile saved — verification link sent to your new email.',
+                        'password-updated' => 'Password updated.',
+                        'settings-updated' => 'Settings saved.',
+                        default => null,
+                    })
+                    @if ($toastMessage)
+                        <div data-toast-from-server data-toast-message="{{ $toastMessage }}" class="hidden"></div>
+                    @endif
+                @endif
                 @yield('content')
             </main>
+
+            <footer class="mt-12 border-t border-slate-800/60">
+                <div class="mx-auto max-w-6xl px-6 py-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-slate-500">
+                    <div class="flex items-center gap-2">
+                        <span class="font-display tracking-[0.2em] text-slate-300">Track Your Time</span>
+                        <span class="text-slate-700">·</span>
+                        <span>© {{ date('Y') }}</span>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <a href="{{ route('dashboard') }}" class="hover:text-slate-200">Dashboard</a>
+                        @auth
+                            <a href="{{ route('history.index') }}" class="hover:text-slate-200">History</a>
+                            <a href="{{ route('settings.show') }}" class="hover:text-slate-200">Settings</a>
+                        @else
+                            <a href="{{ route('login') }}" class="hover:text-slate-200">Sign in</a>
+                        @endauth
+                    </div>
+                </div>
+            </footer>
         </div>
+
+        <div id="toast_stack"
+            class="pointer-events-none fixed bottom-6 right-6 z-[60] flex flex-col items-end gap-2"
+            aria-live="polite" aria-atomic="false"></div>
 
         <div id="login_required_modal" role="dialog" aria-modal="true" aria-labelledby="login_required_title" aria-hidden="true"
             class="fixed inset-0 z-50 hidden items-center justify-center bg-black/70 backdrop-blur-sm p-4">
@@ -109,6 +144,42 @@
                     open(action);
                     return false;
                 };
+            })();
+        </script>
+
+        <script>
+            (() => {
+                const stack = document.getElementById('toast_stack');
+                if (!stack) return;
+
+                const TONES = {
+                    info: 'border-slate-700 bg-slate-900/95 text-slate-100',
+                    success: 'border-emerald-500/40 bg-emerald-900/40 text-emerald-100',
+                    warn: 'border-amber-500/40 bg-amber-900/40 text-amber-100',
+                    error: 'border-rose-500/40 bg-rose-900/40 text-rose-100',
+                };
+
+                const showToast = (message, { tone = 'success', duration = 3200 } = {}) => {
+                    if (!message) return;
+                    const toast = document.createElement('div');
+                    toast.className =
+                        'chrono-toast pointer-events-auto rounded-xl border px-4 py-2 text-sm shadow-2xl backdrop-blur-sm max-w-sm ' +
+                        (TONES[tone] || TONES.info);
+                    toast.textContent = message;
+                    stack.appendChild(toast);
+                    setTimeout(() => {
+                        toast.classList.add('is-leaving');
+                        toast.addEventListener('animationend', () => toast.remove(), { once: true });
+                    }, duration);
+                };
+
+                window.showToast = showToast;
+
+                // Replay any server-rendered flash messages as toasts.
+                document.querySelectorAll('[data-toast-from-server]').forEach((el) => {
+                    const msg = el.dataset.toastMessage;
+                    if (msg) showToast(msg, { tone: 'success' });
+                });
             })();
         </script>
 

@@ -1,5 +1,7 @@
 @extends('layouts.guest')
 
+@section('page_title', 'Sign in')
+
 @section('content')
     <h1 class="text-2xl font-semibold mb-6">Log in</h1>
 

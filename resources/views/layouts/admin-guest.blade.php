@@ -3,7 +3,7 @@
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>{{ config('app.name', 'ChronoLog') }} Admin</title>
+        <title>{{ config('app.name', 'Track Your Time') }} · Admin</title>
         @vite(['resources/css/app.css', 'resources/js/app.js'])
     </head>
     <body class="min-h-screen bg-rose-950 text-rose-50">

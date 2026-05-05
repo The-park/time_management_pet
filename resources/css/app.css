@@ -64,4 +64,70 @@
         mix-blend-mode: screen;
         opacity: 0.2;
     }
+
+    /* Panel fade + slide in on first paint. Applied site-wide via .chrono-panel
+       so every section animates in with a subtle stagger driven by --chrono-stagger
+       on the parent (set by JS or inline if a designer wants finer control). */
+    .chrono-panel,
+    .chrono-fade-in {
+        animation: chronoFadeIn 420ms ease-out both;
+    }
+    @keyframes chronoFadeIn {
+        from { opacity: 0; transform: translateY(8px); }
+        to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Subtle lift on tile cards + clickable surfaces. Pairs with existing
+       border classes — adds elevation and a tighter outline on hover. */
+    .chrono-lift {
+        transition: transform 200ms ease-out, box-shadow 200ms ease-out, border-color 200ms ease-out;
+    }
+    .chrono-lift:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px -8px color-mix(in oklab, var(--chrono-blue) 45%, transparent);
+    }
+
+    /* Heartbeat pulse on the live end-of-day digits so the page feels alive. */
+    .chrono-pulse {
+        animation: chronoPulse 2.4s ease-in-out infinite;
+    }
+    @keyframes chronoPulse {
+        0%, 100% { opacity: 1; text-shadow: 0 0 12px color-mix(in oklab, var(--chrono-blue) 70%, transparent); }
+        50%      { opacity: 0.85; text-shadow: 0 0 22px color-mix(in oklab, var(--chrono-blue) 90%, transparent); }
+    }
+
+    /* Mascot drift — gentle vertical bob for the SVG companion on the guest hero. */
+    .chrono-bob {
+        animation: chronoBob 4.2s ease-in-out infinite;
+    }
+    @keyframes chronoBob {
+        0%, 100% { transform: translateY(0) rotate(-1deg); }
+        50%      { transform: translateY(-6px) rotate(1deg); }
+    }
+
+    /* Toast slide-in. */
+    .chrono-toast {
+        animation: chronoToastIn 260ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+    }
+    @keyframes chronoToastIn {
+        from { opacity: 0; transform: translateY(12px) scale(0.95); }
+        to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .chrono-toast.is-leaving {
+        animation: chronoToastOut 220ms ease-in both;
+    }
+    @keyframes chronoToastOut {
+        from { opacity: 1; transform: translateY(0) scale(1); }
+        to   { opacity: 0; transform: translateY(-8px) scale(0.96); }
+    }
+
+    /* Respect users who prefer reduced motion — silence the bob, pulse and slides. */
+    @media (prefers-reduced-motion: reduce) {
+        .chrono-panel, .chrono-fade-in, .chrono-pulse, .chrono-bob, .chrono-toast {
+            animation: none !important;
+        }
+        .chrono-lift {
+            transition: none !important;
+        }
+    }
 }

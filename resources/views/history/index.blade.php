@@ -1,5 +1,7 @@
 @extends('layouts.app')
 
+@section('page_title', 'History')
+
 @section('content')
     @php
         $user = auth()->user();
@@ -333,7 +335,7 @@
                         : '';
 
                     return `<button type="button" data-history-month="${month}"
-                        class="rounded-xl border border-slate-800/60 bg-slate-900/40 hover:bg-slate-800/60 hover:border-slate-700 cursor-pointer p-4 text-left transition">
+                        class="chrono-lift rounded-xl border border-slate-800/60 bg-slate-900/40 hover:bg-slate-800/60 hover:border-slate-700 cursor-pointer p-4 text-left">
                         ${header}
                         <div class="mt-2 text-sm text-slate-200">
                             <span class="text-slate-100">${escapeHtml(formatHours(total))}</span>

@@ -39,4 +39,5 @@ Route::middleware(['auth'])->group(function () {
 
     Route::get('/settings', [SettingsController::class, 'show'])->name('settings.show');
     Route::put('/settings', [SettingsController::class, 'update'])->name('settings.update');
+    Route::delete('/settings/account', [SettingsController::class, 'destroyAccount'])->name('account.destroy');
 });

@@ -11,7 +11,7 @@ return [
 
     'email' => 'email',
 
-    'home' => '/dashboard',
+    'home' => '/',
 
     'prefix' => '',
 

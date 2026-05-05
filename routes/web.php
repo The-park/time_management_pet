@@ -2,15 +2,21 @@
 
 use App\Http\Controllers\Admin\AdminAuthController;
 use App\Http\Controllers\Admin\AdminTwoFactorController;
+use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\SettingsController;
 use Illuminate\Support\Facades\Route;
 
+// Dashboard is the public homepage. Authenticated users get personalised
+// data; guests see the same UI but only the Custom countdown is interactive,
+// every other action prompts them to sign in.
 Route::get('/', function () {
-    return view('welcome');
-});
-
-Route::middleware(['auth'])->get('/dashboard', function () {
     return view('dashboard');
 })->name('dashboard');
+
+// Backwards-compat: anything still pointing at /dashboard lands on /.
+Route::get('/dashboard', function () {
+    return redirect('/');
+});
 
 Route::prefix('admin')->name('admin.')->group(function () {
     Route::get('login', [AdminAuthController::class, 'showLoginForm'])->name('login');
@@ -27,6 +33,10 @@ Route::middleware(['auth'])->get('/history', function () {
     return view('history.index');
 })->name('history.index');
 
-Route::middleware(['auth'])->get('/settings', function () {
-    return view('settings');
-})->name('settings');
+Route::middleware(['auth'])->group(function () {
+    Route::get('/profile', [ProfileController::class, 'show'])->name('profile.show');
+    Route::put('/profile', [ProfileController::class, 'update'])->name('profile.update');
+
+    Route::get('/settings', [SettingsController::class, 'show'])->name('settings.show');
+    Route::put('/settings', [SettingsController::class, 'update'])->name('settings.update');
+});

@@ -116,7 +116,7 @@
                 <div class="h-full bg-[var(--chrono-blue)] transition-[width] duration-500" data-period-progress style="width: 0%"></div>
             </div>
             <div class="mt-2 text-xs space-y-1 hidden" data-period-note></div>
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+            <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 mt-4">
                 <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
                     <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Passed</div>
                     <div class="mt-1 text-lg text-slate-100" data-period-passed>—</div>
@@ -127,7 +127,11 @@
                 </div>
                 <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
                     <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Productive</div>
-                    <div class="mt-1 text-lg text-slate-100" data-period-productive>—</div>
+                    <div class="mt-1 text-lg text-emerald-300" data-period-productive>—</div>
+                </div>
+                <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
+                    <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Wasted</div>
+                    <div class="mt-1 text-lg text-rose-300" data-period-wasted>—</div>
                 </div>
                 <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
                     <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Utilization</div>
@@ -149,7 +153,7 @@
                 <div class="h-full bg-[var(--chrono-orange)] transition-[width] duration-500" data-period-progress style="width: 0%"></div>
             </div>
             <div class="mt-2 text-xs space-y-1 hidden" data-period-note></div>
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+            <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 mt-4">
                 <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
                     <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Passed</div>
                     <div class="mt-1 text-lg text-slate-100" data-period-passed>—</div>
@@ -160,7 +164,11 @@
                 </div>
                 <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
                     <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Productive</div>
-                    <div class="mt-1 text-lg text-slate-100" data-period-productive>—</div>
+                    <div class="mt-1 text-lg text-emerald-300" data-period-productive>—</div>
+                </div>
+                <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
+                    <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Wasted</div>
+                    <div class="mt-1 text-lg text-rose-300" data-period-wasted>—</div>
                 </div>
                 <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
                     <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Utilization</div>
@@ -178,7 +186,7 @@
                 <div class="h-full bg-emerald-400 transition-[width] duration-500" data-period-progress style="width: 0%"></div>
             </div>
             <div class="mt-2 text-xs space-y-1 hidden" data-period-note></div>
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+            <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 mt-4">
                 <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
                     <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Passed</div>
                     <div class="mt-1 text-lg text-slate-100" data-period-passed>—</div>
@@ -189,7 +197,11 @@
                 </div>
                 <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
                     <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Productive</div>
-                    <div class="mt-1 text-lg text-slate-100" data-period-productive>—</div>
+                    <div class="mt-1 text-lg text-emerald-300" data-period-productive>—</div>
+                </div>
+                <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
+                    <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Wasted</div>
+                    <div class="mt-1 text-lg text-rose-300" data-period-wasted>—</div>
                 </div>
                 <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
                     <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Utilization</div>
@@ -244,45 +256,62 @@
                 <button class="rounded-lg border border-slate-600 px-4 py-2 text-sm">Add new block</button>
             </div>
 
-            <div class="mt-6 grid md:grid-cols-4 gap-3">
+            <div data-edit-banner
+                class="hidden mt-6 rounded-lg border border-[var(--chrono-blue)]/40 bg-[var(--chrono-blue)]/10 px-3 py-2 text-sm text-[var(--chrono-blue)]">
+                Editing block <span data-edit-banner-range class="font-semibold"></span> — your changes will replace the original. Click <strong>Cancel</strong> to discard.
+            </div>
+            <div class="mt-6 grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
-                    <input id="block_start_display" type="text" inputmode="numeric" placeholder="9:00 AM" value="9:00 AM"
+                    <label class="block text-xs uppercase tracking-[0.2em] text-slate-400 mb-1" for="block_start_display">Start</label>
+                    <input id="block_start_display" type="text" inputmode="numeric" placeholder="9:00 AM"
                         data-time12
                         data-time12-hidden-id="block_start_value"
                         data-time12-error-id="block_start_error"
                         data-time12-label="Start time"
                         data-time12-example="9:00 AM"
                         data-time12-group="block_form"
-                        class="w-full rounded-lg bg-slate-900/70 border border-slate-700 px-3 py-2">
-                    <input id="block_start_value" type="hidden" value="09:00">
+                        class="w-full rounded-lg bg-slate-900/70 border border-slate-700 px-3 py-2 text-slate-100">
+                    <input id="block_start_value" type="hidden" value="">
                     <p id="block_start_error" class="mt-1 text-xs text-rose-400 hidden" aria-live="polite"></p>
                 </div>
-                <input id="block_duration_input" type="number" min="1" placeholder="Duration (min)"
-                    class="rounded-lg bg-slate-900/70 border border-slate-700 px-3 py-2 self-start">
                 <div>
-                    <input id="block_end_display" type="text" inputmode="numeric" placeholder="10:00 AM" value="10:00 AM"
+                    <label class="block text-xs uppercase tracking-[0.2em] text-slate-400 mb-1" for="block_end_display">End</label>
+                    <input id="block_end_display" type="text" inputmode="numeric" placeholder="10:00 AM"
                         data-time12
                         data-time12-hidden-id="block_end_value"
                         data-time12-error-id="block_end_error"
                         data-time12-label="End time"
                         data-time12-example="10:00 AM"
                         data-time12-group="block_form"
-                        class="w-full rounded-lg bg-slate-900/70 border border-slate-700 px-3 py-2">
-                    <input id="block_end_value" type="hidden" value="10:00">
+                        class="w-full rounded-lg bg-slate-900/70 border border-slate-700 px-3 py-2 text-slate-100">
+                    <input id="block_end_value" type="hidden" value="">
                     <p id="block_end_error" class="mt-1 text-xs text-rose-400 hidden" aria-live="polite"></p>
                 </div>
-                <textarea id="block_reason_input" rows="1" placeholder="Reason / Activity"
-                    class="rounded-lg bg-slate-900/70 border border-slate-700 px-3 py-2 md:col-span-4 self-start"></textarea>
+                <div class="md:col-span-1">
+                    <label class="block text-xs uppercase tracking-[0.2em] text-slate-400 mb-1" for="block_reason_input">Reason / Activity</label>
+                    <textarea id="block_reason_input" rows="3" maxlength="500"
+                        placeholder="What did you do? Add as much detail as you'd like — auto-grows as you type."
+                        style="color-scheme: dark"
+                        class="w-full rounded-lg bg-slate-900/70 border border-slate-700 px-3 py-2 text-slate-100 placeholder-slate-500 leading-relaxed resize-none min-h-[5rem] overflow-hidden focus:border-[var(--chrono-blue)] focus:outline-none focus:ring-1 focus:ring-[var(--chrono-blue)]/40"></textarea>
+                    <p class="mt-1 text-[0.65rem] text-slate-500"><span data-reason-count>0</span> / 500 characters</p>
+                </div>
             </div>
             <p class="mt-3 text-xs text-slate-400">
-                Times use <strong>12-hour format with AM/PM</strong> (e.g. <span class="text-slate-300">9:00 AM</span>, <span class="text-slate-300">2:30pm</span>, <span class="text-slate-300">11 p.m.</span>). 24-hour input is not accepted — Log block stays disabled until both times are valid. End time can be at most <strong>1 hour ahead</strong> of the current time.
+                Times use <strong>12-hour format with AM/PM</strong> (e.g. <span class="text-slate-300">9:00 AM</span>, <span class="text-slate-300">2:30pm</span>, <span class="text-slate-300">11 p.m.</span>). 24-hour input is not accepted. <strong>Start must be before End</strong>, end can be at most <strong>1 hour ahead</strong> of now, and blocks <strong>can't overlap</strong> each other.
             </p>
-            <div class="mt-4">
-                <button data-time12-gate="block_form"
+            <p class="mt-1 text-xs text-slate-500">
+                Words like <span class="text-rose-300/80">wasted</span>, <span class="text-rose-300/80">scrolling</span>, <span class="text-rose-300/80">youtube</span>, <span class="text-rose-300/80">social media</span>, <span class="text-rose-300/80">procrastinating</span> auto-flag the block as <span class="text-rose-300/80">Wasted</span> — even when run together (e.g. <span class="text-rose-300/80">seenyoutube</span>, <span class="text-rose-300/80">sotimegotwasted</span>). Click the chip in the table to flip a classification.
+            </p>
+            <div class="mt-4 flex flex-wrap items-center gap-2">
+                <button id="block_save_button" type="button" data-time12-gate="block_form"
                     class="rounded-lg bg-[var(--chrono-orange)] text-slate-950 font-semibold px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed">
                     Log block
                 </button>
-                <p id="block_form_error" class="mt-2 text-xs text-rose-400 hidden" aria-live="polite"></p>
+                <button id="block_cancel_button" type="button"
+                    class="hidden rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-200">
+                    Cancel
+                </button>
+                <p id="block_form_error" class="text-xs text-rose-400 hidden" aria-live="polite"></p>
             </div>
 
             <div class="mt-6 overflow-x-auto">
@@ -300,6 +329,22 @@
                 </table>
             </div>
         </section>
+    </div>
+
+    <div id="confirm_modal" role="dialog" aria-modal="true" aria-labelledby="confirm_modal_title" aria-hidden="true"
+        class="fixed inset-0 z-50 hidden items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+        <div class="w-full max-w-md rounded-2xl border border-slate-700/60 bg-[var(--chrono-bg)] p-6 shadow-2xl">
+            <h3 id="confirm_modal_title"
+                class="font-display text-base uppercase tracking-[0.2em] text-slate-100"
+                data-confirm-title>Confirm</h3>
+            <div class="mt-3 text-sm text-slate-300 space-y-1" data-confirm-body></div>
+            <div class="mt-5 flex justify-end gap-2">
+                <button type="button" data-confirm-cancel
+                    class="rounded-lg border border-slate-600 hover:border-slate-400 px-4 py-2 text-sm text-slate-200">Cancel</button>
+                <button type="button" data-confirm-ok
+                    class="rounded-lg px-4 py-2 text-sm font-semibold">Confirm</button>
+            </div>
+        </div>
     </div>
 
     <div id="hourly_modal" role="dialog" aria-modal="true" aria-labelledby="hourly_modal_title" aria-hidden="true"
@@ -368,6 +413,75 @@
                 const localDateString = (d = new Date()) =>
                     `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
+                // Single-word triggers — scored at the token level so they catch
+                // concatenated forms like "seenyoutube" or "sotimegotwasted".
+                const WASTED_TOKENS = [
+                    'wasted', 'waste', 'wasting', 'wastes',
+                    'scroll', 'scrolling', 'scrolled', 'scrolls',
+                    'doomscroll', 'doomscrolling',
+                    'procrastinate', 'procrastinating', 'procrastinated', 'procrastination',
+                    'distract', 'distracted', 'distracting', 'distraction',
+                    'idle', 'idling', 'idled',
+                    'binge', 'binging', 'binged', 'bingewatch',
+                    'timepass',
+                    'mindless', 'mindlessly',
+                    'unproductive',
+                    'lazy', 'laziness',
+                    'youtube', 'instagram', 'tiktok', 'twitter', 'reddit',
+                    'facebook', 'snapchat', 'netflix',
+                    'aimless', 'aimlessly',
+                    'useless',
+                ];
+                // Multi-word phrases — scanned against the whole lowercased label.
+                const WASTED_PHRASES = [
+                    'social media',
+                    'time pass',
+                    'binge watch',
+                    'binge-watch',
+                ];
+                const SCORE_THRESHOLD = 2;
+
+                const scoreTokenAgainstKeyword = (token, kw) => {
+                    if (token === kw) return 3;
+                    if (token.length > kw.length && (token.startsWith(kw) || token.endsWith(kw))) return 2;
+                    if (token.includes(kw)) return 1;
+                    return 0;
+                };
+
+                const categorizeLabel = (label) => {
+                    if (!label) return 'productive';
+                    const text = String(label).toLowerCase();
+                    let score = 0;
+
+                    // Phrase pass — works on raw text since multi-word phrases
+                    // already include their own internal word boundaries.
+                    for (const phrase of WASTED_PHRASES) {
+                        if (text.includes(phrase)) {
+                            score += 3;
+                            if (score >= SCORE_THRESHOLD) return 'wasted';
+                        }
+                    }
+
+                    // Token pass — splits on every non-alphanumeric boundary, then
+                    // each token contributes at most one match per keyword. The
+                    // strongest keyword match for a token wins, so a token like
+                    // 'sotimegotwasted' scores once for "wasted" rather than three
+                    // times for "wasted"/"waste"/"wasting".
+                    const tokens = text.split(/[^a-z0-9]+/).filter((t) => t.length > 0);
+                    for (const token of tokens) {
+                        let best = 0;
+                        for (const kw of WASTED_TOKENS) {
+                            const s = scoreTokenAgainstKeyword(token, kw);
+                            if (s > best) best = s;
+                            if (best === 3) break;
+                        }
+                        score += best;
+                        if (score >= SCORE_THRESHOLD) return 'wasted';
+                    }
+
+                    return 'productive';
+                };
+
                 const loadBlocks = () => {
                     try {
                         const raw = localStorage.getItem(BLOCKS_KEY);
@@ -393,7 +507,10 @@
                     window.dispatchEvent(new CustomEvent('chrono:blocks:changed'));
                 };
 
-                // One-time migration: stamp date-less blocks as today so period roll-ups work.
+                // Migration / re-classification: stamp date-less blocks as today, and re-run
+                // the classifier on every block whose category was *not* manually overridden
+                // (categoryManual !== true). This way improvements to the algorithm propagate
+                // to existing blocks, while user clicks on the chip stick.
                 (() => {
                     const blocks = loadBlocks();
                     let dirty = false;
@@ -403,22 +520,42 @@
                             block.date = today;
                             dirty = true;
                         }
+                        if (block.categoryManual !== true) {
+                            const next = categorizeLabel(block.label);
+                            if (block.category !== next) {
+                                block.category = next;
+                                dirty = true;
+                            }
+                        } else if (!block.category) {
+                            block.category = 'productive';
+                            dirty = true;
+                        }
                     }
                     if (dirty) saveBlocks(blocks);
                 })();
 
                 const render = () => {
-                    const blocks = loadBlocks().slice().sort((a, b) => {
-                        const aMin = hhmmToMinutes(a.start || '00:00');
-                        const bMin = hhmmToMinutes(b.start || '00:00');
-                        if (aMin !== bMin) return aMin - bMin;
-                        return (a.id || '').localeCompare(b.id || '');
-                    });
+                    // Strict calendar-day scope: only blocks whose date stamp matches the
+                    // browser's current local date. A block logged at 11:30 PM is dated to
+                    // that calendar day and disappears from this table once the clock crosses
+                    // midnight; a block created at 12:30 AM is tagged to the new day. The
+                    // 10 PM sleep / 6 AM wake schedule does not affect this — calendar day
+                    // is the boundary.
+                    const todayKey = localDateString();
+                    const blocks = loadBlocks()
+                        .filter((b) => b.date === todayKey)
+                        .slice()
+                        .sort((a, b) => {
+                            const aMin = hhmmToMinutes(a.start || '00:00');
+                            const bMin = hhmmToMinutes(b.start || '00:00');
+                            if (aMin !== bMin) return aMin - bMin;
+                            return (a.id || '').localeCompare(b.id || '');
+                        });
                     tbody.innerHTML = '';
 
                     if (blocks.length === 0) {
                         const tr = document.createElement('tr');
-                        tr.innerHTML = '<td class="py-3 text-slate-500" colspan="5">No time blocks yet — start a countdown or log one manually.</td>';
+                        tr.innerHTML = '<td class="py-3 text-slate-500" colspan="5">No blocks logged for today yet — start a countdown or log one manually.</td>';
                         tbody.appendChild(tr);
                         return;
                     }
@@ -442,13 +579,23 @@
                         const labelText = block.label
                             || (block.source === 'countdown' ? 'Custom countdown' : 'Time block');
 
+                        const isWasted = block.category === 'wasted';
+                        const categoryChip = `<button type="button" data-block-category` +
+                            ` class="ml-2 inline-flex items-center rounded-full px-2 py-0.5 text-[0.65rem] uppercase tracking-wider hover:opacity-80 ${isWasted ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30' : 'bg-slate-700/40 text-slate-400 border border-slate-600/40'}"` +
+                            ` title="Click to toggle productive / wasted">${isWasted ? 'Wasted' : 'Productive'}</button>`;
+
+                        const editButton = block.status === 'completed'
+                            ? '<button class="text-[var(--chrono-blue)]" data-block-edit>Edit</button>'
+                            : '';
+
                         tr.innerHTML = `
                             <td class="py-3">${escapeHtml(formatTime12(block.start))}</td>
                             <td class="py-3">${endText}</td>
                             <td class="py-3">${escapeHtml(msToDurationLabel(block.durationMs))}</td>
-                            <td class="py-3">${badge}${escapeHtml(labelText)}</td>
+                            <td class="py-3">${badge}${escapeHtml(labelText)}${categoryChip}</td>
                             <td class="py-3">
                                 <div class="flex gap-2">
+                                    ${editButton}
                                     <button class="text-[var(--chrono-red)]" data-block-delete>Delete</button>
                                 </div>
                             </td>
@@ -462,6 +609,7 @@
                         id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
                         ...data,
                         date: data.date || localDateString(),
+                        category: data.category || categorizeLabel(data.label),
                     };
                     const blocks = loadBlocks();
                     blocks.push(block);
@@ -487,32 +635,14 @@
                 };
                 const get = (id) => loadBlocks().find((b) => b.id === id) || null;
 
-                tbody.addEventListener('click', (e) => {
-                    const btn = e.target.closest('[data-block-delete]');
-                    if (!btn) return;
-                    const tr = btn.closest('tr');
-                    const id = tr?.dataset.blockId;
-                    if (!id) return;
-                    const block = get(id);
-                    if (block && block.source === 'countdown'
-                        && (block.status === 'active' || block.status === 'paused')) {
-                        const resetBtn = document.querySelector('[data-cc-reset]');
-                        if (resetBtn) {
-                            resetBtn.click();
-                            return;
-                        }
-                    }
-                    remove(id);
-                });
-
                 const ONE_HOUR_MS = 60 * 60 * 1000;
-                const logBlockBtn = document.querySelector('[data-time12-gate="block_form"]');
-                const startHidden = document.getElementById('block_start_value');
-                const endHidden = document.getElementById('block_end_value');
                 const startDisplay = document.getElementById('block_start_display');
                 const endDisplay = document.getElementById('block_end_display');
+                const startHidden = document.getElementById('block_start_value');
+                const endHidden = document.getElementById('block_end_value');
                 const reasonInput = document.getElementById('block_reason_input');
-                const durationInput = document.getElementById('block_duration_input');
+                const saveBtn = document.getElementById('block_save_button');
+                const cancelBtn = document.getElementById('block_cancel_button');
                 const blockFormError = document.getElementById('block_form_error');
 
                 const showBlockFormError = (msg) => {
@@ -524,38 +654,215 @@
                     if (blockFormError) blockFormError.classList.add('hidden');
                 };
 
-                for (const el of [startDisplay, endDisplay, durationInput, reasonInput]) {
+                for (const el of [startDisplay, endDisplay, reasonInput]) {
                     el?.addEventListener('input', clearBlockFormError);
                 }
 
-                if (logBlockBtn && startHidden && endHidden) {
-                    logBlockBtn.addEventListener('click', () => {
-                        const start = startHidden.value;
-                        const end = endHidden.value;
-                        if (!start || !end) return;
+                // Reason textarea auto-grow + character counter.
+                const reasonCount = document.querySelector('[data-reason-count]');
+                const autoGrowReason = () => {
+                    if (!reasonInput) return;
+                    reasonInput.style.height = 'auto';
+                    reasonInput.style.height = reasonInput.scrollHeight + 'px';
+                    if (reasonCount) reasonCount.textContent = String(reasonInput.value.length);
+                };
+                reasonInput?.addEventListener('input', autoGrowReason);
 
-                        const startMin = hhmmToMinutes(start);
-                        const endMin = hhmmToMinutes(end);
-                        let derivedMs = (endMin - startMin) * 60 * 1000;
-                        const typedDuration = Math.max(0, Math.floor(Number(durationInput?.value) || 0));
-                        let durationMs = typedDuration > 0 ? typedDuration * 60 * 1000 : derivedMs;
-                        if (durationMs <= 0) {
-                            showBlockFormError('End time must be after start time (or set a positive duration).');
+                // Edit-mode banner refs.
+                const editBanner = document.querySelector('[data-edit-banner]');
+                const editBannerRange = document.querySelector('[data-edit-banner-range]');
+
+                // ─── Custom confirm modal (replaces native confirm()) ──────────────
+                const confirmModal = document.getElementById('confirm_modal');
+                const confirmTitleEl = confirmModal?.querySelector('[data-confirm-title]');
+                const confirmBodyEl = confirmModal?.querySelector('[data-confirm-body]');
+                const confirmOkBtn = confirmModal?.querySelector('[data-confirm-ok]');
+                const confirmCancelBtn = confirmModal?.querySelector('[data-confirm-cancel]');
+                let confirmBusy = false;
+
+                const TONES = {
+                    blue: 'bg-[var(--chrono-blue)] text-slate-950 hover:opacity-90',
+                    red: 'bg-rose-500 text-white hover:bg-rose-400',
+                    orange: 'bg-[var(--chrono-orange)] text-slate-950 hover:opacity-90',
+                };
+
+                const showConfirmModal = ({ title, lines = [], confirmText = 'Confirm', cancelText = 'Cancel', tone = 'blue' }) => {
+                    return new Promise((resolve) => {
+                        // Hard fallback only if the modal markup is missing.
+                        if (!confirmModal || !confirmOkBtn || !confirmCancelBtn) {
+                            const text = `${title}\n\n${lines.map((l) => typeof l === 'string' ? l : l.text).join('\n')}`;
+                            resolve(window.confirm(text));
                             return;
                         }
+                        // Already showing a modal — drop the duplicate call without action.
+                        if (confirmBusy) { resolve(false); return; }
+                        confirmBusy = true;
 
-                        const now = new Date();
-                        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-                        const blockEndMs = todayStart + endMin * 60 * 1000;
-                        const futureLimit = now.getTime() + ONE_HOUR_MS;
-                        if (blockEndMs > futureLimit) {
-                            const limitDate = new Date(futureLimit);
-                            showBlockFormError(`End time can be at most 1 hour ahead of now (≤ ${formatTime12(dateToHHMM(limitDate))}).`);
-                            return;
+                        confirmTitleEl.textContent = title;
+                        confirmBodyEl.innerHTML = lines.map((item) => {
+                            const text = typeof item === 'string' ? item : item.text;
+                            const muted = typeof item === 'object' && item.muted;
+                            const cls = muted ? 'class="text-slate-500"' : '';
+                            return `<p ${cls}>${escapeHtml(text)}</p>`;
+                        }).join('');
+
+                        confirmOkBtn.textContent = confirmText;
+                        confirmOkBtn.className = 'rounded-lg px-4 py-2 text-sm font-semibold ' + (TONES[tone] || TONES.blue);
+                        confirmCancelBtn.textContent = cancelText;
+
+                        const close = (result) => {
+                            confirmModal.classList.remove('flex');
+                            confirmModal.classList.add('hidden');
+                            confirmModal.setAttribute('aria-hidden', 'true');
+                            confirmOkBtn.removeEventListener('click', onOk);
+                            confirmCancelBtn.removeEventListener('click', onCancel);
+                            confirmModal.removeEventListener('click', onBackdrop);
+                            document.removeEventListener('keydown', onKey);
+                            confirmBusy = false;
+                            resolve(result);
+                        };
+                        const onOk = () => close(true);
+                        const onCancel = () => close(false);
+                        const onBackdrop = (e) => { if (e.target === confirmModal) close(false); };
+                        const onKey = (e) => {
+                            if (e.key === 'Escape') { e.preventDefault(); close(false); }
+                            else if (e.key === 'Enter') { e.preventDefault(); close(true); }
+                        };
+
+                        confirmOkBtn.addEventListener('click', onOk);
+                        confirmCancelBtn.addEventListener('click', onCancel);
+                        confirmModal.addEventListener('click', onBackdrop);
+                        document.addEventListener('keydown', onKey);
+
+                        confirmModal.classList.remove('hidden');
+                        confirmModal.classList.add('flex');
+                        confirmModal.setAttribute('aria-hidden', 'false');
+                        setTimeout(() => confirmOkBtn.focus(), 50);
+                    });
+                };
+
+                // Programmatic value-set helper: updates the visible display field and
+                // fires 'input' so the time12 module reparses and refreshes the hidden value
+                // and the gate state on the Save button. Also writes to the linked hidden
+                // field directly so the form is correct even before the time12 module has
+                // had a chance to bind its listeners (page-load race).
+                const setTimeFieldFromHHMM = (display, hhmm) => {
+                    if (!display) return;
+                    display.value = hhmm ? formatTime12(hhmm) : '';
+                    const hiddenId = display.dataset.time12HiddenId;
+                    if (hiddenId) {
+                        const hidden = document.getElementById(hiddenId);
+                        if (hidden) hidden.value = hhmm || '';
+                    }
+                    display.dispatchEvent(new Event('input', { bubbles: true }));
+                };
+
+                const defaultSlots = () => {
+                    const now = new Date();
+                    const nowMin = now.getHours() * 60 + now.getMinutes();
+                    const startMin = Math.max(0, Math.floor(nowMin / 15) * 15);
+                    const endMin = Math.min(23 * 60 + 45, startMin + 60);
+                    return {
+                        start: `${pad(Math.floor(startMin / 60))}:${pad(startMin % 60)}`,
+                        end: `${pad(Math.floor(endMin / 60))}:${pad(endMin % 60)}`,
+                    };
+                };
+
+                let editingBlockId = null;
+
+                const setFormMode = (mode, block = null) => {
+                    if (mode === 'edit' && block) {
+                        editingBlockId = block.id;
+                        setTimeFieldFromHHMM(startDisplay, block.start);
+                        setTimeFieldFromHHMM(endDisplay, block.end);
+                        if (reasonInput) reasonInput.value = block.label || '';
+                        if (saveBtn) saveBtn.textContent = 'Update block';
+                        if (cancelBtn) cancelBtn.classList.remove('hidden');
+                        if (editBanner) {
+                            if (editBannerRange) {
+                                editBannerRange.textContent = `${formatTime12(block.start)} – ${formatTime12(block.end)}`;
+                            }
+                            editBanner.classList.remove('hidden');
                         }
-
                         clearBlockFormError();
-                        const label = (reasonInput?.value || '').trim() || 'Time block';
+                        autoGrowReason();
+                        startDisplay?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    } else {
+                        editingBlockId = null;
+                        const d = defaultSlots();
+                        setTimeFieldFromHHMM(startDisplay, d.start);
+                        setTimeFieldFromHHMM(endDisplay, d.end);
+                        if (reasonInput) reasonInput.value = '';
+                        if (saveBtn) saveBtn.textContent = 'Log block';
+                        if (cancelBtn) cancelBtn.classList.add('hidden');
+                        if (editBanner) editBanner.classList.add('hidden');
+                        clearBlockFormError();
+                        autoGrowReason();
+                    }
+                };
+
+                // Find an overlapping same-date block. excludeId skips the block being edited.
+                const findOverlap = (date, startMin, endMin, excludeId) => {
+                    const blocks = loadBlocks();
+                    for (const b of blocks) {
+                        if (b.id === excludeId) continue;
+                        if (b.date !== date) continue;
+                        if (!b.start || !b.end) continue;
+                        const bStart = hhmmToMinutes(b.start);
+                        const bEnd = hhmmToMinutes(b.end);
+                        if (startMin < bEnd && endMin > bStart) return b;
+                    }
+                    return null;
+                };
+
+                const handleSave = () => {
+                    if (!window.ChronoAuthRequire?.('log a time block')) return;
+                    if (!startHidden || !endHidden) return;
+                    const start = startHidden.value;
+                    const end = endHidden.value;
+                    if (!start || !end) {
+                        showBlockFormError('Enter valid Start and End times in 12-hour format.');
+                        return;
+                    }
+                    const startMin = hhmmToMinutes(start);
+                    const endMin = hhmmToMinutes(end);
+                    if (endMin <= startMin) {
+                        showBlockFormError(`Start time (${formatTime12(start)}) must be earlier than End time (${formatTime12(end)}).`);
+                        return;
+                    }
+                    const durationMs = (endMin - startMin) * 60 * 1000;
+
+                    const now = new Date();
+                    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+                    const futureLimit = now.getTime() + ONE_HOUR_MS;
+                    const blockEndMs = todayStart + endMin * 60 * 1000;
+                    if (blockEndMs > futureLimit) {
+                        const limitDate = new Date(futureLimit);
+                        showBlockFormError(`End time can be at most 1 hour ahead of now (≤ ${formatTime12(dateToHHMM(limitDate))}).`);
+                        return;
+                    }
+
+                    const editingBlock = editingBlockId ? get(editingBlockId) : null;
+                    const date = editingBlock?.date || localDateString();
+
+                    const conflict = findOverlap(date, startMin, endMin, editingBlockId);
+                    if (conflict) {
+                        showBlockFormError(
+                            `Overlaps with ${formatTime12(conflict.start)}–${formatTime12(conflict.end)} · "${conflict.label || 'Time block'}". Pick a different slot.`
+                        );
+                        return;
+                    }
+
+                    clearBlockFormError();
+                    const label = (reasonInput?.value || '').trim() || 'Time block';
+
+                    if (editingBlock) {
+                        const updates = { start, end, durationMs, label };
+                        if (!editingBlock.categoryManual) {
+                            updates.category = categorizeLabel(label);
+                        }
+                        update(editingBlock.id, updates);
+                    } else {
                         add({
                             source: 'manual',
                             start,
@@ -564,11 +871,119 @@
                             label,
                             status: 'completed',
                         });
+                    }
 
-                        if (reasonInput) reasonInput.value = '';
-                        if (durationInput) durationInput.value = '';
+                    setFormMode('add');
+                };
+
+                const handleCancel = () => setFormMode('add');
+
+                if (saveBtn) saveBtn.addEventListener('click', handleSave);
+                if (cancelBtn) cancelBtn.addEventListener('click', handleCancel);
+
+                tbody.addEventListener('click', (e) => {
+                    const categoryBtn = e.target.closest('[data-block-category]');
+                    if (categoryBtn) {
+                        if (!window.ChronoAuthRequire?.('change a block category')) return;
+                        const tr = categoryBtn.closest('tr');
+                        const id = tr?.dataset.blockId;
+                        if (!id) return;
+                        const block = get(id);
+                        if (!block) return;
+                        update(id, {
+                            category: block.category === 'wasted' ? 'productive' : 'wasted',
+                            categoryManual: true,
+                        });
+                        return;
+                    }
+
+                    const editBtn = e.target.closest('[data-block-edit]');
+                    if (editBtn) {
+                        if (!window.ChronoAuthRequire?.('edit a time block')) return;
+                        const tr = editBtn.closest('tr');
+                        const id = tr?.dataset.blockId;
+                        if (!id) return;
+                        const block = get(id);
+                        if (!block) return;
+                        const range = `${formatTime12(block.start)} – ${formatTime12(block.end)}`;
+                        const reasonExcerpt = (block.label || 'Time block').slice(0, 120);
+                        showConfirmModal({
+                            title: 'Edit this block?',
+                            lines: [
+                                { text: range },
+                                { text: reasonExcerpt, muted: true },
+                                { text: 'The form will populate with the current values. Your changes only save when you click Update block.', muted: true },
+                            ],
+                            confirmText: 'Edit block',
+                            tone: 'blue',
+                        }).then((ok) => {
+                            if (ok) setFormMode('edit', block);
+                        });
+                        return;
+                    }
+
+                    const deleteBtn = e.target.closest('[data-block-delete]');
+                    if (!deleteBtn) return;
+                    if (!window.ChronoAuthRequire?.('delete a time block')) return;
+                    const tr = deleteBtn.closest('tr');
+                    const id = tr?.dataset.blockId;
+                    if (!id) return;
+                    const block = get(id);
+                    const range = block ? `${formatTime12(block.start)} – ${formatTime12(block.end)}` : '';
+                    const reasonExcerpt = block ? (block.label || 'Time block').slice(0, 120) : '';
+                    const isLiveCountdown = block && block.source === 'countdown'
+                        && (block.status === 'active' || block.status === 'paused');
+
+                    const lines = [];
+                    if (range) lines.push({ text: range });
+                    if (reasonExcerpt) lines.push({ text: reasonExcerpt, muted: true });
+                    lines.push({
+                        text: isLiveCountdown
+                            ? 'The timer will stop and the block will be deleted. This cannot be undone.'
+                            : 'This cannot be undone.',
+                        muted: true,
                     });
-                }
+
+                    showConfirmModal({
+                        title: isLiveCountdown ? 'Cancel and remove this countdown?' : 'Delete this block?',
+                        lines,
+                        confirmText: isLiveCountdown ? 'Cancel countdown' : 'Delete',
+                        tone: 'red',
+                    }).then((ok) => {
+                        if (!ok) return;
+                        if (isLiveCountdown) {
+                            const resetBtn = document.querySelector('[data-cc-reset]');
+                            if (resetBtn) {
+                                resetBtn.click();
+                                return;
+                            }
+                        }
+                        if (id === editingBlockId) setFormMode('add');
+                        remove(id);
+                    });
+                });
+
+                setFormMode('add');
+
+                // Re-run on every local-midnight crossing so a tab left open across midnight
+                // rolls yesterday's blocks out of the today-table without needing a manual
+                // refresh. Form defaults also reset (when not mid-edit) to the new day's
+                // current quarter-hour. Reschedules itself for the next midnight.
+                const scheduleMidnightRollover = () => {
+                    const now = new Date();
+                    const nextMidnight = new Date(
+                        now.getFullYear(),
+                        now.getMonth(),
+                        now.getDate() + 1,
+                        0, 0, 1, 0
+                    );
+                    setTimeout(() => {
+                        render();
+                        if (editingBlockId === null) setFormMode('add');
+                        scheduleMidnightRollover();
+                    }, Math.max(1000, nextMidnight.getTime() - now.getTime()));
+                };
+                scheduleMidnightRollover();
 
                 window.ChronoBlocks = { add, update, remove, render, get, dateToHHMM };
                 render();
@@ -1111,6 +1526,10 @@
 
         <script>
             (() => {
+                // Hourly check-in only runs for signed-in users — guests would otherwise
+                // be nagged every hour to log time they can't actually save.
+                if (!window.ChronoAuth?.isAuthenticated) return;
+
                 const modal = document.getElementById('hourly_modal');
                 const fromEl = modal?.querySelector('[data-hourly-from]');
                 const toEl = modal?.querySelector('[data-hourly-to]');
@@ -1354,8 +1773,29 @@
                     goalInput.value = stored.text || '';
                     goalDone.checked = !!stored.done;
                     applyDoneStyle();
-                    goalInput.addEventListener('input', saveGoal);
+
+                    const isAuthed = () => !!window.ChronoAuth?.isAuthenticated;
+
+                    // Guests: focus shows the sign-in prompt and the field stays unfocused so
+                    // the visual stays clean. Once signed in, normal save-on-input works.
+                    goalInput.addEventListener('focus', (e) => {
+                        if (!isAuthed()) {
+                            e.target.blur();
+                            window.ChronoAuthRequire?.('save your daily goal');
+                        }
+                    });
+                    goalInput.addEventListener('input', () => {
+                        if (!isAuthed()) return;
+                        saveGoal();
+                    });
+                    goalDone.addEventListener('click', (e) => {
+                        if (!isAuthed()) {
+                            e.preventDefault();
+                            window.ChronoAuthRequire?.('mark your goal as done');
+                        }
+                    });
                     goalDone.addEventListener('change', () => {
+                        if (!isAuthed()) return;
                         saveGoal();
                         applyDoneStyle();
                     });
@@ -1408,8 +1848,14 @@
                     const leftMs = Math.max(0, endDate.getTime() - now.getTime());
                     const startKey = localDateString(effectiveStart);
                     const endKey = localDateString(endDate);
-                    const productiveMs = blocks
-                        .filter((b) => b.status === 'completed' && b.date && b.date >= startKey && b.date < endKey)
+                    const completedInRange = blocks.filter((b) =>
+                        b.status === 'completed' && b.date && b.date >= startKey && b.date < endKey
+                    );
+                    const productiveMs = completedInRange
+                        .filter((b) => b.category !== 'wasted')
+                        .reduce((s, b) => s + (b.durationMs || 0), 0);
+                    const wastedMs = completedInRange
+                        .filter((b) => b.category === 'wasted')
                         .reduce((s, b) => s + (b.durationMs || 0), 0);
                     const ratio = passedMs > 0
                         ? Math.min(100, Math.round((productiveMs / passedMs) * 100))
@@ -1422,6 +1868,7 @@
                     const passed = section.querySelector('[data-period-passed]');
                     const left = section.querySelector('[data-period-left]');
                     const productive = section.querySelector('[data-period-productive]');
+                    const wastedEl = section.querySelector('[data-period-wasted]');
                     const ratioEl = section.querySelector('[data-period-ratio]');
                     const progressEl = section.querySelector('[data-period-progress]');
                     const noteEl = section.querySelector('[data-period-note]');
@@ -1430,6 +1877,7 @@
                     if (passed) passed.textContent = formatHours(passedMs);
                     if (left) left.textContent = formatHours(leftMs);
                     if (productive) productive.textContent = productiveMs > 0 ? formatHours(productiveMs) : '—';
+                    if (wastedEl) wastedEl.textContent = wastedMs > 0 ? formatHours(wastedMs) : '—';
                     if (ratioEl) ratioEl.textContent = productiveMs > 0 ? `${ratio}%` : '—';
                     if (progressEl) progressEl.style.width = `${progressPct.toFixed(2)}%`;
                     if (noteEl) {
@@ -1465,9 +1913,12 @@
                         topBlocksEl.innerHTML = '<li class="text-slate-500">No completed blocks yet today.</li>';
                         return;
                     }
-                    topBlocksEl.innerHTML = top.map((b) =>
-                        `<li class="text-slate-300"><span class="text-slate-100 font-medium">${escapeHtml(formatDuration(b.durationMs || 0))}</span> · ${escapeHtml(b.label || 'Time block')}</li>`
-                    ).join('');
+                    topBlocksEl.innerHTML = top.map((b) => {
+                        const wastedTag = b.category === 'wasted'
+                            ? ' <span class="ml-1 text-[0.65rem] uppercase tracking-wider text-rose-300">Wasted</span>'
+                            : '';
+                        return `<li class="text-slate-300"><span class="text-slate-100 font-medium">${escapeHtml(formatDuration(b.durationMs || 0))}</span> · ${escapeHtml(b.label || 'Time block')}${wastedTag}</li>`;
+                    }).join('');
                 };
 
                 const renderLast7Days = (blocks, now) => {
@@ -1523,10 +1974,17 @@
                     const todayBlocks = blocks.filter((b) => b.date === todayStr);
                     const completedToday = todayBlocks.filter((b) => b.status === 'completed');
                     const loggedTodayMs = completedToday.reduce((s, b) => s + (b.durationMs || 0), 0);
+                    const wastedTodayMs = completedToday
+                        .filter((b) => b.category === 'wasted')
+                        .reduce((s, b) => s + (b.durationMs || 0), 0);
                     if (loggedTodayEl) loggedTodayEl.textContent = formatDuration(loggedTodayMs);
                     if (loggedCountEl) {
                         const n = completedToday.length;
-                        loggedCountEl.textContent = `${n} ${n === 1 ? 'block' : 'blocks'}`;
+                        const blockText = `${n} ${n === 1 ? 'block' : 'blocks'}`;
+                        const wastedHtml = wastedTodayMs > 0
+                            ? ` · <span class="text-rose-300">${escapeHtml(formatDuration(wastedTodayMs))} wasted</span>`
+                            : '';
+                        loggedCountEl.innerHTML = `${escapeHtml(blockText)}${wastedHtml}`;
                     }
 
                     const wakeMins = hhmmToMins(wakeTime);

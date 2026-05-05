@@ -35,4 +35,12 @@ return [
         ],
     ],
 
+    'disposable_domains' => [
+        'url' => env(
+            'DISPOSABLE_DOMAINS_URL',
+            'https://raw.githubusercontent.com/disposable-email-domains/disposable-email-domains/master/disposable_email_domains.txt'
+        ),
+        'source' => env('DISPOSABLE_DOMAINS_SOURCE', 'disposable-email-domains'),
+    ],
+
 ];

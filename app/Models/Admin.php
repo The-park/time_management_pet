@@ -2,16 +2,14 @@
 
 namespace App\Models;
 
-use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Laravel\Fortify\TwoFactorAuthenticatable;
 
-class User extends Authenticatable
+class Admin extends Authenticatable
 {
-    /** @use HasFactory<UserFactory> */
-    use HasFactory, Notifiable, SoftDeletes;
+    use HasFactory, Notifiable, TwoFactorAuthenticatable;
 
     /**
      * The attributes that are mass assignable.
@@ -22,11 +20,6 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
-        'timezone',
-        'end_of_day_time',
-        'wake_up_time',
-        'gap_threshold_minutes',
-        'status',
     ];
 
     /**
@@ -37,6 +30,8 @@ class User extends Authenticatable
     protected $hidden = [
         'password',
         'remember_token',
+        'two_factor_secret',
+        'two_factor_recovery_codes',
     ];
 
     /**
@@ -47,23 +42,13 @@ class User extends Authenticatable
     protected function casts(): array
     {
         return [
-            'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'two_factor_confirmed_at' => 'datetime',
         ];
     }
 
-    public function timeBlocks()
+    public function auditLogs()
     {
-        return $this->hasMany(TimeBlock::class);
-    }
-
-    public function dailyGoals()
-    {
-        return $this->hasMany(DailyGoal::class);
-    }
-
-    public function countdowns()
-    {
-        return $this->hasMany(Countdown::class);
+        return $this->hasMany(AdminAuditLog::class);
     }
 }

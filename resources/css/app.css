@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Orbitron:wght@400;600;700&family=Share+Tech+Mono&display=swap');
 @import 'tailwindcss';
 
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
@@ -6,6 +7,61 @@
 @source '../**/*.js';
 
 @theme {
-    --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
+    --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
         'Segoe UI Symbol', 'Noto Color Emoji';
+    --font-display: 'Orbitron', ui-sans-serif, system-ui, sans-serif;
+    --font-digital: 'Share Tech Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
+        'Courier New', monospace;
+    --chrono-bg: #0a0e1a;
+    --chrono-panel: #111827;
+    --chrono-blue: #00e0ff;
+    --chrono-orange: #ff6b1a;
+    --chrono-red: #ff2e4d;
+    --chrono-green: #39ff14;
+}
+
+@layer base {
+    body {
+        font-family: var(--font-sans);
+        background-color: var(--chrono-bg);
+        color: #e5e7eb;
+    }
+}
+
+@layer utilities {
+    .font-display {
+        font-family: var(--font-display);
+    }
+    .font-digital {
+        font-family: var(--font-digital);
+    }
+    .chrono-panel {
+        background-color: var(--chrono-panel);
+        border: 1px solid color-mix(in oklab, var(--chrono-blue) 30%, transparent);
+        box-shadow: 0 0 24px color-mix(in oklab, var(--chrono-blue) 30%, transparent);
+    }
+    .chrono-glow-orange {
+        text-shadow: 0 0 12px color-mix(in oklab, var(--chrono-orange) 65%, transparent);
+    }
+    .chrono-glow-blue {
+        text-shadow: 0 0 12px color-mix(in oklab, var(--chrono-blue) 70%, transparent);
+    }
+    .chrono-glow-red {
+        text-shadow: 0 0 14px color-mix(in oklab, var(--chrono-red) 70%, transparent);
+    }
+    .scanlines::before {
+        content: '';
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background: repeating-linear-gradient(
+            to bottom,
+            rgba(255, 255, 255, 0.04),
+            rgba(255, 255, 255, 0.04) 1px,
+            transparent 1px,
+            transparent 3px
+        );
+        mix-blend-mode: screen;
+        opacity: 0.2;
+    }
 }

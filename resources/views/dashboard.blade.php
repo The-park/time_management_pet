@@ -18,6 +18,9 @@
         $sleepH = intdiv($sleepMins, 60);
         $sleepM = $sleepMins % 60;
         $sleepLabel = $sleepM === 0 ? "{$sleepH}h" : "{$sleepH}h {$sleepM}m";
+        $signupAt = $user?->created_at?->copy()->setTimezone($timezone);
+        $signupTimestamp = $signupAt?->toIso8601String();
+        $signupDateLabel = $signupAt?->format('M j, Y');
     @endphp
     <div class="relative overflow-hidden rounded-2xl border border-slate-800/60 bg-[radial-gradient(circle_at_top,_rgba(0,224,255,0.15),_transparent_45%)] p-8 mb-10">
         <div class="absolute -right-24 -top-24 h-56 w-56 rounded-full bg-[radial-gradient(circle,_rgba(255,107,26,0.35),_transparent_70%)] blur-2xl"></div>
@@ -112,6 +115,7 @@
             <div class="mt-4 h-2 rounded-full bg-slate-800/80 overflow-hidden">
                 <div class="h-full bg-[var(--chrono-blue)] transition-[width] duration-500" data-period-progress style="width: 0%"></div>
             </div>
+            <div class="mt-2 text-xs space-y-1 hidden" data-period-note></div>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
                 <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
                     <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Passed</div>
@@ -144,6 +148,7 @@
             <div class="mt-4 h-2 rounded-full bg-slate-800/80 overflow-hidden">
                 <div class="h-full bg-[var(--chrono-orange)] transition-[width] duration-500" data-period-progress style="width: 0%"></div>
             </div>
+            <div class="mt-2 text-xs space-y-1 hidden" data-period-note></div>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
                 <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
                     <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Passed</div>
@@ -172,6 +177,7 @@
             <div class="mt-4 h-2 rounded-full bg-slate-800/80 overflow-hidden">
                 <div class="h-full bg-emerald-400 transition-[width] duration-500" data-period-progress style="width: 0%"></div>
             </div>
+            <div class="mt-2 text-xs space-y-1 hidden" data-period-note></div>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
                 <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
                     <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Passed</div>
@@ -324,6 +330,8 @@
                 endTime: @json($endTime),
                 wakeTime: @json($wakeTime),
                 timezone: @json($timezone),
+                signupTimestamp: @json($signupTimestamp),
+                signupDateLabel: @json($signupDateLabel),
             };
         </script>
         <script>
@@ -1247,6 +1255,12 @@
                 const cfg = window.ChronoDashboardConfig || {};
                 const endTime = cfg.endTime || '22:00';
                 const wakeTime = cfg.wakeTime || '07:00';
+                let signupTs = null;
+                if (cfg.signupTimestamp) {
+                    const d = new Date(cfg.signupTimestamp);
+                    if (!isNaN(d.getTime())) signupTs = d;
+                }
+                const signupDateLabel = cfg.signupDateLabel || '';
 
                 const pad = (n) => String(n).padStart(2, '0');
                 const localDateString = (d = new Date()) =>
@@ -1361,12 +1375,38 @@
                     year: document.querySelector('[data-period-section="year"]'),
                 };
 
-                const updatePeriod = (section, startDate, endDate, now, blocks) => {
+                const calcCalendarMonths = (start, end) => {
+                    let months = (end.getFullYear() - start.getFullYear()) * 12
+                        + (end.getMonth() - start.getMonth());
+                    if (end.getDate() < start.getDate()) months -= 1;
+                    return Math.max(0, months);
+                };
+
+                const formatPreSignupSpan = (preStart, preEnd) => {
+                    const ms = preEnd.getTime() - preStart.getTime();
+                    if (ms <= 0) return null;
+                    const days = Math.floor(ms / 86400000);
+                    const weeks = Math.floor(days / 7);
+                    const months = calcCalendarMonths(preStart, preEnd);
+                    const parts = [];
+                    if (months >= 1) parts.push(`${months} ${months === 1 ? 'month' : 'months'}`);
+                    if (weeks >= 1) parts.push(`${weeks} ${weeks === 1 ? 'week' : 'weeks'}`);
+                    parts.push(`${days} ${days === 1 ? 'day' : 'days'}`);
+                    return parts.join(' · ');
+                };
+
+                const updatePeriod = (section, periodName, startDate, endDate, now, blocks) => {
                     if (!section) return;
-                    const passedMs = Math.max(0, now.getTime() - startDate.getTime());
-                    const totalMs = endDate.getTime() - startDate.getTime();
+
+                    // Signup-aware effective start: don't count pre-signup time as "passed".
+                    // After the period that contains signup ends, this clamp becomes a no-op.
+                    const signupClamped = signupTs && signupTs > startDate;
+                    const effectiveStart = signupClamped ? signupTs : startDate;
+
+                    const passedMs = Math.max(0, now.getTime() - effectiveStart.getTime());
+                    const totalMs = Math.max(1, endDate.getTime() - effectiveStart.getTime());
                     const leftMs = Math.max(0, endDate.getTime() - now.getTime());
-                    const startKey = localDateString(startDate);
+                    const startKey = localDateString(effectiveStart);
                     const endKey = localDateString(endDate);
                     const productiveMs = blocks
                         .filter((b) => b.status === 'completed' && b.date && b.date >= startKey && b.date < endKey)
@@ -1384,13 +1424,30 @@
                     const productive = section.querySelector('[data-period-productive]');
                     const ratioEl = section.querySelector('[data-period-ratio]');
                     const progressEl = section.querySelector('[data-period-progress]');
+                    const noteEl = section.querySelector('[data-period-note]');
 
-                    if (range) range.textContent = formatRange(startDate, endDate);
+                    if (range) range.textContent = formatRange(effectiveStart, endDate);
                     if (passed) passed.textContent = formatHours(passedMs);
                     if (left) left.textContent = formatHours(leftMs);
                     if (productive) productive.textContent = productiveMs > 0 ? formatHours(productiveMs) : '—';
                     if (ratioEl) ratioEl.textContent = productiveMs > 0 ? `${ratio}%` : '—';
                     if (progressEl) progressEl.style.width = `${progressPct.toFixed(2)}%`;
+                    if (noteEl) {
+                        if (signupClamped && signupDateLabel) {
+                            const preLabel = formatPreSignupSpan(startDate, signupTs);
+                            const mainLine = `Counting since your signup on ${signupDateLabel} — pre-signup time isn't included.`;
+                            const preLine = preLabel
+                                ? `Time doesn't stop for anyone — ${preLabel} of this ${periodName} passed before you joined. Make the rest count.`
+                                : '';
+                            noteEl.innerHTML =
+                                `<p class="text-slate-500">${escapeHtml(mainLine)}</p>` +
+                                (preLine ? `<p class="text-slate-400 italic">${escapeHtml(preLine)}</p>` : '');
+                            noteEl.classList.remove('hidden');
+                        } else {
+                            noteEl.classList.add('hidden');
+                            noteEl.innerHTML = '';
+                        }
+                    }
                 };
 
                 const renderTopBlocks = (todayBlocks) => {
@@ -1416,6 +1473,7 @@
                 const renderLast7Days = (blocks, now) => {
                     if (!last7DaysEl) return;
                     const todayKey = localDateString(now);
+                    const signupKey = signupTs ? localDateString(signupTs) : null;
                     const tiles = [];
                     for (let i = 6; i >= 0; i--) {
                         const d = new Date(now);
@@ -1426,15 +1484,25 @@
                             .reduce((s, b) => s + (b.durationMs || 0), 0);
                         const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
                         const isToday = dateStr === todayKey;
-                        const cls = isToday
-                            ? 'border-[var(--chrono-blue)] bg-slate-800/60'
-                            : 'border-slate-800/60 bg-slate-900/40';
+                        const isPreSignup = signupKey && dateStr < signupKey;
+                        let cls;
+                        if (isPreSignup) {
+                            cls = 'border-slate-800/30 bg-slate-900/20 opacity-50';
+                        } else if (isToday) {
+                            cls = 'border-[var(--chrono-blue)] bg-slate-800/60';
+                        } else {
+                            cls = 'border-slate-800/60 bg-slate-900/40';
+                        }
                         const valueCls = totalMs > 0 ? 'text-slate-100' : 'text-slate-600';
+                        const valueText = isPreSignup
+                            ? '<span class="text-slate-600 italic">pre-signup</span>'
+                            : (totalMs > 0 ? escapeHtml(formatDuration(totalMs)) : '—');
+                        const titleAttr = isPreSignup ? ' title="Before your signup"' : '';
                         tiles.push(
-                            `<div class="rounded-lg border ${cls} p-2 text-center">` +
+                            `<div class="rounded-lg border ${cls} p-2 text-center"${titleAttr}>` +
                             `<div class="text-[0.65rem] uppercase tracking-wider text-slate-400">${escapeHtml(dayName)}</div>` +
                             `<div class="text-[0.65rem] text-slate-500">${d.getDate()}</div>` +
-                            `<div class="mt-1 text-sm ${valueCls}">${totalMs > 0 ? escapeHtml(formatDuration(totalMs)) : '—'}</div>` +
+                            `<div class="mt-1 text-sm ${valueCls}">${valueText}</div>` +
                             '</div>'
                         );
                     }
@@ -1463,19 +1531,36 @@
 
                     const wakeMins = hhmmToMins(wakeTime);
                     const endMins = hhmmToMins(endTime);
-                    const nowMins = now.getHours() * 60 + now.getMinutes();
-                    let elapsedActiveMins;
+                    const wakeToday = new Date(now);
+                    wakeToday.setHours(Math.floor(wakeMins / 60), wakeMins % 60, 0, 0);
+                    const endToday = new Date(now);
+                    endToday.setHours(Math.floor(endMins / 60), endMins % 60, 0, 0);
+
+                    // Clamp the start of today's active window to signup if they joined today
+                    // after wake-up. Past today, this clamp is a no-op.
+                    const signupIsToday = signupTs && localDateString(signupTs) === todayStr;
+                    const effectiveTodayStart =
+                        signupIsToday && signupTs.getTime() > wakeToday.getTime()
+                            ? signupTs
+                            : wakeToday;
+
+                    const activeWindowEnd = Math.min(now.getTime(), endToday.getTime());
+                    const elapsedActiveMs = Math.max(0, activeWindowEnd - effectiveTodayStart.getTime());
+                    const elapsedActiveMins = Math.floor(elapsedActiveMs / 60000);
+
                     let context;
-                    if (nowMins < wakeMins) {
-                        elapsedActiveMins = 0;
-                        context = 'before wake-up';
-                    } else if (nowMins > endMins) {
-                        elapsedActiveMins = endMins - wakeMins;
+                    if (now.getTime() < effectiveTodayStart.getTime()) {
+                        context = signupIsToday && signupTs.getTime() > wakeToday.getTime()
+                            ? 'before signup'
+                            : 'before wake-up';
+                    } else if (signupIsToday && signupTs.getTime() > wakeToday.getTime()) {
+                        context = 'since signup';
+                    } else if (now.getTime() > endToday.getTime()) {
                         context = 'past end of day';
                     } else {
-                        elapsedActiveMins = nowMins - wakeMins;
                         context = 'since wake-up';
                     }
+
                     const loggedTodayMins = Math.round(loggedTodayMs / 60000);
                     const unloggedMins = Math.max(0, elapsedActiveMins - loggedTodayMins);
                     if (unloggedTodayEl) unloggedTodayEl.textContent = formatDuration(unloggedMins * 60000);
@@ -1483,9 +1568,9 @@
 
                     renderTopBlocks(todayBlocks);
 
-                    updatePeriod(periodSections.week, startOfWeek(now), endOfWeek(now), now, blocks);
-                    updatePeriod(periodSections.month, startOfMonth(now), endOfMonth(now), now, blocks);
-                    updatePeriod(periodSections.year, startOfYear(now), endOfYear(now), now, blocks);
+                    updatePeriod(periodSections.week, 'week', startOfWeek(now), endOfWeek(now), now, blocks);
+                    updatePeriod(periodSections.month, 'month', startOfMonth(now), endOfMonth(now), now, blocks);
+                    updatePeriod(periodSections.year, 'year', startOfYear(now), endOfYear(now), now, blocks);
 
                     renderLast7Days(blocks, now);
                 };

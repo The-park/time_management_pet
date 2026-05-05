@@ -8,12 +8,14 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
-use Laravel\Fortify\Actions\EnableTwoFactorAuthentication;
 
 class AdminAuthController extends Controller
 {
     public function showLoginForm()
     {
+        if (Auth::guard('admin')->check()) {
+            return redirect()->route('admin.dashboard');
+        }
         return view('admin.auth.login');
     }
 
@@ -46,16 +48,10 @@ class AdminAuthController extends Controller
 
         RateLimiter::clear($throttleKey);
 
-        if (! $admin->two_factor_secret || ! $admin->two_factor_confirmed_at) {
-            app(EnableTwoFactorAuthentication::class)($admin);
-            $request->session()->put('admin.two_factor_setup_id', $admin->id);
+        Auth::guard('admin')->login($admin);
+        $request->session()->regenerate();
 
-            return redirect()->route('admin.two-factor.setup');
-        }
-
-        $request->session()->put('admin.two_factor_login_id', $admin->id);
-
-        return redirect()->route('admin.two-factor.challenge');
+        return redirect()->route('admin.dashboard');
     }
 
     public function logout(Request $request)

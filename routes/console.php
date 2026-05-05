@@ -4,6 +4,11 @@ use App\Models\Admin;
 use App\Services\DisposableEmailImporter;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Schedule;
+
+// Daily prune of the admin audit log so the table doesn't grow unbounded.
+// Default retention is 90 days; override with `--days=30` etc.
+Schedule::command('admin:prune-audit')->dailyAt('03:30');
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
@@ -32,7 +37,7 @@ Artisan::command('admin:create {email}', function () {
         'password' => $password,
     ]);
 
-    $this->info('Admin created. 2FA setup will be required on first login.');
+    $this->info('Admin created.');
 })->purpose('Create a new admin account');
 
 Artisan::command('disposable:refresh', function () {

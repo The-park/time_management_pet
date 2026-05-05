@@ -5,10 +5,13 @@ namespace App\Providers;
 use App\Actions\Fortify\CreateNewUser;
 use App\Actions\Fortify\UpdateUserPassword;
 use App\Actions\Fortify\UpdateUserProfileInformation;
+use App\Models\User;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Validation\ValidationException;
 use Laravel\Fortify\Fortify;
 
 class FortifyServiceProvider extends ServiceProvider
@@ -49,6 +52,27 @@ class FortifyServiceProvider extends ServiceProvider
         Fortify::createUsersUsing(CreateNewUser::class);
         Fortify::updateUserProfileInformationUsing(UpdateUserProfileInformation::class);
         Fortify::updateUserPasswordsUsing(UpdateUserPassword::class);
+
+        // Custom authentication callback so we can short-circuit logins for
+        // suspended accounts. Default Fortify only checks email + password and
+        // ignores the `status` column, which means an admin "suspending" a user
+        // had no effect on logins until now. SoftDeletes already handles deleted
+        // users (the global scope hides them from email lookups).
+        Fortify::authenticateUsing(function (Request $request) {
+            $user = User::where('email', $request->input('email'))->first();
+
+            if (! $user || ! Hash::check((string) $request->input('password'), (string) $user->password)) {
+                return null; // Fortify will respond with the standard "credentials don't match" error.
+            }
+
+            if (($user->status ?? 'active') === 'suspended') {
+                throw ValidationException::withMessages([
+                    'email' => 'This account is suspended. Please contact support.',
+                ]);
+            }
+
+            return $user;
+        });
 
         Fortify::loginView(fn () => view('auth.login'));
         Fortify::registerView(fn () => view('auth.register'));

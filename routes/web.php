@@ -6,8 +6,10 @@ use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\Admin\AdminDomainController;
 use App\Http\Controllers\Admin\AdminUserController;
 use App\Http\Controllers\Admin\AdministratorController;
+use App\Http\Controllers\GoalController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\SettingsController;
+use App\Http\Controllers\TimeBlockSyncController;
 use Illuminate\Support\Facades\Route;
 
 // Dashboard is the public homepage. Authenticated users get personalised
@@ -66,6 +68,21 @@ Route::middleware(['auth'])->get('/history', function () {
 })->name('history.index');
 
 Route::middleware(['auth'])->group(function () {
+    Route::post('/time-blocks/sync', [TimeBlockSyncController::class, 'sync'])->name('time-blocks.sync');
+
+    Route::get('/goals', [GoalController::class, 'index'])->name('goals.index');
+    Route::get('/goals/create', [GoalController::class, 'create'])->name('goals.create');
+    Route::post('/goals', [GoalController::class, 'store'])->name('goals.store');
+    Route::get('/goals/{goal}', [GoalController::class, 'show'])->whereNumber('goal')->name('goals.show');
+    Route::get('/goals/{goal}/edit', [GoalController::class, 'edit'])->whereNumber('goal')->name('goals.edit');
+    Route::put('/goals/{goal}', [GoalController::class, 'update'])->whereNumber('goal')->name('goals.update');
+    Route::post('/goals/{goal}/extend', [GoalController::class, 'extend'])->whereNumber('goal')->name('goals.extend');
+    Route::post('/goals/{goal}/keywords', [GoalController::class, 'addKeyword'])->whereNumber('goal')->name('goals.keywords.add');
+    Route::post('/goals/{goal}/complete', [GoalController::class, 'complete'])->whereNumber('goal')->name('goals.complete');
+    Route::post('/goals/{goal}/abandon', [GoalController::class, 'abandon'])->whereNumber('goal')->name('goals.abandon');
+    Route::get('/goals/{goal}/logs', [GoalController::class, 'logs'])->whereNumber('goal')->name('goals.logs');
+    Route::delete('/goals/{goal}', [GoalController::class, 'destroy'])->whereNumber('goal')->name('goals.destroy');
+
     Route::get('/profile', [ProfileController::class, 'show'])->name('profile.show');
     Route::put('/profile', [ProfileController::class, 'update'])->name('profile.update');
 

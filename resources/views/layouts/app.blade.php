@@ -3,6 +3,7 @@
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="csrf-token" content="{{ csrf_token() }}">
         <title>@hasSection('page_title')@yield('page_title') · @endif{{ config('app.name', 'Track Your Time') }}</title>
         @vite(['resources/css/app.css', 'resources/js/app.js'])
         @livewireStyles
@@ -25,6 +26,7 @@
                     <nav class="text-sm uppercase tracking-[0.2em] flex items-center gap-6">
                         <a href="{{ route('dashboard') }}" class="hover:text-[var(--chrono-blue)]">Dashboard</a>
                         @auth
+                            <a href="{{ route('goals.index') }}" class="hover:text-[var(--chrono-blue)]">Goals</a>
                             <a href="{{ route('history.index') }}" class="hover:text-[var(--chrono-blue)]">History</a>
                             <a href="{{ route('profile.show') }}" class="hover:text-[var(--chrono-blue)]">Profile</a>
                             <a href="{{ route('settings.show') }}" class="hover:text-[var(--chrono-blue)]">Settings</a>
@@ -69,6 +71,7 @@
                     <div class="flex items-center gap-4">
                         <a href="{{ route('dashboard') }}" class="hover:text-slate-200">Dashboard</a>
                         @auth
+                            <a href="{{ route('goals.index') }}" class="hover:text-slate-200">Goals</a>
                             <a href="{{ route('history.index') }}" class="hover:text-slate-200">History</a>
                             <a href="{{ route('settings.show') }}" class="hover:text-slate-200">Settings</a>
                         @else

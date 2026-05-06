@@ -32,6 +32,8 @@
                 <p class="text-slate-300 text-sm mt-2">Track today, close the loops, and beat the deadline.</p>
             </div>
         </div>
+
+        @include('partials.goal-alerts')
     @else
         @include('partials.guest-hero')
     @endauth
@@ -508,7 +510,49 @@
                     } catch {
                         /* storage may be disabled */
                     }
+                    scheduleServerSync(blocks);
                 };
+
+                // Push localStorage → server so goal probability, attribution,
+                // and any other server-side feature can read what the user has
+                // logged. Debounced because saveBlocks fires on every edit.
+                let serverSyncTimer = null;
+                let serverSyncInflight = false;
+                const scheduleServerSync = (blocks) => {
+                    if (!window.ChronoAuth?.isAuthenticated) return;
+                    if (serverSyncTimer) clearTimeout(serverSyncTimer);
+                    serverSyncTimer = setTimeout(() => pushServerSync(blocks), 800);
+                };
+                const pushServerSync = async (blocks) => {
+                    if (serverSyncInflight) {
+                        // queue another attempt after the current one returns
+                        serverSyncTimer = setTimeout(() => pushServerSync(loadBlocks()), 1200);
+                        return;
+                    }
+                    serverSyncInflight = true;
+                    try {
+                        const token = document.querySelector('meta[name="csrf-token"]')?.content || '';
+                        await fetch('/time-blocks/sync', {
+                            method: 'POST',
+                            credentials: 'same-origin',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Accept': 'application/json',
+                                'X-CSRF-TOKEN': token,
+                                'X-Requested-With': 'XMLHttpRequest',
+                            },
+                            body: JSON.stringify({ blocks }),
+                        });
+                    } catch {
+                        /* offline or transient — next save will retry */
+                    } finally {
+                        serverSyncInflight = false;
+                    }
+                };
+                // Initial sync on load so existing localStorage state lands in DB.
+                if (window.ChronoAuth?.isAuthenticated) {
+                    setTimeout(() => pushServerSync(loadBlocks()), 1500);
+                }
                 const dispatchChange = () => {
                     window.dispatchEvent(new CustomEvent('chrono:blocks:changed'));
                 };

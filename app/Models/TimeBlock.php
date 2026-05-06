@@ -17,10 +17,12 @@ class TimeBlock extends Model
      */
     protected $fillable = [
         'user_id',
+        'external_id',
         'start_time',
         'end_time',
         'duration_seconds',
         'reason',
+        'category',
         'auto_filled',
     ];
 

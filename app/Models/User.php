@@ -66,4 +66,9 @@ class User extends Authenticatable
     {
         return $this->hasMany(Countdown::class);
     }
+
+    public function goals()
+    {
+        return $this->hasMany(Goal::class);
+    }
 }

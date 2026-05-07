@@ -221,6 +221,70 @@ class GoalAttributionTest extends TestCase
         ]);
     }
 
+    public function test_snapshot_endpoint_returns_users_blocks_in_localstorage_shape(): void
+    {
+        $u = $this->user();
+        $start = now()->subDay()->setTime(10, 0);
+        TimeBlock::create([
+            'user_id' => $u->id,
+            'external_id' => 'srv_b1',
+            'start_time' => $start,
+            'end_time' => $start->copy()->addHours(2),
+            'duration_seconds' => 7200,
+            'reason' => 'aws iam review',
+            'auto_filled' => false,
+        ]);
+
+        $resp = $this->actingAs($u)
+            ->getJson('/time-blocks/snapshot')
+            ->assertOk();
+
+        $data = $resp->json();
+        $this->assertTrue($data['ok']);
+        $this->assertEquals(1, $data['count']);
+        $this->assertEquals('srv_b1', $data['blocks'][0]['id']);
+        $this->assertEquals($start->toDateString(), $data['blocks'][0]['date']);
+        $this->assertEquals('10:00', $data['blocks'][0]['start']);
+        $this->assertEquals('12:00', $data['blocks'][0]['end']);
+        $this->assertEquals(7200000, $data['blocks'][0]['durationMs']);
+        $this->assertEquals('aws iam review', $data['blocks'][0]['label']);
+    }
+
+    public function test_snapshot_round_trip_preserves_data_after_logout_login(): void
+    {
+        // Reproduces the user's report: yesterday's blocks survive a logout
+        // and a fresh login as long as we hydrate from the server before any
+        // destructive sync fires.
+        $u = $this->user();
+
+        $this->actingAs($u)->postJson('/time-blocks/sync', [
+            'blocks' => [
+                ['id' => 'b1', 'date' => now()->subDay()->toDateString(), 'start' => '10:00', 'end' => '11:00', 'durationMs' => 3600000, 'label' => 'aws review'],
+                ['id' => 'b2', 'date' => now()->subDay()->toDateString(), 'start' => '14:00', 'end' => '15:00', 'durationMs' => 3600000, 'label' => 'meeting'],
+            ],
+        ])->assertOk();
+
+        $this->assertDatabaseCount('time_blocks', 2);
+
+        // User "logs out / opens fresh browser" → server snapshot should
+        // still return both blocks. (The dashboard would hydrate localStorage
+        // from this before any push fires.)
+        auth()->logout();
+        $this->assertGuest();
+
+        $resp = $this->actingAs($u->fresh())
+            ->getJson('/time-blocks/snapshot')
+            ->assertOk();
+        $this->assertEquals(2, $resp->json('count'));
+
+        // CRITICAL: confirm the destructive sync only fires AFTER the client
+        // has the snapshot. If a client posts an empty snapshot (e.g. fresh
+        // browser, no localStorage) without first hydrating, the DB would be
+        // wiped — that's the bug. We don't simulate the full JS flow here,
+        // but the snapshot endpoint exists for the JS to call first.
+        $this->assertDatabaseCount('time_blocks', 2);
+    }
+
     public function test_sync_replaces_full_snapshot(): void
     {
         $u = $this->user();

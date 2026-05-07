@@ -40,24 +40,26 @@
             <ol class="relative space-y-5 border-l border-slate-800/60 pl-6">
                 @foreach ($logs as $log)
                     @php
+                        // Full class strings, statically present so Tailwind's
+                        // JIT scanner can pick them up.
                         $accent = match ($log->action) {
-                            'created' => 'sky',
-                            'extended' => 'amber',
-                            'shortened' => 'sky',
-                            'edited' => 'slate',
-                            'progress_added' => 'emerald',
-                            'completed' => 'emerald',
-                            'abandoned' => 'rose',
-                            'reopened' => 'sky',
-                            default => 'slate',
+                            'created' => ['bg-sky-400', 'text-sky-300'],
+                            'extended' => ['bg-amber-400', 'text-amber-300'],
+                            'shortened' => ['bg-sky-400', 'text-sky-300'],
+                            'edited' => ['bg-slate-400', 'text-slate-300'],
+                            'progress_added' => ['bg-emerald-400', 'text-emerald-300'],
+                            'completed' => ['bg-emerald-400', 'text-emerald-300'],
+                            'abandoned' => ['bg-rose-400', 'text-rose-300'],
+                            'reopened' => ['bg-sky-400', 'text-sky-300'],
+                            default => ['bg-slate-400', 'text-slate-300'],
                         };
                     @endphp
                     <li class="relative">
-                        <span class="absolute -left-[31px] top-1 h-3 w-3 rounded-full border-2 border-slate-900 bg-{{ $accent }}-400"></span>
+                        <span class="absolute -left-[31px] top-1 h-3 w-3 rounded-full border-2 border-slate-900 {{ $accent[0] }}"></span>
                         <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-4">
                             <div class="flex flex-wrap items-baseline justify-between gap-2">
                                 <div>
-                                    <span class="text-[0.65rem] uppercase tracking-wider text-{{ $accent }}-300 font-semibold">
+                                    <span class="text-[0.65rem] uppercase tracking-wider {{ $accent[1] }} font-semibold">
                                         {{ $log->actionLabel() }}
                                     </span>
                                 </div>

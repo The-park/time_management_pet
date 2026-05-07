@@ -377,6 +377,26 @@
         </div>
     </div>
 
+    @php
+        // Active goals are surfaced to the dashboard JS so each block row
+        // can show whether it's currently tracked toward a goal — and so
+        // that "tracked → goal" instantly flips to "untracked" the moment
+        // the user deletes the goal (the goal list is rebuilt on every
+        // page load).
+        $activeGoalsForJs = [];
+        if (auth()->check()) {
+            $activeGoalsForJs = \App\Models\Goal::query()
+                ->where('status', 'active')
+                ->orderBy('target_date')
+                ->get(['id', 'title', 'keywords'])
+                ->map(fn ($g) => [
+                    'id' => $g->id,
+                    'title' => $g->title,
+                    'keywords' => is_array($g->keywords) ? $g->keywords : [],
+                ])
+                ->values();
+        }
+    @endphp
     @push('scripts')
         <script>
             window.ChronoDashboardConfig = {
@@ -385,6 +405,7 @@
                 timezone: @json($timezone),
                 signupTimestamp: @json($signupTimestamp),
                 signupDateLabel: @json($signupDateLabel),
+                activeGoals: @json($activeGoalsForJs),
             };
         </script>
         <script>
@@ -513,19 +534,24 @@
                     scheduleServerSync(blocks);
                 };
 
-                // Push localStorage → server so goal probability, attribution,
-                // and any other server-side feature can read what the user has
-                // logged. Debounced because saveBlocks fires on every edit.
+                // Layout-level hydration (layouts/app.blade.php) populates
+                // localStorage from the server BEFORE this script runs, so by
+                // the time we get here, localStorage matches the DB. We just
+                // gate the outgoing sync on the hydration flag in case the
+                // layout script ever fails or is bypassed.
                 let serverSyncTimer = null;
                 let serverSyncInflight = false;
+
                 const scheduleServerSync = (blocks) => {
                     if (!window.ChronoAuth?.isAuthenticated) return;
+                    // If layout hydration didn't run, refuse to push — better
+                    // to lose a save than to wipe persisted history.
+                    if (!window.ChronoBlocksHydrated) return;
                     if (serverSyncTimer) clearTimeout(serverSyncTimer);
                     serverSyncTimer = setTimeout(() => pushServerSync(blocks), 800);
                 };
                 const pushServerSync = async (blocks) => {
                     if (serverSyncInflight) {
-                        // queue another attempt after the current one returns
                         serverSyncTimer = setTimeout(() => pushServerSync(loadBlocks()), 1200);
                         return;
                     }
@@ -549,10 +575,6 @@
                         serverSyncInflight = false;
                     }
                 };
-                // Initial sync on load so existing localStorage state lands in DB.
-                if (window.ChronoAuth?.isAuthenticated) {
-                    setTimeout(() => pushServerSync(loadBlocks()), 1500);
-                }
                 const dispatchChange = () => {
                     window.dispatchEvent(new CustomEvent('chrono:blocks:changed'));
                 };
@@ -583,6 +605,75 @@
                     }
                     if (dirty) saveBlocks(blocks);
                 })();
+
+                // ── Goal attribution chip ─────────────────────────────────────
+                // Mirrors the server-side GoalAttributionService scoring so that
+                // each row shows whether the block is tracked toward an active
+                // goal or not. When the user deletes a goal, its blocks update
+                // to "untracked" on next render (the goal list comes from
+                // ChronoDashboardConfig which is rebuilt every page load).
+                const ACTIVE_GOALS = (window.ChronoDashboardConfig?.activeGoals) || [];
+                const SCORE_THRESHOLD = 0.4;
+
+                const scoreReasonAgainstKeywords = (reason, keywords) => {
+                    const r = String(reason || '').toLowerCase().trim();
+                    if (!r || !keywords || keywords.length === 0) return 0;
+                    const reasonTokens = r.replace(/[^\p{L}\p{N}\s]+/gu, ' ').split(/\s+/).filter(Boolean);
+                    let best = 0;
+                    for (const rawKw of keywords) {
+                        const kw = String(rawKw).toLowerCase().trim();
+                        if (!kw) continue;
+                        const kwTokens = kw.replace(/[^\p{L}\p{N}\s]+/gu, ' ').split(/\s+/).filter(Boolean);
+                        if (kwTokens.length === 0) continue;
+                        let score = 0;
+                        const wholeWord = new RegExp('\\b' + kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'u');
+                        if (wholeWord.test(r)) {
+                            score = 1.0;
+                        } else if (r.includes(kw)) {
+                            score = 0.7;
+                        } else {
+                            let hits = 0;
+                            for (const kt of kwTokens) {
+                                let bestHit = 0;
+                                for (const rt of reasonTokens) {
+                                    if (rt === kt) { bestHit = 1.0; break; }
+                                }
+                                hits += bestHit;
+                            }
+                            score = hits / kwTokens.length;
+                        }
+                        if (score > best) best = score;
+                        if (best >= 1.0) break;
+                    }
+                    return best;
+                };
+
+                const matchedGoalsFor = (reason) => {
+                    if (ACTIVE_GOALS.length === 0) return [];
+                    const matches = [];
+                    for (const g of ACTIVE_GOALS) {
+                        const s = scoreReasonAgainstKeywords(reason, g.keywords);
+                        if (s >= SCORE_THRESHOLD) matches.push({ id: g.id, title: g.title, score: s });
+                    }
+                    matches.sort((a, b) => b.score - a.score);
+                    return matches;
+                };
+
+                const goalChipFor = (block) => {
+                    if (block.category === 'wasted') return '';
+                    const matches = matchedGoalsFor(block.label || '');
+                    if (matches.length === 0) {
+                        // Productive but tied to no current goal. Only surface this
+                        // when the user actually has goals — otherwise it would
+                        // just be noise on every block.
+                        if (ACTIVE_GOALS.length === 0) return '';
+                        return `<span class="ml-2 inline-flex items-center rounded-full px-2 py-0.5 text-[0.65rem] uppercase tracking-wider bg-slate-700/30 text-slate-500 border border-slate-600/30" title="No active goal matches this block's reason.">Untracked</span>`;
+                    }
+                    const primary = matches[0];
+                    const extra = matches.length > 1 ? ` <span class="text-[var(--chrono-blue)]/60">+${matches.length - 1}</span>` : '';
+                    const titleAttr = matches.map(m => '→ ' + m.title).join(' ');
+                    return `<span class="ml-2 inline-flex items-center rounded-full px-2 py-0.5 text-[0.65rem] uppercase tracking-wider bg-[color-mix(in_oklab,var(--chrono-blue)_15%,transparent)] text-[var(--chrono-blue)] border border-[var(--chrono-blue)]/30" title="${escapeHtml(titleAttr)}">→ ${escapeHtml(primary.title)}${extra}</span>`;
+                };
 
                 const render = () => {
                     // Strict calendar-day scope: only blocks whose date stamp matches the
@@ -633,6 +724,7 @@
                         const categoryChip = `<button type="button" data-block-category` +
                             ` class="ml-2 inline-flex items-center rounded-full px-2 py-0.5 text-[0.65rem] uppercase tracking-wider hover:opacity-80 ${isWasted ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30' : 'bg-slate-700/40 text-slate-400 border border-slate-600/40'}"` +
                             ` title="Click to toggle productive / wasted">${isWasted ? 'Wasted' : 'Productive'}</button>`;
+                        const goalChip = goalChipFor(block);
 
                         const editButton = block.status === 'completed'
                             ? '<button class="text-[var(--chrono-blue)]" data-block-edit>Edit</button>'
@@ -642,7 +734,7 @@
                             <td class="py-3">${escapeHtml(formatTime12(block.start))}</td>
                             <td class="py-3">${endText}</td>
                             <td class="py-3">${escapeHtml(msToDurationLabel(block.durationMs))}</td>
-                            <td class="py-3">${badge}${escapeHtml(labelText)}${categoryChip}</td>
+                            <td class="py-3">${badge}${escapeHtml(labelText)}${categoryChip}${goalChip}</td>
                             <td class="py-3">
                                 <div class="flex gap-2">
                                     ${editButton}
@@ -1588,7 +1680,24 @@
                 const skipBtn = document.getElementById('hourly_modal_skip');
                 if (!modal || !fromEl || !toEl || !inputEl || !saveBtn || !skipBtn) return;
 
-                const PROMPTED_KEY = 'chrono.hourlyPrompted.v1';
+                const cfg = window.ChronoDashboardConfig || {};
+                const BLOCKS_KEY = 'chrono.timeBlocks.v1';
+                // Stamp keyed by the [start, end] range we asked about, so that
+                // a partial-hour gap (e.g. 9:20–10:00) we already prompted for
+                // doesn't get re-asked while leaving the rest of that hour open.
+                const PROMPTED_KEY = 'chrono.hourlyPrompted.v2';
+                // Min gap that's worth interrupting the user for. Anything shorter
+                // is treated as noise (you bouncing between blocks for a minute).
+                const MIN_PROMPT_MINUTES = 5;
+                // Spacing between successive prompts when the user has been away.
+                // Keeps catch-up from being a 4-modal pile-on. 0 → first prompt
+                // fires immediately; subsequent ones wait this long after the
+                // previous one closes.
+                const NEXT_PROMPT_DELAY_MS = 5 * 60 * 1000;
+                // Cap the catch-up queue so a 12-hour absence doesn't queue 12
+                // popups; anything older than this is left to manual logging.
+                const MAX_QUEUE_DEPTH = 8;
+
                 const pad = (n) => String(n).padStart(2, '0');
                 const formatTime12 = (date) => {
                     const h = date.getHours();
@@ -1598,31 +1707,116 @@
                     return `${hour12}:${pad(m)} ${period}`;
                 };
                 const dateToHHMM = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-                const hourKeyFor = (d) =>
-                    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pad(d.getHours())}`;
+                const hhmmToMinutes = (hhmm) => {
+                    if (!hhmm) return null;
+                    const [h, m] = hhmm.split(':').map(Number);
+                    return h * 60 + m;
+                };
+                const localDateString = (d) =>
+                    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+                const rangeKey = (date, startMin, endMin) =>
+                    `${localDateString(date)}_${startMin}_${endMin}`;
 
+                const loadBlocks = () => {
+                    try {
+                        const raw = localStorage.getItem(BLOCKS_KEY);
+                        if (!raw) return [];
+                        const parsed = JSON.parse(raw);
+                        return Array.isArray(parsed) ? parsed : [];
+                    } catch { return []; }
+                };
                 const loadPrompted = () => {
                     try {
                         const raw = localStorage.getItem(PROMPTED_KEY);
                         return new Set(raw ? JSON.parse(raw) : []);
-                    } catch {
-                        return new Set();
-                    }
+                    } catch { return new Set(); }
                 };
-                const markPrompted = (hourKey) => {
+                const markPrompted = (key) => {
+                    if (!key) return;
                     try {
                         const set = loadPrompted();
-                        set.add(hourKey);
+                        set.add(key);
                         const arr = [...set];
                         if (arr.length > 240) arr.splice(0, arr.length - 240);
                         localStorage.setItem(PROMPTED_KEY, JSON.stringify(arr));
                     } catch {}
                 };
 
+                // Subtract every existing block on `dayKey` from the set of
+                // intervals and return the remaining unlogged intervals.
+                // Active/paused blocks are treated as covering [start, now] so
+                // we don't prompt for time the user is actively timing.
+                const subtractBlocks = (intervals, dayKey, now) => {
+                    const blocks = loadBlocks().filter(b => b.date === dayKey);
+                    const nowMin = now.getHours() * 60 + now.getMinutes();
+                    const ranges = blocks.map(b => {
+                        const s = hhmmToMinutes(b.start);
+                        let e = hhmmToMinutes(b.end);
+                        if (e === null || b.status === 'active' || b.status === 'paused') {
+                            e = nowMin;
+                        }
+                        if (s === null || e === null || e <= s) return null;
+                        return [s, e];
+                    }).filter(Boolean);
+
+                    let remaining = intervals.slice();
+                    for (const [bs, be] of ranges) {
+                        const next = [];
+                        for (const [s, e] of remaining) {
+                            if (be <= s || bs >= e) {
+                                next.push([s, e]);
+                            } else {
+                                if (bs > s) next.push([s, bs]);
+                                if (be < e) next.push([be, e]);
+                            }
+                        }
+                        remaining = next;
+                    }
+                    return remaining;
+                };
+
+                // Build the queue of unlogged ranges across completed past hours
+                // since wake time, capped at MAX_QUEUE_DEPTH (most-recent first).
+                const buildPromptQueue = (now) => {
+                    const dayKey = localDateString(now);
+                    const wakeMin = hhmmToMinutes(cfg.wakeTime || '07:00') ?? 420;
+                    const currentHour = now.getHours();
+                    const lastCompletedHour = currentHour;   // hour `currentHour-1` is the last fully-elapsed hour
+                    const promptedSet = loadPrompted();
+                    const queue = [];
+
+                    // Walk backward from the most recent completed hour so the
+                    // most relevant prompt is shown first.
+                    for (let h = lastCompletedHour - 1; h >= 0 && queue.length < MAX_QUEUE_DEPTH; h--) {
+                        const hourStartMin = h * 60;
+                        const hourEndMin = (h + 1) * 60;
+                        if (hourEndMin <= wakeMin) break;        // before wake → done
+                        const startMin = Math.max(hourStartMin, wakeMin);
+                        if (startMin >= hourEndMin) continue;
+
+                        const gaps = subtractBlocks([[startMin, hourEndMin]], dayKey, now);
+                        for (const [s, e] of gaps) {
+                            if (e - s < MIN_PROMPT_MINUTES) continue;
+                            const key = rangeKey(now, s, e);
+                            if (promptedSet.has(key)) continue;
+                            queue.push({
+                                key,
+                                startMin: s,
+                                endMin: e,
+                                start: new Date(now.getFullYear(), now.getMonth(), now.getDate(), Math.floor(s/60), s%60, 0, 0),
+                                end: new Date(now.getFullYear(), now.getMonth(), now.getDate(), Math.floor(e/60), e%60, 0, 0),
+                            });
+                        }
+                    }
+                    // Most recent → oldest is the natural ask order.
+                    return queue;
+                };
+
                 let currentKey = null;
                 let currentStart = null;
                 let currentEnd = null;
                 let modalOpen = false;
+                let nextPromptTimer = null;
 
                 const onKey = (e) => {
                     if (e.key === 'Escape') {
@@ -1645,13 +1839,13 @@
                     document.removeEventListener('keydown', onKey);
                 };
 
-                const openModal = (start, end, hourKey) => {
+                const openModal = (entry) => {
                     if (modalOpen) return;
-                    currentKey = hourKey;
-                    currentStart = start;
-                    currentEnd = end;
-                    fromEl.textContent = formatTime12(start);
-                    toEl.textContent = formatTime12(end);
+                    currentKey = entry.key;
+                    currentStart = entry.start;
+                    currentEnd = entry.end;
+                    fromEl.textContent = formatTime12(entry.start);
+                    toEl.textContent = formatTime12(entry.end);
                     inputEl.value = '';
                     saveBtn.disabled = true;
                     modal.classList.remove('hidden');
@@ -1662,9 +1856,24 @@
                     document.addEventListener('keydown', onKey);
                 };
 
+                // Pop the next eligible prompt off the freshly-rebuilt queue
+                // (so any block the user just logged is taken into account).
+                const showNextPrompt = () => {
+                    if (modalOpen) return;
+                    const queue = buildPromptQueue(new Date());
+                    if (queue.length === 0) return;
+                    openModal(queue[0]);
+                };
+
+                const scheduleNext = (immediate = false) => {
+                    if (nextPromptTimer) clearTimeout(nextPromptTimer);
+                    nextPromptTimer = setTimeout(showNextPrompt, immediate ? 600 : NEXT_PROMPT_DELAY_MS);
+                };
+
                 const handleSkip = () => {
-                    if (currentKey) markPrompted(currentKey);
+                    markPrompted(currentKey);
                     closeModal();
+                    scheduleNext();              // wait NEXT_PROMPT_DELAY_MS, then ask the next gap
                 };
 
                 const handleSave = () => {
@@ -1680,8 +1889,9 @@
                             status: 'completed',
                         });
                     }
-                    if (currentKey) markPrompted(currentKey);
+                    markPrompted(currentKey);
                     closeModal();
+                    scheduleNext();              // saving covers this gap; queue will skip it next round
                 };
 
                 saveBtn.addEventListener('click', handleSave);
@@ -1690,29 +1900,17 @@
                     saveBtn.disabled = inputEl.value.trim() === '';
                 });
 
-                const checkPrompt = () => {
-                    if (modalOpen) return;
-                    const now = new Date();
-                    const prevHourEnd = new Date(
-                        now.getFullYear(),
-                        now.getMonth(),
-                        now.getDate(),
-                        now.getHours(),
-                        0, 0, 0
-                    );
-                    if (prevHourEnd.getTime() > now.getTime()) return;
-                    const prevHourStart = new Date(prevHourEnd.getTime() - 60 * 60 * 1000);
-                    const hourKey = hourKeyFor(prevHourStart);
-                    if (loadPrompted().has(hourKey)) return;
-                    openModal(prevHourStart, prevHourEnd, hourKey);
-                };
-
-                setTimeout(checkPrompt, 5000);
+                // Initial fire: a couple of seconds after page load (don't
+                // race the rest of the dashboard scripts), then also on a
+                // minute-edge tick so newly-completed hours get caught.
+                setTimeout(showNextPrompt, 5000);
                 const now = new Date();
                 const msUntilNextMinute = 60000 - (now.getTime() % 60000);
                 setTimeout(() => {
-                    checkPrompt();
-                    setInterval(checkPrompt, 60000);
+                    showNextPrompt();
+                    setInterval(() => {
+                        if (!modalOpen && !nextPromptTimer) showNextPrompt();
+                    }, 60000);
                 }, msUntilNextMinute);
             })();
         </script>

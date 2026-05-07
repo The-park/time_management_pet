@@ -105,6 +105,96 @@
         <p class="relative mt-3 text-sm text-slate-300">{{ $narrative }}</p>
     </div>
 
+    {{-- Time analysis: weeks/hours left, sleep, awake, logged, unlogged --}}
+    @php
+        $ta = $timeAnalysis;
+        $sleepNote = $ta['sleep']['end_of_day'].' → '.$ta['sleep']['wake_time']
+            .' = '.$ta['sleep']['per_night_label'].'/night';
+    @endphp
+    <section class="chrono-panel rounded-2xl p-6 md:p-8 mb-6">
+        <div class="flex items-baseline justify-between gap-3 mb-1">
+            <h2 class="font-display text-sm uppercase tracking-[0.3em] text-slate-300">Time analysis</h2>
+            <span class="text-[0.65rem] uppercase tracking-wider text-slate-500" title="From your Settings">
+                Sleep: {{ $sleepNote }}
+            </span>
+        </div>
+        <p class="text-xs text-slate-500 mb-5">
+            Wall-clock time inside this goal's window, with sleep subtracted using your dashboard
+            <a href="{{ route('settings.show') }}" class="underline hover:text-slate-200">schedule</a>.
+        </p>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {{-- ELAPSED --}}
+            <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-4">
+                <div class="flex items-baseline justify-between gap-2 mb-3">
+                    <h3 class="text-xs uppercase tracking-[0.2em] text-slate-400">Elapsed</h3>
+                    <span class="font-digital text-xl text-slate-100">{{ $ta['elapsed']['total_label'] }}</span>
+                </div>
+                <dl class="space-y-1.5 text-sm">
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-slate-500">Wall-clock total</dt>
+                        <dd class="text-slate-200 font-digital">{{ $ta['elapsed']['total_hours'] }}h</dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-slate-500">Sleep ({{ $ta['elapsed']['nights'] }} {{ Str::plural('night', $ta['elapsed']['nights']) }} × {{ $ta['sleep']['per_night_label'] }})</dt>
+                        <dd class="text-slate-400 font-digital">−{{ $ta['elapsed']['sleep_hours'] }}h</dd>
+                    </div>
+                    <div class="flex justify-between gap-2 border-t border-slate-800/60 pt-1.5">
+                        <dt class="text-slate-300">Awake hours</dt>
+                        <dd class="text-slate-100 font-digital">{{ $ta['elapsed']['awake_hours'] }}h</dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-slate-500">Logged on this goal</dt>
+                        <dd class="text-emerald-300 font-digital">{{ $ta['elapsed']['logged_hours'] }}h</dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-slate-500" title="Awake time elapsed that wasn't credited to this goal — could be other goals or unlogged">
+                            Awake but unlogged on this goal
+                        </dt>
+                        <dd class="text-amber-300 font-digital">{{ $ta['elapsed']['unlogged_awake_hours'] }}h</dd>
+                    </div>
+                </dl>
+            </div>
+
+            {{-- REMAINING --}}
+            <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-4">
+                <div class="flex items-baseline justify-between gap-2 mb-3">
+                    <h3 class="text-xs uppercase tracking-[0.2em] text-slate-400">Remaining until target</h3>
+                    <span class="font-digital text-xl text-slate-100">{{ $ta['remaining']['total_label'] }}</span>
+                </div>
+                <dl class="space-y-1.5 text-sm">
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-slate-500">Calendar</dt>
+                        <dd class="text-slate-200">{{ $ta['remaining']['weeks_label'] }}</dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-slate-500">Wall-clock total</dt>
+                        <dd class="text-slate-200 font-digital">{{ $ta['remaining']['total_hours'] }}h</dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-slate-500">Sleep ({{ $ta['remaining']['nights'] }} {{ Str::plural('night', $ta['remaining']['nights']) }} × {{ $ta['sleep']['per_night_label'] }})</dt>
+                        <dd class="text-slate-400 font-digital">−{{ $ta['remaining']['sleep_hours'] }}h</dd>
+                    </div>
+                    <div class="flex justify-between gap-2 border-t border-slate-800/60 pt-1.5">
+                        <dt class="text-slate-300">Awake hours available</dt>
+                        <dd class="text-[var(--chrono-blue)] font-digital text-base">{{ $ta['remaining']['awake_hours'] }}h</dd>
+                    </div>
+                </dl>
+            </div>
+        </div>
+
+        <p class="mt-4 text-[0.65rem] text-slate-500 leading-relaxed">
+            <strong class="text-slate-400">Sleep formula:</strong>
+            bedtime <span class="text-slate-300">{{ $ta['sleep']['end_of_day'] }}</span>
+            → wake <span class="text-slate-300">{{ $ta['sleep']['wake_time'] }}</span>
+            = <span class="text-slate-300">{{ $ta['sleep']['per_night_label'] }}/night</span>.
+            Nights are counted by how many bedtimes fall inside each window
+            ({{ $ta['elapsed']['nights'] }} elapsed, {{ $ta['remaining']['nights'] }} remaining).
+            <strong class="text-slate-400">Awake</strong> = wall-clock − sleep.
+            <strong class="text-slate-400">Unlogged on this goal</strong> = awake elapsed − hours attributed to this goal.
+        </p>
+    </section>
+
     @if ($alertLevel)
         <div class="mb-6 rounded-2xl border {{ $alertLevel === 'critical' ? 'border-rose-500/40 bg-rose-900/20' : 'border-amber-500/40 bg-amber-900/20' }} p-4">
             <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -296,7 +386,11 @@
                                 $block = $entry['block'];
                                 $sharePct = round($entry['share'] * 100);
                                 $scorePct = round($entry['score'] * 100);
-                                $shareColor = $sharePct >= 90 ? 'emerald' : ($sharePct >= 50 ? 'sky' : 'amber');
+                                // Static class strings so Tailwind's JIT
+                                // scanner finds them.
+                                $shareColorClass = $sharePct >= 90
+                                    ? 'text-emerald-300'
+                                    : ($sharePct >= 50 ? 'text-sky-300' : 'text-amber-300');
                             @endphp
                             <li class="py-2.5 flex items-center justify-between gap-3">
                                 <div class="min-w-0 flex-1">
@@ -313,7 +407,7 @@
                                 </div>
                                 <div class="flex flex-col items-end gap-0.5 text-[0.65rem] uppercase tracking-wider">
                                     <span class="text-slate-400">Match {{ $scorePct }}%</span>
-                                    <span class="text-{{ $shareColor }}-300">Share {{ $sharePct }}%</span>
+                                    <span class="{{ $shareColorClass }}">Share {{ $sharePct }}%</span>
                                 </div>
                             </li>
                         @endforeach

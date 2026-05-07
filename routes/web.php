@@ -68,6 +68,7 @@ Route::middleware(['auth'])->get('/history', function () {
 })->name('history.index');
 
 Route::middleware(['auth'])->group(function () {
+    Route::get('/time-blocks/snapshot', [TimeBlockSyncController::class, 'snapshot'])->name('time-blocks.snapshot');
     Route::post('/time-blocks/sync', [TimeBlockSyncController::class, 'sync'])->name('time-blocks.sync');
 
     Route::get('/goals', [GoalController::class, 'index'])->name('goals.index');

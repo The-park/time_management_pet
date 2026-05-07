@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\TimeBlock;
 use Carbon\Carbon;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -24,6 +25,48 @@ use Illuminate\Support\Facades\DB;
  */
 class TimeBlockSyncController extends Controller
 {
+    /**
+     * Snapshot endpoint — returns every time block for the user in the
+     * exact shape the dashboard's localStorage expects:
+     *   { id, date: 'YYYY-MM-DD', start: 'HH:MM', end: 'HH:MM',
+     *     durationMs: number, label: string, category: string|null,
+     *     auto_filled: boolean, status: 'completed' }
+     *
+     * Called by the dashboard on every page load BEFORE any sync fires,
+     * so localStorage gets re-hydrated from the server. Without this,
+     * a fresh browser / cleared cache / different device would push an
+     * empty snapshot and wipe the persisted history.
+     */
+    public function snapshot(Request $request): JsonResponse
+    {
+        $blocks = TimeBlock::query()
+            ->where('user_id', $request->user()->id)
+            ->orderBy('start_time')
+            ->get();
+
+        $payload = $blocks->map(function (TimeBlock $b) {
+            $start = $b->start_time;
+            $end = $b->end_time;
+            return [
+                'id' => $b->external_id ?: ('srv_'.$b->id),
+                'date' => $start->toDateString(),
+                'start' => $start->format('H:i'),
+                'end' => $end ? $end->format('H:i') : null,
+                'durationMs' => (int) $b->duration_seconds * 1000,
+                'label' => (string) ($b->reason ?? ''),
+                'category' => $b->category,
+                'auto_filled' => (bool) $b->auto_filled,
+                'status' => 'completed',
+            ];
+        });
+
+        return response()->json([
+            'ok' => true,
+            'count' => $payload->count(),
+            'blocks' => $payload,
+        ]);
+    }
+
     public function sync(Request $request)
     {
         $data = $request->validate([

@@ -11,12 +11,25 @@ return new class extends Migration
      */
     public function up(): void
     {
+        // Idempotent retrofit — columns already exist on fresh installs
+        // because the create_users_table migration adds them. This file
+        // exists to upgrade older deployments only.
         Schema::table('users', function (Blueprint $table) {
-            $table->string('timezone')->default('UTC');
-            $table->time('end_of_day_time')->default('22:00:00');
-            $table->time('wake_up_time')->default('07:00:00');
-            $table->integer('gap_threshold_minutes')->default(60);
-            $table->enum('status', ['active', 'suspended'])->default('active');
+            if (! Schema::hasColumn('users', 'timezone')) {
+                $table->string('timezone')->default('UTC');
+            }
+            if (! Schema::hasColumn('users', 'end_of_day_time')) {
+                $table->time('end_of_day_time')->default('22:00:00');
+            }
+            if (! Schema::hasColumn('users', 'wake_up_time')) {
+                $table->time('wake_up_time')->default('07:00:00');
+            }
+            if (! Schema::hasColumn('users', 'gap_threshold_minutes')) {
+                $table->integer('gap_threshold_minutes')->default(60);
+            }
+            if (! Schema::hasColumn('users', 'status')) {
+                $table->enum('status', ['active', 'suspended'])->default('active');
+            }
         });
     }
 
@@ -26,13 +39,13 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('users', function (Blueprint $table) {
-            $table->dropColumn([
-                'timezone',
-                'end_of_day_time',
-                'wake_up_time',
-                'gap_threshold_minutes',
-                'status',
-            ]);
+            $existing = array_filter(
+                ['timezone', 'end_of_day_time', 'wake_up_time', 'gap_threshold_minutes', 'status'],
+                fn ($c) => Schema::hasColumn('users', $c),
+            );
+            if (! empty($existing)) {
+                $table->dropColumn($existing);
+            }
         });
     }
 };

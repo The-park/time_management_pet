@@ -8,6 +8,7 @@ use App\Models\TimeBlock;
 use App\Services\GoalAttributionService;
 use App\Services\GoalKeywordExtractor;
 use App\Services\GoalProbabilityService;
+use App\Services\GoalTimeAnalysisService;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -20,6 +21,7 @@ class GoalController extends Controller
         private GoalProbabilityService $probability,
         private GoalAttributionService $attribution,
         private GoalKeywordExtractor $keywords,
+        private GoalTimeAnalysisService $timeAnalysis,
     ) {
     }
 
@@ -152,6 +154,8 @@ class GoalController extends Controller
         $matchedBlocks = $attribution['blocks']->take(15);
         $logCount = $goal->logs()->count();
 
+        $timeAnalysis = $this->timeAnalysis->analyze($goal, $request->user());
+
         return view('goals.show', [
             'goal' => $goal,
             'result' => $result,
@@ -163,6 +167,7 @@ class GoalController extends Controller
             'logCount' => $logCount,
             'sparkline' => $sparkline,
             'today' => $today->toDateString(),
+            'timeAnalysis' => $timeAnalysis,
         ]);
     }
 

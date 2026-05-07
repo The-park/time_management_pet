@@ -36,6 +36,10 @@ Route::prefix('admin')->name('admin.')->group(function () {
         Route::get('users', [AdminUserController::class, 'index'])->name('users.index');
         Route::post('users/bulk', [AdminUserController::class, 'bulk'])->name('users.bulk');
         Route::get('users/{id}', [AdminUserController::class, 'show'])->whereNumber('id')->name('users.show');
+        Route::get('users/{id}/day/{date}', [AdminUserController::class, 'day'])
+            ->whereNumber('id')
+            ->where('date', '\d{4}-\d{2}-\d{2}')
+            ->name('users.day');
         Route::get('users/{id}/edit', [AdminUserController::class, 'edit'])->whereNumber('id')->name('users.edit');
         Route::put('users/{id}', [AdminUserController::class, 'update'])->whereNumber('id')->name('users.update');
         Route::post('users/{id}/suspend', [AdminUserController::class, 'suspend'])->whereNumber('id')->name('users.suspend');

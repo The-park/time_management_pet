@@ -18,6 +18,34 @@
         </div>
     </div>
 
+    {{-- ─── At-a-glance KPI strip ──────────────────────────────────── --}}
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+        <a href="{{ route('admin.users.index') }}"
+            class="group rounded-xl border border-slate-800/60 bg-slate-900/40 hover:bg-slate-800/60 hover:border-slate-700 transition-colors p-4">
+            <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Total users</div>
+            <div class="mt-1 text-2xl font-display tabular-nums text-slate-100">{{ number_format($statusCounts['all']) }}</div>
+            <div class="text-[0.65rem] text-slate-500 mt-0.5">across all states</div>
+        </a>
+        <a href="{{ route('admin.users.index', ['status' => 'active']) }}"
+            class="group rounded-xl border border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10 transition-colors p-4">
+            <div class="text-[0.6rem] uppercase tracking-wider text-emerald-300">Active</div>
+            <div class="mt-1 text-2xl font-display tabular-nums text-emerald-200">{{ number_format($statusCounts['active']) }}</div>
+            <div class="text-[0.65rem] text-emerald-300/70 mt-0.5">can sign in</div>
+        </a>
+        <a href="{{ route('admin.users.index', ['status' => 'suspended']) }}"
+            class="group rounded-xl border border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10 transition-colors p-4">
+            <div class="text-[0.6rem] uppercase tracking-wider text-amber-300">Suspended</div>
+            <div class="mt-1 text-2xl font-display tabular-nums text-amber-200">{{ number_format($statusCounts['suspended']) }}</div>
+            <div class="text-[0.65rem] text-amber-300/70 mt-0.5">blocked from login</div>
+        </a>
+        <a href="{{ route('admin.users.index', ['status' => 'deleted']) }}"
+            class="group rounded-xl border border-rose-500/30 bg-rose-500/5 hover:bg-rose-500/10 transition-colors p-4">
+            <div class="text-[0.6rem] uppercase tracking-wider text-rose-300">Soft-deleted</div>
+            <div class="mt-1 text-2xl font-display tabular-nums text-rose-200">{{ number_format($statusCounts['deleted']) }}</div>
+            <div class="text-[0.65rem] text-rose-300/70 mt-0.5">restorable</div>
+        </a>
+    </div>
+
     {{-- ─── Filter bar ──────────────────────────────────────────────── --}}
     <form method="GET" action="{{ route('admin.users.index') }}"
         class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3 mb-5 flex flex-wrap items-center gap-2">

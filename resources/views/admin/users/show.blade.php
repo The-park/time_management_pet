@@ -86,6 +86,141 @@
         </div>
     </section>
 
+    {{-- Activity calendar — month grid with productive/wasted per day. Click a
+         day to open the read-only admin day report for this user. --}}
+    @php
+        $prevMonth = $monthStart->copy()->subMonth()->format('Y-m');
+        $nextMonth = $monthStart->copy()->addMonth()->format('Y-m');
+        $monthLabel = $monthStart->format('F Y');
+        $maxProdSec = 0;
+        foreach ($cells as $c) {
+            if ($c && $c['productive_seconds'] > $maxProdSec) $maxProdSec = $c['productive_seconds'];
+        }
+        $monthProdLabel = $totalDurationLabel($monthTotals['productive_seconds']);
+        $monthWastedLabel = $totalDurationLabel($monthTotals['wasted_seconds']);
+    @endphp
+    <section class="rounded-xl border border-slate-800/60 bg-slate-900/40 overflow-hidden mb-6">
+        <header class="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-b border-slate-800/60">
+            <div class="flex items-center gap-3">
+                <h2 class="font-display text-xs uppercase tracking-[0.2em] text-slate-300">Activity calendar</h2>
+                <span class="text-xs text-slate-500">{{ $monthLabel }}</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <a href="{{ route('admin.users.show', ['id' => $user->id, 'month' => $prevMonth]) }}"
+                    class="rounded-md border border-slate-700 hover:border-slate-500 hover:text-slate-100 px-2 py-1 text-xs text-slate-300"
+                    title="{{ $monthStart->copy()->subMonth()->format('F Y') }}">
+                    ← {{ $monthStart->copy()->subMonth()->format('M') }}
+                </a>
+                <a href="{{ route('admin.users.show', ['id' => $user->id]) }}"
+                    class="rounded-md border border-slate-700 hover:border-slate-500 hover:text-slate-100 px-2 py-1 text-xs text-slate-300"
+                    title="Jump to current month">
+                    Today
+                </a>
+                <a href="{{ route('admin.users.show', ['id' => $user->id, 'month' => $nextMonth]) }}"
+                    class="rounded-md border border-slate-700 hover:border-slate-500 hover:text-slate-100 px-2 py-1 text-xs text-slate-300"
+                    title="{{ $monthStart->copy()->addMonth()->format('F Y') }}">
+                    {{ $monthStart->copy()->addMonth()->format('M') }} →
+                </a>
+            </div>
+        </header>
+
+        {{-- Month summary strip --}}
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 px-5 py-4 border-b border-slate-800/60">
+            <div class="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+                <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Days logged</div>
+                <div class="mt-1 text-lg tabular-nums text-slate-100">{{ $monthTotals['days_logged'] }}<span class="text-sm text-slate-500">/{{ $monthStart->daysInMonth }}</span></div>
+            </div>
+            <div class="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+                <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Blocks</div>
+                <div class="mt-1 text-lg tabular-nums text-slate-100">{{ number_format($monthTotals['block_count']) }}</div>
+            </div>
+            <div class="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3">
+                <div class="text-[0.6rem] uppercase tracking-wider text-emerald-300">Productive</div>
+                <div class="mt-1 text-lg tabular-nums text-emerald-200">{{ $monthProdLabel }}</div>
+            </div>
+            <div class="rounded-lg border border-rose-500/30 bg-rose-500/5 p-3">
+                <div class="text-[0.6rem] uppercase tracking-wider text-rose-300">Wasted</div>
+                <div class="mt-1 text-lg tabular-nums text-rose-200">{{ $monthWastedLabel }}</div>
+            </div>
+        </div>
+
+        {{-- Calendar grid --}}
+        <div class="px-5 py-4">
+            <div class="grid grid-cols-7 gap-1.5 text-[0.6rem] uppercase tracking-wider text-slate-500 mb-2">
+                @foreach (['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] as $dow)
+                    <div class="text-center">{{ $dow }}</div>
+                @endforeach
+            </div>
+            <div class="grid grid-cols-7 gap-1.5">
+                @foreach ($cells as $cell)
+                    @if ($cell === null)
+                        <div class="aspect-square rounded-md border border-transparent"></div>
+                    @else
+                        @php
+                            $hasData = $cell['block_count'] > 0;
+                            // Heatmap intensity: scale productive seconds against
+                            // the busiest day in the month so a "good" day
+                            // always glows brightest regardless of absolute hours.
+                            $intensity = $maxProdSec > 0
+                                ? min(1, $cell['productive_seconds'] / $maxProdSec)
+                                : 0;
+                            // Tier the intensity into 4 buckets for stable Tailwind classes.
+                            if ($intensity === 0) {
+                                $bg = 'bg-slate-950/40';
+                            } elseif ($intensity < 0.34) {
+                                $bg = 'bg-emerald-500/10';
+                            } elseif ($intensity < 0.67) {
+                                $bg = 'bg-emerald-500/25';
+                            } else {
+                                $bg = 'bg-emerald-500/45';
+                            }
+                            $border = $cell['is_today']
+                                ? 'border-rose-500/60'
+                                : ($hasData ? 'border-emerald-500/30' : 'border-slate-800');
+                            $futureCls = $cell['is_future'] ? 'opacity-40' : '';
+                            $prodLabel = $totalDurationLabel($cell['productive_seconds']);
+                            $wastedLabel = $totalDurationLabel($cell['wasted_seconds']);
+                            $title = $cell['date']
+                                . ($hasData
+                                    ? ' · '.$prodLabel.' productive'
+                                      . ($cell['wasted_seconds'] > 0 ? ' · '.$wastedLabel.' wasted' : '')
+                                      . ' · '.$cell['block_count'].' '.\Illuminate\Support\Str::plural('block', $cell['block_count'])
+                                    : ' · no blocks');
+                        @endphp
+                        <a href="{{ route('admin.users.day', ['id' => $user->id, 'date' => $cell['date']]) }}"
+                            class="group aspect-square rounded-md border {{ $border }} {{ $bg }} {{ $futureCls }} hover:border-rose-500/60 transition-colors p-1.5 flex flex-col"
+                            title="{{ $title }}">
+                            <div class="flex items-baseline justify-between">
+                                <span class="text-[0.7rem] {{ $cell['is_today'] ? 'text-rose-300 font-semibold' : 'text-slate-400' }}">{{ $cell['day'] }}</span>
+                                @if ($hasData)
+                                    <span class="text-[0.55rem] uppercase tracking-wider text-slate-500">{{ $cell['block_count'] }}</span>
+                                @endif
+                            </div>
+                            <div class="mt-auto">
+                                @if ($hasData)
+                                    <div class="text-[0.65rem] tabular-nums text-emerald-200 leading-tight">{{ $prodLabel }}</div>
+                                    @if ($cell['wasted_seconds'] > 0)
+                                        <div class="text-[0.55rem] tabular-nums text-rose-300 leading-tight">{{ $wastedLabel }} wasted</div>
+                                    @endif
+                                @else
+                                    <div class="text-[0.6rem] text-slate-600 leading-tight">—</div>
+                                @endif
+                            </div>
+                        </a>
+                    @endif
+                @endforeach
+            </div>
+            <p class="mt-3 text-[0.65rem] text-slate-500 flex flex-wrap items-center gap-x-4 gap-y-1">
+                <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-sm bg-emerald-500/45"></span> high productive</span>
+                <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-sm bg-emerald-500/25"></span> medium</span>
+                <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-sm bg-emerald-500/10"></span> low</span>
+                <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-sm bg-slate-950/40 border border-slate-800"></span> no data</span>
+                <span class="inline-flex items-center gap-1.5 ml-auto"><span class="inline-block h-2.5 w-2.5 rounded-sm border border-rose-500/60"></span> today</span>
+            </p>
+            <p class="mt-2 text-[0.65rem] text-slate-500">Click any date for a full read-only day report.</p>
+        </div>
+    </section>
+
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {{-- ─── Left rail ─────────────────────────────────────────── --}}
         <div class="space-y-4">

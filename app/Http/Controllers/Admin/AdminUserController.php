@@ -8,6 +8,7 @@ use App\Models\DailyGoal;
 use App\Models\TimeBlock;
 use App\Models\User;
 use App\Services\AdminAudit;
+use Carbon\CarbonImmutable;
 use DateTimeZone;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -59,11 +60,69 @@ class AdminUserController extends Controller
         ]);
     }
 
-    public function show($id)
+    public function show(Request $request, $id)
     {
         $user = User::withTrashed()->findOrFail($id);
 
         AdminAudit::log('viewed_user', $user->id);
+
+        // Calendar month is selectable via ?month=YYYY-MM. Defaults to the
+        // user's current month in their timezone.
+        $tz = $user->timezone ?: 'UTC';
+        $today = CarbonImmutable::now($tz);
+        $monthCursor = $request->query('month');
+        if ($monthCursor && preg_match('/^\d{4}-\d{2}$/', $monthCursor)) {
+            try {
+                $monthStart = CarbonImmutable::createFromFormat('!Y-m', $monthCursor, $tz)->startOfMonth();
+            } catch (\Throwable $e) {
+                $monthStart = $today->startOfMonth();
+            }
+        } else {
+            $monthStart = $today->startOfMonth();
+        }
+        $monthEnd = $monthStart->endOfMonth();
+
+        // Pull all blocks in the month for the calendar.
+        $monthBlocks = TimeBlock::withoutGlobalScopes()
+            ->where('user_id', $user->id)
+            ->where('duration_seconds', '>', 0)
+            ->whereBetween('start_time', [$monthStart, $monthEnd])
+            ->get(['start_time', 'duration_seconds', 'category', 'reason']);
+
+        $byDate = $monthBlocks->groupBy(fn ($b) => $b->start_time->toDateString());
+
+        // Build calendar grid: pad the first row to align Monday-first weeks.
+        $firstWeekday = (int) $monthStart->dayOfWeek;       // Sun=0..Sat=6
+        $padBefore = $firstWeekday === 0 ? 6 : $firstWeekday - 1;   // Mon-first
+        $daysInMonth = (int) $monthStart->daysInMonth;
+
+        $cells = [];
+        for ($i = 0; $i < $padBefore; $i++) $cells[] = null;
+        for ($d = 1; $d <= $daysInMonth; $d++) {
+            $date = $monthStart->setDay($d);
+            $key = $date->toDateString();
+            $blocks = $byDate[$key] ?? collect();
+            $productiveSec = (int) $blocks->where('category', '!=', 'wasted')->sum('duration_seconds');
+            $wastedSec = (int) $blocks->where('category', 'wasted')->sum('duration_seconds');
+            $cells[] = [
+                'date' => $date->toDateString(),
+                'day' => $d,
+                'is_today' => $date->isSameDay($today),
+                'is_future' => $date->gt($today),
+                'productive_seconds' => $productiveSec,
+                'wasted_seconds' => $wastedSec,
+                'block_count' => $blocks->count(),
+            ];
+        }
+        // Pad trailing cells so the grid is a multiple of 7.
+        while (count($cells) % 7 !== 0) $cells[] = null;
+
+        $monthTotals = [
+            'productive_seconds' => (int) $monthBlocks->where('category', '!=', 'wasted')->sum('duration_seconds'),
+            'wasted_seconds' => (int) $monthBlocks->where('category', 'wasted')->sum('duration_seconds'),
+            'block_count' => $monthBlocks->count(),
+            'days_logged' => $byDate->count(),
+        ];
 
         $timeBlocks = TimeBlock::withoutGlobalScopes()
             ->where('user_id', $user->id)
@@ -92,7 +151,105 @@ class AdminUserController extends Controller
                 ->sum('duration_seconds'),
         ];
 
-        return view('admin.users.show', compact('user', 'timeBlocks', 'dailyGoals', 'countdowns', 'totals'));
+        return view('admin.users.show', compact(
+            'user', 'timeBlocks', 'dailyGoals', 'countdowns', 'totals',
+            'cells', 'monthStart', 'monthTotals'
+        ));
+    }
+
+    /**
+     * Read-only day report for any user, viewed by an admin. Mirrors the
+     * end-user /history/day/{date} page but the date can belong to any user
+     * the admin is inspecting. Logs an audit entry.
+     */
+    public function day(Request $request, $id, $date)
+    {
+        $user = User::withTrashed()->findOrFail($id);
+
+        // Guard: regex on route checks shape; checkdate() catches invalid
+        // calendar dates like 2026-13-40 or 2025-02-29.
+        $parts = explode('-', $date);
+        if (count($parts) !== 3
+            || ! ctype_digit($parts[0]) || ! ctype_digit($parts[1]) || ! ctype_digit($parts[2])
+            || ! checkdate((int) $parts[1], (int) $parts[2], (int) $parts[0])) {
+            return redirect()
+                ->route('admin.users.show', $user->id)
+                ->with('toast', 'That date doesn\'t look right.');
+        }
+
+        AdminAudit::log('viewed_user_day', $user->id, ['date' => $date]);
+
+        $tz = $user->timezone ?: 'UTC';
+        $target = CarbonImmutable::parse($date, $tz)->startOfDay();
+        $today = CarbonImmutable::now($tz)->startOfDay();
+
+        $blocks = TimeBlock::withoutGlobalScopes()
+            ->where('user_id', $user->id)
+            ->where('duration_seconds', '>', 0)
+            ->whereBetween('start_time', [$target, $target->endOfDay()])
+            ->orderBy('start_time')
+            ->get();
+
+        $productiveSec = (int) $blocks->where('category', '!=', 'wasted')->sum('duration_seconds');
+        $wastedSec = (int) $blocks->where('category', 'wasted')->sum('duration_seconds');
+
+        // Sleep math (mirrors GoalTimeAnalysisService approach).
+        $end = $this->parseHM($user->end_of_day_time, '22:00');
+        $wake = $this->parseHM($user->wake_up_time, '07:00');
+        $endMins = $end[0] * 60 + $end[1];
+        $wakeMins = $wake[0] * 60 + $wake[1];
+        $sleepMinsPerNight = $wakeMins > $endMins
+            ? $wakeMins - $endMins
+            : (24 * 60) - $endMins + $wakeMins;
+        $sleepSec = $sleepMinsPerNight * 60;
+        $awakeSec = max(0, 24 * 3600 - $sleepSec);
+
+        $isCurrentDay = $target->isSameDay($today);
+        if ($isCurrentDay) {
+            $now = CarbonImmutable::now($tz);
+            $wakeDt = $target->setTime($wake[0], $wake[1]);
+            $awakeForRatioSec = $now->gt($wakeDt) ? max(0, $wakeDt->diffInSeconds($now)) : 1;
+        } else {
+            $awakeForRatioSec = max(1, $awakeSec);
+        }
+
+        $loggedSec = $productiveSec + $wastedSec;
+        $unloggedSec = max(0, $awakeForRatioSec - $loggedSec);
+        $efficiencyPct = (int) round(($productiveSec / $awakeForRatioSec) * 100);
+        $efficiencyPct = max(0, min(100, $efficiencyPct));
+
+        return view('admin.users.day', [
+            'user' => $user,
+            'date' => $target,
+            'dateLabel' => $target->format('l, F j, Y'),
+            'isCurrentDay' => $isCurrentDay,
+            'isFuture' => $target->gt($today),
+            'blocks' => $blocks,
+            'productiveSec' => $productiveSec,
+            'wastedSec' => $wastedSec,
+            'loggedSec' => $loggedSec,
+            'unloggedSec' => $unloggedSec,
+            'sleepSec' => $sleepSec,
+            'awakeSec' => $awakeSec,
+            'efficiencyPct' => $efficiencyPct,
+            'sleepWindowLabel' => $this->display12($end[0], $end[1]).' → '.$this->display12($wake[0], $wake[1]),
+            'sleepPerNightHours' => round($sleepMinsPerNight / 60, 2),
+        ]);
+    }
+
+    private function parseHM(?string $raw, string $fallback): array
+    {
+        $raw = $raw ?: $fallback;
+        $parts = explode(':', substr($raw, 0, 5));
+        return [(int) ($parts[0] ?? 0), (int) ($parts[1] ?? 0)];
+    }
+
+    private function display12(int $h, int $m): string
+    {
+        $period = $h >= 12 ? 'PM' : 'AM';
+        $h12 = $h % 12;
+        if ($h12 === 0) $h12 = 12;
+        return sprintf('%d:%02d %s', $h12, $m, $period);
     }
 
     public function edit($id)

@@ -59,8 +59,9 @@
             <div class="text-right">
                 <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Efficiency</div>
                 <div class="font-digital text-4xl {{ $tierBigText }}">{{ $effPct }}%</div>
-                <div class="text-[0.65rem] uppercase tracking-wider text-slate-500 mt-0.5">
-                    productive ÷ awake hours
+                <div class="text-[0.65rem] text-slate-500 mt-0.5"
+                    title="Wasted and unlogged time both reduce efficiency. Only productive logged blocks build it up.">
+                    productive ÷ (prod + wasted + unlogged)
                 </div>
             </div>
         </div>
@@ -102,13 +103,15 @@
                 <div class="text-[0.6rem] uppercase tracking-wider text-rose-300">Wasted</div>
                 <div class="mt-1 font-digital text-xl text-rose-200">{{ $fmt($wastedMs) }}</div>
             </div>
-            <div class="rounded-xl border border-slate-700/60 bg-slate-900/40 p-3">
-                <div class="text-[0.6rem] uppercase tracking-wider text-slate-400">Unlogged (awake)</div>
-                <div class="mt-1 font-digital text-xl text-slate-300">{{ $fmt($unloggedMs) }}</div>
+            <div class="rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-3">
+                <div class="text-[0.6rem] uppercase tracking-wider text-yellow-300">Unlogged (awake)</div>
+                <div class="mt-1 font-digital text-xl text-yellow-200">{{ $fmt($unloggedMs) }}</div>
+                <div class="text-[0.6rem] text-slate-500 mt-0.5">counts as non-productive</div>
             </div>
             <div class="rounded-xl border {{ $tierBoxBorder }} {{ $tierBoxBg }} p-3">
                 <div class="text-[0.6rem] uppercase tracking-wider {{ $tierBoxLabel }}">Efficiency</div>
                 <div class="mt-1 font-digital text-xl {{ $tierBoxValue }}">{{ $effPct }}%</div>
+                <div class="text-[0.6rem] text-slate-500 mt-0.5">prod ÷ (prod + wasted + unlogged)</div>
             </div>
         </div>
 
@@ -121,7 +124,7 @@
             <div class="h-2.5 rounded-full bg-slate-800/80 overflow-hidden flex">
                 <div class="h-full bg-emerald-400 transition-[width]" style="width: {{ $prodPct }}%"></div>
                 <div class="h-full bg-rose-400 transition-[width]" style="width: {{ $wastedBarPct }}%"></div>
-                <div class="h-full bg-slate-600 transition-[width]" style="width: {{ $unloggedBarPct }}%"></div>
+                <div class="h-full bg-yellow-400 transition-[width]" style="width: {{ $unloggedBarPct }}%"></div>
             </div>
             <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[0.65rem] uppercase tracking-wider text-slate-500">
                 <span class="inline-flex items-center gap-1.5">
@@ -133,10 +136,17 @@
                     Wasted {{ $wastedBarPct }}%
                 </span>
                 <span class="inline-flex items-center gap-1.5">
-                    <span class="inline-block h-2 w-2 rounded-full bg-slate-600"></span>
+                    <span class="inline-block h-2 w-2 rounded-full bg-yellow-400"></span>
                     Unlogged {{ $unloggedBarPct }}%
                 </span>
             </div>
+            @php $nonProdMs = $wastedMs + $unloggedMs; @endphp
+            <p class="mt-2 text-[0.65rem] text-slate-500">
+                <span class="text-rose-300">Wasted</span> +
+                <span class="text-yellow-300">Unlogged</span> = Non-productive total
+                <span class="font-digital text-slate-200">{{ $fmt($nonProdMs) }}</span>
+                — both reduce efficiency.
+            </p>
         </div>
     </section>
 

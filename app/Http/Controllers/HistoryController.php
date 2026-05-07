@@ -87,7 +87,14 @@ class HistoryController extends Controller
 
         $loggedMs = $productiveMs + $wastedMs;
         $unloggedMs = max(0, $awakeForRatio - $loggedMs);
-        $efficiencyPct = (int) round(($productiveMs / $awakeForRatio) * 100);
+        // Efficiency = productive ÷ (productive + wasted + unlogged).
+        // Wasted AND unlogged time both count against the user, so the only
+        // path to 100% is logging productive blocks across the whole awake
+        // window.
+        $effDenomMs = $productiveMs + $wastedMs + $unloggedMs;
+        $efficiencyPct = $effDenomMs > 0
+            ? (int) round(($productiveMs / $effDenomMs) * 100)
+            : 0;
         $efficiencyPct = max(0, min(100, $efficiencyPct));
 
         // Goal attribution per block (read-only — just for display).

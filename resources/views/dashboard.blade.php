@@ -23,6 +23,148 @@
         $signupAt = $user?->created_at?->copy()->setTimezone($timezone);
         $signupTimestamp = $signupAt?->toIso8601String();
         $signupDateLabel = $signupAt?->format('M j, Y');
+
+        // Server-side Last-7-Days tile data so the tiles always appear on
+        // first paint, regardless of JS state. JS can still refresh them
+        // when localStorage changes (existing renderLast7Days handles that).
+        $serverLast7 = collect();
+        if ($user) {
+            $today = \Carbon\Carbon::today($timezone);
+            $signupDay = $signupAt ? $signupAt->copy()->startOfDay() : null;
+            $start = $today->copy()->subDays(6);
+            $blocksByDate = \App\Models\TimeBlock::query()
+                ->where('user_id', $user->id)
+                ->where('duration_seconds', '>', 0)
+                ->whereBetween('start_time', [$start->copy()->startOfDay(), $today->copy()->endOfDay()])
+                ->get()
+                ->groupBy(fn ($b) => $b->start_time->toDateString());
+            for ($i = 0; $i < 7; $i++) {
+                $d = $start->copy()->addDays($i);
+                $key = $d->toDateString();
+                $blocksForDay = $blocksByDate[$key] ?? collect();
+                $productiveSec = (int) $blocksForDay->where('category', '!=', 'wasted')->sum('duration_seconds');
+                $wastedSec = (int) $blocksForDay->where('category', 'wasted')->sum('duration_seconds');
+                $serverLast7->push([
+                    'date' => $key,
+                    'day_short' => $d->format('D'),
+                    'day_num' => $d->day,
+                    'is_today' => $d->isSameDay($today),
+                    'is_pre_signup' => $signupDay && $d->lt($signupDay),
+                    'productive_ms' => $productiveSec * 1000,
+                    'wasted_ms' => $wastedSec * 1000,
+                ]);
+            }
+        }
+
+        $fmtDuration = function (int $ms) {
+            $totalMin = max(0, (int) round($ms / 60000));
+            if ($totalMin === 0) return '0m';
+            if ($totalMin < 60) return $totalMin.'m';
+            $h = intdiv($totalMin, 60);
+            $m = $totalMin % 60;
+            return $m === 0 ? $h.'h' : $h.'h '.$m.'m';
+        };
+        $fmtHours = function (int $ms) {
+            $h = $ms / 3600000;
+            if ($h < 1) return max(0, (int) round($ms / 60000)).'m';
+            if ($h < 10) return number_format($h, 1).'h';
+            return (int) round($h).'h';
+        };
+
+        // Server-side initial stats for Month and Year so the tiles always
+        // show data on first paint, even if JS hasn't run yet (or hits a
+        // browser cache issue). updatePeriod() in JS still refreshes these
+        // when localStorage changes.
+        $serverPeriodStats = [];
+        if ($user) {
+            $tz = $timezone;
+            $nowDt = \Carbon\Carbon::now($tz);
+            $signupClampDt = $signupAt;
+            $rangesPhp = [
+                'month' => [
+                    'start' => $nowDt->copy()->startOfMonth(),
+                    'end' => $nowDt->copy()->startOfMonth()->addMonth(),
+                ],
+                'year' => [
+                    'start' => $nowDt->copy()->startOfYear(),
+                    'end' => $nowDt->copy()->startOfYear()->addYear(),
+                ],
+            ];
+
+            // Pull all blocks in the largest range (year) once, reuse for month.
+            $yearStart = $rangesPhp['year']['start'];
+            $yearEnd = $rangesPhp['year']['end'];
+            $allYearBlocks = \App\Models\TimeBlock::query()
+                ->where('user_id', $user->id)
+                ->where('duration_seconds', '>', 0)
+                ->whereBetween('start_time', [$yearStart, $yearEnd])
+                ->get(['start_time', 'duration_seconds', 'category']);
+
+            foreach ($rangesPhp as $key => $range) {
+                $startDt = $range['start'];
+                $endDt = $range['end'];
+                $effectiveStart = ($signupClampDt && $signupClampDt->gt($startDt)) ? $signupClampDt : $startDt;
+                $passedMs = max(0, $effectiveStart->diffInRealMilliseconds($nowDt, false));
+                $leftMs = max(0, $nowDt->diffInRealMilliseconds($endDt, false));
+                $totalMs = max(1, $effectiveStart->diffInRealMilliseconds($endDt, false));
+
+                $blocksInRange = $allYearBlocks->filter(function ($b) use ($effectiveStart, $endDt) {
+                    return $b->start_time->gte($effectiveStart) && $b->start_time->lt($endDt);
+                });
+                $productiveMs = (int) ($blocksInRange->where('category', '!=', 'wasted')->sum('duration_seconds') * 1000);
+                $wastedMs = (int) ($blocksInRange->where('category', 'wasted')->sum('duration_seconds') * 1000);
+
+                // Sleep math (mirrors JS): one bedtime per calendar day in elapsed window.
+                $endMins = $endH * 60 + $endM;
+                $sleepNights = 0;
+                if ($passedMs > 0) {
+                    $cursor = $effectiveStart->copy()->startOfDay();
+                    $lastDay = $nowDt->copy()->startOfDay();
+                    while ($cursor->lte($lastDay)) {
+                        $bedtime = $cursor->copy()->setTime(intdiv($endMins, 60), $endMins % 60);
+                        if ($bedtime->gte($effectiveStart) && $bedtime->lte($nowDt)) $sleepNights++;
+                        $cursor->addDay();
+                    }
+                }
+                $sleepElapsedMs = $sleepNights * $sleepMins * 60 * 1000;
+                $awakeElapsedMs = max(0, $passedMs - $sleepElapsedMs);
+                $unloggedAwakeMs = max(0, $awakeElapsedMs - $productiveMs - $wastedMs);
+                // Efficiency = productive ÷ (productive + wasted + unlogged).
+                // Wasted AND unlogged time both count against the user, so the
+                // only path to 100% is logging productive blocks across the
+                // full awake window.
+                $effDenomMs = $productiveMs + $wastedMs + $unloggedAwakeMs;
+                $efficiencyPct = $effDenomMs > 0
+                    ? min(100, (int) round(($productiveMs / $effDenomMs) * 100))
+                    : 0;
+                $progressPct = min(100, ($passedMs / $totalMs) * 100);
+
+                // Awake-window segmented bar percentages (mirrors JS).
+                $awakeForBar = max(1, $awakeElapsedMs);
+                $prodPct = (int) round(($productiveMs / $awakeForBar) * 100);
+                $wastedBarPct = (int) round(($wastedMs / $awakeForBar) * 100);
+                $unloggedBarPct = max(0, 100 - $prodPct - $wastedBarPct);
+
+                $serverPeriodStats[$key] = [
+                    'passed_ms' => (int) $passedMs,
+                    'left_ms' => (int) $leftMs,
+                    'total_ms' => (int) $totalMs,
+                    'productive_ms' => $productiveMs,
+                    'wasted_ms' => $wastedMs,
+                    'sleep_ms' => (int) $sleepElapsedMs,
+                    'sleep_nights' => $sleepNights,
+                    'sleep_per_night_ms' => (int) ($sleepMins * 60 * 1000),
+                    'awake_ms' => (int) $awakeElapsedMs,
+                    'unlogged_ms' => (int) $unloggedAwakeMs,
+                    'efficiency_pct' => $efficiencyPct,
+                    'progress_pct' => round($progressPct, 2),
+                    'bar_productive_pct' => $prodPct,
+                    'bar_wasted_pct' => $wastedBarPct,
+                    'bar_unlogged_pct' => $unloggedBarPct,
+                    'range_label' => $effectiveStart->format('M j').' – '.$endDt->copy()->subDay()->format('M j'),
+                ];
+            }
+        }
     @endphp
     @auth
         <div class="relative overflow-hidden rounded-2xl border border-slate-800/60 bg-[radial-gradient(circle_at_top,_rgba(0,224,255,0.15),_transparent_45%)] p-8 mb-10">
@@ -83,7 +225,7 @@
 
                 <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-4">
                     <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Unlogged today</div>
-                    <div class="mt-2 text-2xl text-slate-100" data-unlogged-today>0m</div>
+                    <div class="mt-2 text-2xl text-slate-300" data-unlogged-today>0m</div>
                     <div class="text-xs text-slate-500 mt-1" data-unlogged-context>since wake-up</div>
                 </div>
             </div>
@@ -92,16 +234,23 @@
                  waking window has been spent. Productive vs Wasted vs
                  Unlogged on a single segmented bar. --}}
             <div class="mt-5">
-                <div class="flex items-center justify-between text-xs uppercase tracking-[0.2em] text-slate-400 mb-2">
+                <div class="flex items-center justify-between text-xs uppercase tracking-[0.2em] text-slate-400 mb-1">
                     <span>Day efficiency</span>
                     <span>
                         <span class="text-emerald-300 font-digital text-base" data-day-effective-pct>—</span>
                         <span class="text-slate-500 ml-1">effective</span>
                     </span>
                 </div>
+                <p class="text-[0.65rem] text-slate-500 normal-case tracking-normal mb-2">
+                    Productive ÷ (Productive + Non-productive),
+                    where <span class="text-rose-300">Wasted</span> +
+                    <span class="text-yellow-300">Unlogged</span> = Non-productive
+                    (unlogged time counts against efficiency too).
+                </p>
                 <div class="h-2 rounded-full bg-slate-800/80 overflow-hidden flex">
                     <div class="h-full bg-emerald-400 transition-[width] duration-500" data-day-productive-bar style="width: 0%"></div>
                     <div class="h-full bg-rose-400 transition-[width] duration-500" data-day-wasted-bar style="width: 0%"></div>
+                    <div class="h-full bg-yellow-400 transition-[width] duration-500" data-day-unlogged-bar style="width: 0%"></div>
                 </div>
                 <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[0.65rem] uppercase tracking-wider text-slate-500">
                     <span class="inline-flex items-center gap-1.5">
@@ -113,8 +262,12 @@
                         Wasted <span data-day-wasted-time class="text-rose-300 normal-case font-digital">—</span>
                     </span>
                     <span class="inline-flex items-center gap-1.5">
-                        <span class="inline-block h-2 w-2 rounded-full bg-slate-600"></span>
-                        Unlogged <span data-day-unlogged-time class="text-slate-400 normal-case font-digital">—</span>
+                        <span class="inline-block h-2 w-2 rounded-full bg-yellow-400"></span>
+                        Unlogged <span data-day-unlogged-time class="text-yellow-300 normal-case font-digital">—</span>
+                    </span>
+                    <span class="inline-flex items-center gap-1.5 ml-auto">
+                        <span class="text-slate-400">Non-productive</span>
+                        <span data-day-nonproductive-time class="text-slate-200 normal-case font-digital">—</span>
                     </span>
                 </div>
             </div>
@@ -195,15 +348,23 @@
                         <div class="text-[0.6rem] uppercase tracking-wider text-rose-300">Wasted</div>
                         <div class="mt-1 font-digital text-lg text-rose-200" data-period-wasted>—</div>
                     </div>
-                    <div class="rounded-xl border border-slate-700/60 bg-slate-900/40 p-3">
-                        <div class="text-[0.6rem] uppercase tracking-wider text-slate-400">Unlogged (awake)</div>
-                        <div class="mt-1 font-digital text-lg text-slate-300" data-period-unlogged>—</div>
+                    <div class="rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-3">
+                        <div class="text-[0.6rem] uppercase tracking-wider text-yellow-300">Unlogged (awake)</div>
+                        <div class="mt-1 font-digital text-lg text-yellow-200" data-period-unlogged>—</div>
+                        <div class="text-[0.6rem] text-slate-500 mt-0.5">counts as non-productive</div>
                     </div>
                     <div class="rounded-xl border border-[var(--chrono-blue)]/30 bg-[var(--chrono-blue)]/5 p-3">
                         <div class="text-[0.6rem] uppercase tracking-wider text-[var(--chrono-blue)]">Efficiency</div>
                         <div class="mt-1 font-digital text-lg text-[var(--chrono-blue)]" data-period-ratio>—</div>
+                        <div class="text-[0.6rem] text-slate-500 mt-0.5">productive ÷ (prod + non-productive)</div>
                     </div>
                 </div>
+                <p class="mt-2 text-[0.65rem] text-slate-500">
+                    <span class="text-rose-300">Wasted</span> +
+                    <span class="text-yellow-300">Unlogged</span> = Non-productive total
+                    <span class="font-digital text-slate-200" data-period-nonproductive>—</span>
+                    — both reduce efficiency.
+                </p>
             </div>
 
             {{-- Awake-window segmented bar --}}
@@ -215,84 +376,253 @@
                 <div class="h-2 rounded-full bg-slate-800/80 overflow-hidden flex">
                     <div class="h-full bg-emerald-400 transition-[width] duration-500" data-period-bar-productive style="width: 0%"></div>
                     <div class="h-full bg-rose-400 transition-[width] duration-500" data-period-bar-wasted style="width: 0%"></div>
-                    <div class="h-full bg-slate-600 transition-[width] duration-500" data-period-bar-unlogged style="width: 0%"></div>
+                    <div class="h-full bg-yellow-400 transition-[width] duration-500" data-period-bar-unlogged style="width: 0%"></div>
                 </div>
                 <div class="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[0.65rem] uppercase tracking-wider text-slate-500">
                     <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-emerald-400"></span> Productive</span>
                     <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-rose-400"></span> Wasted</span>
-                    <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-slate-600"></span> Unlogged</span>
+                    <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-yellow-400"></span> Unlogged</span>
                 </div>
             </div>
 
             <div class="mt-5">
                 <h3 class="text-xs uppercase tracking-[0.2em] text-slate-400">Last 7 days</h3>
                 <p class="text-[0.65rem] text-slate-500 mt-0.5">Click any past day for a read-only report.</p>
-                <div class="mt-2 grid grid-cols-7 gap-2" data-last-7-days></div>
+                <div class="mt-2 grid grid-cols-7 gap-2" data-last-7-days>
+                    {{-- Server-side initial render so the tiles always show
+                         on first paint. JS (renderLast7Days) replaces this
+                         markup when localStorage changes. --}}
+                    @foreach ($serverLast7 as $tile)
+                        @php
+                            if ($tile['is_pre_signup']) {
+                                $cls = 'rounded-lg border border-slate-800/30 bg-slate-900/20 opacity-50 p-2 text-center';
+                            } elseif ($tile['is_today']) {
+                                $cls = 'rounded-lg border border-[var(--chrono-blue)] bg-slate-800/60 p-2 text-center';
+                            } else {
+                                $cls = 'block rounded-lg border border-slate-800/60 bg-slate-900/40 hover:border-[var(--chrono-blue)]/60 transition-colors cursor-pointer p-2 text-center';
+                            }
+                            $clickable = ! $tile['is_pre_signup'] && ! $tile['is_today'];
+                        @endphp
+                        @if ($clickable)
+                            <a href="{{ route('history.day', ['date' => $tile['date']]) }}"
+                                class="{{ $cls }}" title="Click to see detailed report">
+                                <div class="text-[0.65rem] uppercase tracking-wider text-slate-400">{{ $tile['day_short'] }}</div>
+                                <div class="text-[0.65rem] text-slate-500">{{ $tile['day_num'] }}</div>
+                                <div class="mt-1 text-sm">
+                                    @if ($tile['productive_ms'] > 0)
+                                        <span class="text-emerald-300 font-medium">{{ $fmtDuration($tile['productive_ms']) }}</span>
+                                    @else
+                                        <span class="text-rose-400 font-medium">0</span>
+                                    @endif
+                                </div>
+                                @if ($tile['wasted_ms'] > 0)
+                                    <div class="text-[0.6rem] text-rose-400/80 mt-0.5">{{ $fmtDuration($tile['wasted_ms']) }} wasted</div>
+                                @endif
+                            </a>
+                        @else
+                            <div class="{{ $cls }}"
+                                title="{{ $tile['is_pre_signup'] ? 'Before your signup' : 'Current day — see Today section above' }}">
+                                <div class="text-[0.65rem] uppercase tracking-wider text-slate-400">{{ $tile['day_short'] }}</div>
+                                <div class="text-[0.65rem] text-slate-500">{{ $tile['day_num'] }}</div>
+                                <div class="mt-1 text-sm">
+                                    @if ($tile['is_pre_signup'])
+                                        <span class="text-slate-600 italic">pre-signup</span>
+                                    @elseif ($tile['productive_ms'] > 0)
+                                        <span class="text-emerald-300 font-medium">{{ $fmtDuration($tile['productive_ms']) }}</span>
+                                    @else
+                                        <span class="text-rose-400 font-medium">0</span>
+                                    @endif
+                                </div>
+                                @if (! $tile['is_pre_signup'] && $tile['wasted_ms'] > 0)
+                                    <div class="text-[0.6rem] text-rose-400/80 mt-0.5">{{ $fmtDuration($tile['wasted_ms']) }} wasted</div>
+                                @endif
+                            </div>
+                        @endif
+                    @endforeach
+                </div>
             </div>
         </section>
 
+        @php $monthStats = $serverPeriodStats['month'] ?? null; @endphp
         <section class="chrono-panel rounded-2xl p-6 md:p-8" data-period-section="month">
             <div class="flex items-baseline justify-between gap-4">
                 <h2 class="font-display text-sm uppercase tracking-[0.3em] text-slate-300">This month</h2>
-                <span class="text-xs text-slate-500" data-period-range></span>
+                <span class="text-xs text-slate-500" data-period-range>{{ $monthStats['range_label'] ?? '' }}</span>
             </div>
             <div class="mt-4 h-2 rounded-full bg-slate-800/80 overflow-hidden">
-                <div class="h-full bg-[var(--chrono-orange)] transition-[width] duration-500" data-period-progress style="width: 0%"></div>
+                <div class="h-full bg-[var(--chrono-orange)] transition-[width] duration-500" data-period-progress
+                    style="width: {{ $monthStats['progress_pct'] ?? 0 }}%"></div>
             </div>
             <div class="mt-2 text-xs space-y-1 hidden" data-period-note></div>
-            <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 mt-4">
-                <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
-                    <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Passed</div>
-                    <div class="mt-1 text-lg text-slate-100" data-period-passed>—</div>
+
+            {{-- Window row: total, sleep, awake, time left --}}
+            <div class="mt-4">
+                <div class="text-[0.65rem] uppercase tracking-wider text-slate-500 mb-1.5">The month</div>
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
+                        <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Total hours</div>
+                        <div class="mt-1 font-digital text-lg text-slate-100" data-period-total>{{ $monthStats ? $fmtHours($monthStats['total_ms']) : '—' }}</div>
+                        <div class="text-[0.65rem] text-slate-500 mt-0.5">since signup, capped at month</div>
+                    </div>
+                    <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
+                        <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Sleep</div>
+                        <div class="mt-1 font-digital text-lg text-slate-300" data-period-sleep>{{ $monthStats ? $fmtHours($monthStats['sleep_ms']) : '—' }}</div>
+                        <div class="text-[0.65rem] text-slate-500 mt-0.5" data-period-sleep-note>{{ $monthStats ? $monthStats['sleep_nights'].' '.($monthStats['sleep_nights'] === 1 ? 'night' : 'nights').' × '.$fmtHours($monthStats['sleep_per_night_ms']) : '—' }}</div>
+                    </div>
+                    <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
+                        <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Awake hours</div>
+                        <div class="mt-1 font-digital text-lg text-slate-100" data-period-awake>{{ $monthStats ? $fmtHours($monthStats['awake_ms']) : '—' }}</div>
+                        <div class="text-[0.65rem] text-slate-500 mt-0.5">total − sleep</div>
+                    </div>
+                    <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
+                        <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Time left</div>
+                        <div class="mt-1 font-digital text-lg text-slate-100" data-period-left>{{ $monthStats ? $fmtHours($monthStats['left_ms']) : '—' }}</div>
+                        <div class="text-[0.65rem] text-slate-500 mt-0.5">until end of month</div>
+                    </div>
                 </div>
-                <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
-                    <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Left</div>
-                    <div class="mt-1 text-lg text-slate-100" data-period-left>—</div>
+            </div>
+
+            {{-- Activity row: productive, wasted, unlogged, efficiency --}}
+            <div class="mt-4">
+                <div class="text-[0.65rem] uppercase tracking-wider text-slate-500 mb-1.5">How you spent it</div>
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div class="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">
+                        <div class="text-[0.6rem] uppercase tracking-wider text-emerald-300">Productive</div>
+                        <div class="mt-1 font-digital text-lg text-emerald-200" data-period-productive>{{ $monthStats && $monthStats['productive_ms'] > 0 ? $fmtHours($monthStats['productive_ms']) : '—' }}</div>
+                    </div>
+                    <div class="rounded-xl border border-rose-500/30 bg-rose-500/5 p-3">
+                        <div class="text-[0.6rem] uppercase tracking-wider text-rose-300">Wasted</div>
+                        <div class="mt-1 font-digital text-lg text-rose-200" data-period-wasted>{{ $monthStats && $monthStats['wasted_ms'] > 0 ? $fmtHours($monthStats['wasted_ms']) : '—' }}</div>
+                    </div>
+                    <div class="rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-3">
+                        <div class="text-[0.6rem] uppercase tracking-wider text-yellow-300">Unlogged (awake)</div>
+                        <div class="mt-1 font-digital text-lg text-yellow-200" data-period-unlogged>{{ $monthStats && $monthStats['unlogged_ms'] > 0 ? $fmtHours($monthStats['unlogged_ms']) : '—' }}</div>
+                        <div class="text-[0.6rem] text-slate-500 mt-0.5">counts as non-productive</div>
+                    </div>
+                    <div class="rounded-xl border border-[var(--chrono-blue)]/30 bg-[var(--chrono-blue)]/5 p-3">
+                        <div class="text-[0.6rem] uppercase tracking-wider text-[var(--chrono-blue)]">Efficiency</div>
+                        <div class="mt-1 font-digital text-lg text-[var(--chrono-blue)]" data-period-ratio>{{ $monthStats && $monthStats['passed_ms'] > 0 ? $monthStats['efficiency_pct'].'%' : '—' }}</div>
+                        <div class="text-[0.6rem] text-slate-500 mt-0.5">productive ÷ (prod + non-productive)</div>
+                    </div>
                 </div>
-                <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
-                    <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Productive</div>
-                    <div class="mt-1 text-lg text-emerald-300" data-period-productive>—</div>
+                @php
+                    $monthNonProd = ($monthStats['wasted_ms'] ?? 0) + ($monthStats['unlogged_ms'] ?? 0);
+                @endphp
+                <p class="mt-2 text-[0.65rem] text-slate-500">
+                    <span class="text-rose-300">Wasted</span> +
+                    <span class="text-yellow-300">Unlogged</span> = Non-productive total
+                    <span class="font-digital text-slate-200" data-period-nonproductive>{{ $monthNonProd > 0 ? $fmtHours($monthNonProd) : '0h' }}</span>
+                    — both reduce efficiency.
+                </p>
+            </div>
+
+            {{-- Awake-window segmented bar --}}
+            <div class="mt-4">
+                <div class="flex items-center justify-between text-[0.65rem] uppercase tracking-wider text-slate-500 mb-1.5">
+                    <span>Awake-window breakdown</span>
+                    <span data-period-awake-label>{{ $monthStats ? $fmtHours($monthStats['awake_ms']).' awake elapsed' : '—' }}</span>
                 </div>
-                <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
-                    <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Wasted</div>
-                    <div class="mt-1 text-lg text-rose-300" data-period-wasted>—</div>
+                <div class="h-2 rounded-full bg-slate-800/80 overflow-hidden flex">
+                    <div class="h-full bg-emerald-400 transition-[width] duration-500" data-period-bar-productive style="width: {{ $monthStats['bar_productive_pct'] ?? 0 }}%"></div>
+                    <div class="h-full bg-rose-400 transition-[width] duration-500" data-period-bar-wasted style="width: {{ $monthStats['bar_wasted_pct'] ?? 0 }}%"></div>
+                    <div class="h-full bg-yellow-400 transition-[width] duration-500" data-period-bar-unlogged style="width: {{ $monthStats['bar_unlogged_pct'] ?? 0 }}%"></div>
                 </div>
-                <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
-                    <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Utilization</div>
-                    <div class="mt-1 text-lg text-slate-100" data-period-ratio>—</div>
+                <div class="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[0.65rem] uppercase tracking-wider text-slate-500">
+                    <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-emerald-400"></span> Productive</span>
+                    <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-rose-400"></span> Wasted</span>
+                    <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-yellow-400"></span> Unlogged</span>
                 </div>
             </div>
         </section>
 
+        @php $yearStats = $serverPeriodStats['year'] ?? null; @endphp
         <section class="chrono-panel rounded-2xl p-6 md:p-8" data-period-section="year">
             <div class="flex items-baseline justify-between gap-4">
                 <h2 class="font-display text-sm uppercase tracking-[0.3em] text-slate-300">This year</h2>
-                <span class="text-xs text-slate-500" data-period-range></span>
+                <span class="text-xs text-slate-500" data-period-range>{{ $yearStats['range_label'] ?? '' }}</span>
             </div>
             <div class="mt-4 h-2 rounded-full bg-slate-800/80 overflow-hidden">
-                <div class="h-full bg-emerald-400 transition-[width] duration-500" data-period-progress style="width: 0%"></div>
+                <div class="h-full bg-emerald-400 transition-[width] duration-500" data-period-progress
+                    style="width: {{ $yearStats['progress_pct'] ?? 0 }}%"></div>
             </div>
             <div class="mt-2 text-xs space-y-1 hidden" data-period-note></div>
-            <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 mt-4">
-                <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
-                    <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Passed</div>
-                    <div class="mt-1 text-lg text-slate-100" data-period-passed>—</div>
+
+            {{-- Window row: total, sleep, awake, time left --}}
+            <div class="mt-4">
+                <div class="text-[0.65rem] uppercase tracking-wider text-slate-500 mb-1.5">The year</div>
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
+                        <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Total hours</div>
+                        <div class="mt-1 font-digital text-lg text-slate-100" data-period-total>{{ $yearStats ? $fmtHours($yearStats['total_ms']) : '—' }}</div>
+                        <div class="text-[0.65rem] text-slate-500 mt-0.5">since signup, capped at year</div>
+                    </div>
+                    <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
+                        <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Sleep</div>
+                        <div class="mt-1 font-digital text-lg text-slate-300" data-period-sleep>{{ $yearStats ? $fmtHours($yearStats['sleep_ms']) : '—' }}</div>
+                        <div class="text-[0.65rem] text-slate-500 mt-0.5" data-period-sleep-note>{{ $yearStats ? $yearStats['sleep_nights'].' '.($yearStats['sleep_nights'] === 1 ? 'night' : 'nights').' × '.$fmtHours($yearStats['sleep_per_night_ms']) : '—' }}</div>
+                    </div>
+                    <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
+                        <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Awake hours</div>
+                        <div class="mt-1 font-digital text-lg text-slate-100" data-period-awake>{{ $yearStats ? $fmtHours($yearStats['awake_ms']) : '—' }}</div>
+                        <div class="text-[0.65rem] text-slate-500 mt-0.5">total − sleep</div>
+                    </div>
+                    <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
+                        <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Time left</div>
+                        <div class="mt-1 font-digital text-lg text-slate-100" data-period-left>{{ $yearStats ? $fmtHours($yearStats['left_ms']) : '—' }}</div>
+                        <div class="text-[0.65rem] text-slate-500 mt-0.5">until end of year</div>
+                    </div>
                 </div>
-                <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
-                    <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Left</div>
-                    <div class="mt-1 text-lg text-slate-100" data-period-left>—</div>
+            </div>
+
+            {{-- Activity row: productive, wasted, unlogged, efficiency --}}
+            <div class="mt-4">
+                <div class="text-[0.65rem] uppercase tracking-wider text-slate-500 mb-1.5">How you spent it</div>
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div class="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">
+                        <div class="text-[0.6rem] uppercase tracking-wider text-emerald-300">Productive</div>
+                        <div class="mt-1 font-digital text-lg text-emerald-200" data-period-productive>{{ $yearStats && $yearStats['productive_ms'] > 0 ? $fmtHours($yearStats['productive_ms']) : '—' }}</div>
+                    </div>
+                    <div class="rounded-xl border border-rose-500/30 bg-rose-500/5 p-3">
+                        <div class="text-[0.6rem] uppercase tracking-wider text-rose-300">Wasted</div>
+                        <div class="mt-1 font-digital text-lg text-rose-200" data-period-wasted>{{ $yearStats && $yearStats['wasted_ms'] > 0 ? $fmtHours($yearStats['wasted_ms']) : '—' }}</div>
+                    </div>
+                    <div class="rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-3">
+                        <div class="text-[0.6rem] uppercase tracking-wider text-yellow-300">Unlogged (awake)</div>
+                        <div class="mt-1 font-digital text-lg text-yellow-200" data-period-unlogged>{{ $yearStats && $yearStats['unlogged_ms'] > 0 ? $fmtHours($yearStats['unlogged_ms']) : '—' }}</div>
+                        <div class="text-[0.6rem] text-slate-500 mt-0.5">counts as non-productive</div>
+                    </div>
+                    <div class="rounded-xl border border-[var(--chrono-blue)]/30 bg-[var(--chrono-blue)]/5 p-3">
+                        <div class="text-[0.6rem] uppercase tracking-wider text-[var(--chrono-blue)]">Efficiency</div>
+                        <div class="mt-1 font-digital text-lg text-[var(--chrono-blue)]" data-period-ratio>{{ $yearStats && $yearStats['passed_ms'] > 0 ? $yearStats['efficiency_pct'].'%' : '—' }}</div>
+                        <div class="text-[0.6rem] text-slate-500 mt-0.5">productive ÷ (prod + non-productive)</div>
+                    </div>
                 </div>
-                <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
-                    <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Productive</div>
-                    <div class="mt-1 text-lg text-emerald-300" data-period-productive>—</div>
+                @php
+                    $yearNonProd = ($yearStats['wasted_ms'] ?? 0) + ($yearStats['unlogged_ms'] ?? 0);
+                @endphp
+                <p class="mt-2 text-[0.65rem] text-slate-500">
+                    <span class="text-rose-300">Wasted</span> +
+                    <span class="text-yellow-300">Unlogged</span> = Non-productive total
+                    <span class="font-digital text-slate-200" data-period-nonproductive>{{ $yearNonProd > 0 ? $fmtHours($yearNonProd) : '0h' }}</span>
+                    — both reduce efficiency.
+                </p>
+            </div>
+
+            {{-- Awake-window segmented bar --}}
+            <div class="mt-4">
+                <div class="flex items-center justify-between text-[0.65rem] uppercase tracking-wider text-slate-500 mb-1.5">
+                    <span>Awake-window breakdown</span>
+                    <span data-period-awake-label>{{ $yearStats ? $fmtHours($yearStats['awake_ms']).' awake elapsed' : '—' }}</span>
                 </div>
-                <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
-                    <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Wasted</div>
-                    <div class="mt-1 text-lg text-rose-300" data-period-wasted>—</div>
+                <div class="h-2 rounded-full bg-slate-800/80 overflow-hidden flex">
+                    <div class="h-full bg-emerald-400 transition-[width] duration-500" data-period-bar-productive style="width: {{ $yearStats['bar_productive_pct'] ?? 0 }}%"></div>
+                    <div class="h-full bg-rose-400 transition-[width] duration-500" data-period-bar-wasted style="width: {{ $yearStats['bar_wasted_pct'] ?? 0 }}%"></div>
+                    <div class="h-full bg-yellow-400 transition-[width] duration-500" data-period-bar-unlogged style="width: {{ $yearStats['bar_unlogged_pct'] ?? 0 }}%"></div>
                 </div>
-                <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
-                    <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Utilization</div>
-                    <div class="mt-1 text-lg text-slate-100" data-period-ratio>—</div>
+                <div class="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[0.65rem] uppercase tracking-wider text-slate-500">
+                    <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-emerald-400"></span> Productive</span>
+                    <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-rose-400"></span> Wasted</span>
+                    <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-yellow-400"></span> Unlogged</span>
                 </div>
             </div>
         </section>
@@ -381,6 +711,19 @@
                         style="color-scheme: dark"
                         class="w-full rounded-lg bg-slate-900/70 border border-slate-700 px-3 py-2 text-slate-100 placeholder-slate-500 leading-relaxed resize-none min-h-[5rem] overflow-hidden focus:border-[var(--chrono-blue)] focus:outline-none focus:ring-1 focus:ring-[var(--chrono-blue)]/40"></textarea>
                     <p class="mt-1 text-[0.65rem] text-slate-500"><span data-reason-count>0</span> / 500 characters</p>
+
+                    {{-- Real-time classifier hint. Updates as the user types,
+                         showing the inferred category, confidence, and any
+                         clarification suggestions (e.g. "add 30m durations to
+                         split mixed blocks"). --}}
+                    <div id="block_reason_hint" class="mt-1.5 hidden rounded-md border px-2 py-1 text-[0.65rem]" role="status" aria-live="polite">
+                        <span class="inline-flex items-center gap-1.5">
+                            <span data-hint-icon class="font-display text-base"></span>
+                            <span data-hint-label class="uppercase tracking-wider"></span>
+                            <span data-hint-confidence class="text-slate-500 normal-case tracking-normal"></span>
+                        </span>
+                        <span data-hint-suggestion class="block mt-0.5 text-slate-400 normal-case tracking-normal"></span>
+                    </div>
                 </div>
             </div>
             <p class="mt-3 text-xs text-slate-400">
@@ -402,6 +745,88 @@
                     Cancel
                 </button>
                 <p id="block_form_error" class="text-xs text-rose-400 hidden" aria-live="polite"></p>
+            </div>
+
+            {{-- Ambiguity-resolution modal. Opens when the user tries to save
+                 a block whose label has both productive AND wasted signals
+                 without explicit duration markers. Lets the user either:
+                  • split the block into two parts (specify minutes for each),
+                  • or pick one category and proceed,
+                  • or cancel and go back to editing. --}}
+            <div id="block_ambiguity_modal"
+                role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="block_ambiguity_title"
+                class="fixed inset-0 z-50 hidden items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+                <div class="w-full max-w-lg rounded-2xl border border-amber-500/40 bg-[var(--chrono-bg)] p-6 shadow-2xl">
+                    <h3 id="block_ambiguity_title" class="font-display text-base uppercase tracking-[0.2em] text-amber-300">
+                        Specify times for this block
+                    </h3>
+                    <p class="mt-2 text-sm text-slate-300">
+                        Your reason mentions <span class="text-rose-300" data-amb-wasted-list></span>
+                        and <span class="text-emerald-300" data-amb-productive-list></span> —
+                        we can't tell how much time was spent on each.
+                    </p>
+                    <p class="mt-1 text-xs text-slate-500">
+                        Block duration: <span data-amb-block-duration class="text-slate-300 font-digital"></span>
+                    </p>
+
+                    {{-- Mode A: split with explicit minutes --}}
+                    <div class="mt-4 rounded-lg border border-slate-700/60 bg-slate-900/40 p-3">
+                        <div class="text-xs uppercase tracking-[0.2em] text-slate-400 mb-2">Split the block</div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-[0.65rem] uppercase tracking-wider text-slate-500 mb-1">Wasted (minutes)</label>
+                                <div class="flex items-center gap-2">
+                                    <input type="number" min="0" max="1440" data-amb-wasted-min
+                                        class="w-full rounded-md bg-slate-900/70 border border-rose-500/40 px-2 py-1.5 text-rose-200">
+                                    <input type="text" data-amb-wasted-label
+                                        placeholder="e.g. sleep"
+                                        class="w-full rounded-md bg-slate-900/70 border border-slate-700 px-2 py-1.5 text-slate-100">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-[0.65rem] uppercase tracking-wider text-slate-500 mb-1">Productive (minutes)</label>
+                                <div class="flex items-center gap-2">
+                                    <input type="number" min="0" max="1440" data-amb-productive-min
+                                        class="w-full rounded-md bg-slate-900/70 border border-emerald-500/40 px-2 py-1.5 text-emerald-200">
+                                    <input type="text" data-amb-productive-label
+                                        placeholder="e.g. study"
+                                        class="w-full rounded-md bg-slate-900/70 border border-slate-700 px-2 py-1.5 text-slate-100">
+                                </div>
+                            </div>
+                        </div>
+                        <p class="mt-2 text-[0.65rem] text-slate-500">
+                            Sum: <span data-amb-sum class="font-digital text-slate-300">0m</span>
+                            of <span data-amb-block-duration-2 class="font-digital text-slate-300">—</span>
+                            <span data-amb-sum-warn class="hidden text-rose-400 ml-2"></span>
+                        </p>
+                        <button type="button" id="block_ambiguity_split"
+                            class="mt-3 w-full rounded-md bg-[var(--chrono-blue)] text-slate-950 font-semibold px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                            Save as split block
+                        </button>
+                    </div>
+
+                    {{-- Mode B: pick one category for the whole block --}}
+                    <div class="mt-3 rounded-lg border border-slate-700/60 bg-slate-900/40 p-3">
+                        <div class="text-xs uppercase tracking-[0.2em] text-slate-400 mb-2">Or assign the whole block to one category</div>
+                        <div class="flex flex-wrap gap-2">
+                            <button type="button" data-amb-pick="productive"
+                                class="rounded-md border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-200 px-3 py-1.5 text-sm">
+                                All productive
+                            </button>
+                            <button type="button" data-amb-pick="wasted"
+                                class="rounded-md border border-rose-500/40 bg-rose-500/10 hover:bg-rose-500/20 text-rose-200 px-3 py-1.5 text-sm">
+                                All wasted
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="mt-4 flex justify-end gap-2">
+                        <button type="button" id="block_ambiguity_cancel"
+                            class="rounded-md border border-slate-600 hover:border-slate-400 px-3 py-1.5 text-sm text-slate-200">
+                            Back to editing
+                        </button>
+                    </div>
+                </div>
             </div>
 
             <div class="mt-6 overflow-x-auto">
@@ -597,6 +1022,271 @@
                     }
 
                     return 'productive';
+                };
+
+                // ──────────────────────────────────────────────────────────
+                // Enhanced classifier: rich `analyzeLabel(label)` that returns
+                // confidence + ambiguity signals + suggestions. Used by the
+                // real-time hint under the reason input and by the save-time
+                // interception that asks the user to clarify ambiguous blocks.
+                // ──────────────────────────────────────────────────────────
+
+                // Curated productive-activity keywords — anchors for confidence
+                // scoring and for distinguishing mixed-content blocks. We never
+                // flip a block to wasted on these (the WASTED_TOKENS list is the
+                // only thing that does that), but their presence raises the
+                // productive-confidence and helps the classifier detect
+                // mixed-category blocks like "30m sleep + 30m study".
+                const PRODUCTIVE_TOKENS = [
+                    // work / study verbs
+                    'work', 'working', 'worked', 'works',
+                    'study', 'studying', 'studied', 'studies',
+                    'learn', 'learning', 'learned', 'learnt',
+                    'read', 'reading',
+                    'review', 'reviewing', 'reviewed',
+                    'practice', 'practicing', 'practiced',
+                    'research', 'researching', 'researched',
+                    'plan', 'planning', 'planned',
+                    'analyze', 'analyzing', 'analyzed',
+                    'design', 'designing', 'designed',
+                    'develop', 'developing', 'developed',
+                    'build', 'building', 'built',
+                    'create', 'creating', 'created',
+                    'write', 'writing', 'wrote', 'written',
+                    'code', 'coding', 'coded',
+                    'debug', 'debugging', 'debugged',
+                    'refactor', 'refactoring', 'refactored',
+                    'test', 'testing', 'tested',
+                    'deploy', 'deploying', 'deployed',
+                    'fix', 'fixing', 'fixed',
+                    'ship', 'shipping', 'shipped',
+                    'meeting', 'meetings',
+                    'interview', 'interviewing',
+                    'standup', 'sync',
+                    'workshop', 'training',
+                    'lecture', 'class', 'lesson',
+                    'homework', 'assignment',
+                    'exam', 'quiz', 'revision', 'revising',
+                    'lab', 'experiment',
+                    'practice', 'rehearse', 'rehearsing',
+                    // typical pursuits the dashboard's users do
+                    'aws', 'gcp', 'azure', 'kubernetes', 'docker',
+                    'react', 'vue', 'angular', 'svelte',
+                    'laravel', 'django', 'rails', 'flask', 'spring',
+                    'python', 'java', 'javascript', 'typescript', 'rust', 'golang',
+                    'sql', 'database', 'devops', 'security', 'pentest',
+                    'leetcode', 'algorithm', 'algorithms',
+                    'project', 'task', 'tasks', 'feature', 'bug',
+                    'document', 'documenting', 'docs',
+                    'email', 'emails', 'inbox',
+                    // health/skill productive
+                    'gym', 'workout', 'exercise', 'exercising',
+                    'run', 'running', 'jog', 'jogging', 'cycle', 'cycling',
+                    'yoga', 'meditate', 'meditating', 'meditation',
+                    'journal', 'journaling',
+                    // chores that some users want to count as productive
+                    'clean', 'cleaning', 'tidy', 'tidying',
+                    'cook', 'cooking', 'meal', 'prep',
+                    'errand', 'errands', 'shopping', 'groceries',
+                ];
+
+                // Productive multi-word phrases — useful for tighter signals.
+                const PRODUCTIVE_PHRASES = [
+                    'deep work', 'focus session', 'focus time',
+                    'pair programming', 'code review',
+                    'study session', 'reading session',
+                    'side project', 'personal project',
+                    'time management', 'project management',
+                    'machine learning', 'data science',
+                ];
+
+                // Tokens we treat as conjunctions to detect "X and Y" patterns
+                // — used only for ambiguity detection, not for scoring.
+                const CONJUNCTION_TOKENS = new Set([
+                    'and', '&', 'plus', 'then', 'also', 'or', 'as', 'with',
+                    ',', ';', '+',
+                ]);
+
+                // Vowel-rich words look more like real English; gibberish like
+                // "sjdfhsjhsjdhsjdk" is mostly consonants. We don't reject
+                // gibberish — we just lower confidence so the UI can warn.
+                const isLikelyGibberishToken = (token) => {
+                    if (!token || token.length < 4) return false;       // short words are usually fine
+                    if (!/[a-z]/.test(token)) return false;             // ids/numbers are not "gibberish"
+                    const vowels = (token.match(/[aeiouy]/g) || []).length;
+                    const ratio = vowels / token.length;
+                    // English words usually have 30-50% vowels. <10% with
+                    // length >= 6 looks like keyboard-mash.
+                    return ratio < 0.10 && token.length >= 6;
+                };
+
+                // Score one token against a keyword list using the existing
+                // matching strategy. Returns 0..3.
+                const scoreTokenAgainstList = (token, list) => {
+                    let best = 0;
+                    for (const kw of list) {
+                        const s = scoreTokenAgainstKeyword(token, kw);
+                        if (s > best) best = s;
+                        if (best === 3) return 3;
+                    }
+                    return best;
+                };
+
+                // Rich label analysis. Doesn't replace categorizeLabel
+                // (which is the binary decision used by the rest of the
+                // dashboard) — it sits alongside it and powers the realtime
+                // hint + ambiguity modal.
+                //
+                // Returns:
+                //   {
+                //     category:   'productive' | 'wasted' | 'mixed' | 'ambiguous' | 'unknown',
+                //     confidence: 0..1,
+                //     productiveScore, wastedScore,
+                //     productiveTokens: [...matched tokens for productive...],
+                //     wastedTokens:     [...matched tokens for wasted...],
+                //     hasDurations:     boolean   (parseDurationSegments yields ≥2),
+                //     segments:         [...] | null,
+                //     warnings:         [...messages...],
+                //     suggestion:       string | null,
+                //   }
+                const analyzeLabel = (label) => {
+                    const text = String(label || '').trim();
+                    const result = {
+                        category: 'unknown',
+                        confidence: 0,
+                        productiveScore: 0,
+                        wastedScore: 0,
+                        productiveTokens: [],
+                        wastedTokens: [],
+                        hasDurations: false,
+                        segments: null,
+                        warnings: [],
+                        suggestion: null,
+                    };
+                    if (!text) {
+                        result.warnings.push('empty');
+                        result.suggestion = 'Add a brief description so the block can be tracked.';
+                        return result;
+                    }
+
+                    const lower = text.toLowerCase();
+                    const tokens = lower.split(/[^a-z0-9]+/).filter(Boolean);
+
+                    // Gibberish detection: most tokens look like keyboard mash
+                    const totalTokens = tokens.length;
+                    const gibberishHits = tokens.filter(isLikelyGibberishToken).length;
+                    const looksLikeGibberish =
+                        totalTokens > 0
+                        && gibberishHits / totalTokens >= 0.6
+                        && totalTokens <= 4;
+
+                    // Wasted scoring (mirrors categorizeLabel logic)
+                    let wastedScore = 0;
+                    const wastedHitTokens = [];
+                    for (const phrase of WASTED_PHRASES) {
+                        if (lower.includes(phrase)) {
+                            wastedScore += 3;
+                            wastedHitTokens.push(phrase);
+                        }
+                    }
+                    for (const tk of tokens) {
+                        const s = scoreTokenAgainstList(tk, WASTED_TOKENS);
+                        if (s > 0) {
+                            wastedScore += s;
+                            wastedHitTokens.push(tk);
+                        }
+                    }
+
+                    // Productive scoring
+                    let productiveScore = 0;
+                    const productiveHitTokens = [];
+                    for (const phrase of PRODUCTIVE_PHRASES) {
+                        if (lower.includes(phrase)) {
+                            productiveScore += 3;
+                            productiveHitTokens.push(phrase);
+                        }
+                    }
+                    for (const tk of tokens) {
+                        const s = scoreTokenAgainstList(tk, PRODUCTIVE_TOKENS);
+                        if (s > 0) {
+                            productiveScore += s;
+                            productiveHitTokens.push(tk);
+                        }
+                    }
+
+                    result.productiveScore = productiveScore;
+                    result.wastedScore = wastedScore;
+                    result.productiveTokens = [...new Set(productiveHitTokens)];
+                    result.wastedTokens = [...new Set(wastedHitTokens)];
+
+                    // Duration segments — already parsed elsewhere as
+                    // parseDurationSegments. ≥2 segments means the block is
+                    // already explicitly split; not ambiguous.
+                    const segments = parseDurationSegments(text);
+                    if (segments.length >= 2) {
+                        result.hasDurations = true;
+                        result.segments = segments;
+                    }
+
+                    // ── Decide category ──────────────────────────────────
+                    if (looksLikeGibberish) {
+                        result.category = 'unknown';
+                        result.confidence = 0.15;
+                        result.warnings.push('gibberish');
+                        result.suggestion = "That doesn't look like a real activity. Add a few clear words about what you did.";
+                        return result;
+                    }
+
+                    if (result.hasDurations) {
+                        result.category = 'mixed';
+                        result.confidence = 0.95;
+                        result.suggestion = `Will auto-split into ${segments.length} blocks: ${
+                            segments.map((s) => `${Math.round(s.minutes)}m ${s.label}`).join(' · ')
+                        }`;
+                        return result;
+                    }
+
+                    // Both productive AND wasted signals present, no durations
+                    // → ambiguous: ask the user to clarify.
+                    if (productiveScore >= 1 && wastedScore >= 1) {
+                        result.category = 'ambiguous';
+                        result.confidence = 0.4;
+                        result.warnings.push('mixed-without-durations');
+                        const pSample = result.productiveTokens[0] || 'work';
+                        const wSample = result.wastedTokens[0] || 'sleep';
+                        result.suggestion = `Looks like both productive and wasted activities. Add explicit times so we can split — e.g. "30m ${wSample} and 30m ${pSample}".`;
+                        return result;
+                    }
+
+                    if (wastedScore >= WASTED_SCORE_THRESHOLD) {
+                        result.category = 'wasted';
+                        result.confidence = Math.min(1, 0.6 + wastedScore * 0.1);
+                        return result;
+                    }
+                    if (wastedScore > 0) {
+                        result.category = 'wasted';
+                        result.confidence = 0.5;
+                        return result;
+                    }
+
+                    if (productiveScore >= 3) {
+                        result.category = 'productive';
+                        result.confidence = Math.min(1, 0.7 + productiveScore * 0.05);
+                        return result;
+                    }
+                    if (productiveScore >= 1) {
+                        result.category = 'productive';
+                        result.confidence = 0.65;
+                        return result;
+                    }
+
+                    // No signals — default to productive but flag it as low
+                    // confidence so the UI hint suggests adding detail.
+                    result.category = 'productive';
+                    result.confidence = 0.3;
+                    result.warnings.push('no-keywords');
+                    result.suggestion = "Couldn't classify automatically — add a recognizable activity (e.g. 'study', 'workout', 'youtube').";
+                    return result;
                 };
 
                 const minutesToHHMM = (mins) => {
@@ -1248,6 +1938,19 @@
                     clearBlockFormError();
                     const label = (reasonInput?.value || '').trim() || 'Time block';
 
+                    // ── Ambiguity interception ───────────────────────────
+                    // If the label has both productive AND wasted signals
+                    // without explicit duration markers, open the modal and
+                    // let the user split it or pick a single category. The
+                    // actual save happens inside the modal's resolver.
+                    const analysis = analyzeLabel(label);
+                    if (! editingBlock && analysis.category === 'ambiguous') {
+                        openAmbiguityModal({
+                            start, end, durationMs, label, analysis,
+                        });
+                        return;
+                    }
+
                     if (editingBlock) {
                         const updates = { start, end, durationMs, label };
                         if (!editingBlock.categoryManual) {
@@ -1270,6 +1973,199 @@
                 };
 
                 const handleCancel = () => setFormMode('add');
+
+                // ── Real-time classifier hint ─────────────────────────────
+                // Updates as the user types in the reason field. Categorises
+                // the partial input + flags ambiguity / gibberish / no-keyword
+                // cases so the user can fix things before clicking Save.
+                const reasonHintEl = document.getElementById('block_reason_hint');
+                const reasonHintIcon = reasonHintEl?.querySelector('[data-hint-icon]');
+                const reasonHintLabel = reasonHintEl?.querySelector('[data-hint-label]');
+                const reasonHintConf = reasonHintEl?.querySelector('[data-hint-confidence]');
+                const reasonHintSuggest = reasonHintEl?.querySelector('[data-hint-suggestion]');
+
+                const HINT_STYLES = {
+                    productive: { border: 'border-emerald-500/40 bg-emerald-500/5', text: 'text-emerald-300', icon: '✓', word: 'Productive' },
+                    wasted:     { border: 'border-rose-500/40 bg-rose-500/5',       text: 'text-rose-300',    icon: '✕', word: 'Wasted' },
+                    mixed:      { border: 'border-sky-500/40 bg-sky-500/5',         text: 'text-sky-300',     icon: '⇆', word: 'Will auto-split' },
+                    ambiguous:  { border: 'border-amber-500/50 bg-amber-500/10',    text: 'text-amber-300',   icon: '?', word: 'Needs clarification' },
+                    unknown:    { border: 'border-slate-600/60 bg-slate-900/40',    text: 'text-slate-400',   icon: 'i', word: 'Unclassified' },
+                };
+
+                const updateReasonHint = () => {
+                    if (!reasonHintEl) return;
+                    const text = (reasonInput?.value || '').trim();
+                    if (!text) {
+                        reasonHintEl.classList.add('hidden');
+                        return;
+                    }
+                    const a = analyzeLabel(text);
+                    const style = HINT_STYLES[a.category] || HINT_STYLES.unknown;
+
+                    // Reset class list, then apply category-specific colors.
+                    reasonHintEl.className = `mt-1.5 rounded-md border px-2 py-1 text-[0.65rem] ${style.border}`;
+                    if (reasonHintIcon) {
+                        reasonHintIcon.textContent = style.icon;
+                        reasonHintIcon.className = `font-display text-base ${style.text}`;
+                    }
+                    if (reasonHintLabel) {
+                        reasonHintLabel.textContent = style.word;
+                        reasonHintLabel.className = `uppercase tracking-wider ${style.text}`;
+                    }
+                    if (reasonHintConf) {
+                        const conf = Math.round((a.confidence || 0) * 100);
+                        reasonHintConf.textContent = `· ${conf}% confidence`;
+                    }
+                    if (reasonHintSuggest) {
+                        reasonHintSuggest.textContent = a.suggestion || '';
+                        reasonHintSuggest.className = a.suggestion
+                            ? 'block mt-0.5 text-slate-400 normal-case tracking-normal'
+                            : 'hidden';
+                    }
+                };
+
+                let reasonHintTimer = null;
+                reasonInput?.addEventListener('input', () => {
+                    if (reasonHintTimer) clearTimeout(reasonHintTimer);
+                    reasonHintTimer = setTimeout(updateReasonHint, 120);
+                });
+
+                // ── Ambiguity-resolution modal ────────────────────────────
+                const ambModal = document.getElementById('block_ambiguity_modal');
+                const ambWastedList = ambModal?.querySelector('[data-amb-wasted-list]');
+                const ambProductiveList = ambModal?.querySelector('[data-amb-productive-list]');
+                const ambBlockDuration = ambModal?.querySelector('[data-amb-block-duration]');
+                const ambBlockDuration2 = ambModal?.querySelector('[data-amb-block-duration-2]');
+                const ambWastedMin = ambModal?.querySelector('[data-amb-wasted-min]');
+                const ambWastedLabel = ambModal?.querySelector('[data-amb-wasted-label]');
+                const ambProductiveMin = ambModal?.querySelector('[data-amb-productive-min]');
+                const ambProductiveLabel = ambModal?.querySelector('[data-amb-productive-label]');
+                const ambSum = ambModal?.querySelector('[data-amb-sum]');
+                const ambSumWarn = ambModal?.querySelector('[data-amb-sum-warn]');
+                const ambSplitBtn = document.getElementById('block_ambiguity_split');
+                const ambCancelBtn = document.getElementById('block_ambiguity_cancel');
+                let ambPending = null;
+
+                const closeAmbModal = () => {
+                    if (!ambModal) return;
+                    ambModal.classList.remove('flex');
+                    ambModal.classList.add('hidden');
+                    ambModal.setAttribute('aria-hidden', 'true');
+                    ambPending = null;
+                };
+
+                const openAmbiguityModal = (pending) => {
+                    if (!ambModal) {
+                        // No modal in DOM (shouldn't happen). Fall back to the
+                        // standard save path so we don't lose the user's work.
+                        addWithSplit({
+                            source: 'manual',
+                            start: pending.start, end: pending.end,
+                            durationMs: pending.durationMs,
+                            label: pending.label, status: 'completed', allowSplit: true,
+                        });
+                        setFormMode('add');
+                        return;
+                    }
+                    ambPending = pending;
+                    const totalMin = Math.round(pending.durationMs / 60000);
+                    const halfMin = Math.round(totalMin / 2);
+
+                    if (ambWastedList) ambWastedList.textContent = pending.analysis.wastedTokens.join(', ') || 'wasted activity';
+                    if (ambProductiveList) ambProductiveList.textContent = pending.analysis.productiveTokens.join(', ') || 'productive activity';
+                    const durLabel = totalMin >= 60
+                        ? `${Math.floor(totalMin/60)}h ${totalMin % 60 ? (totalMin % 60) + 'm' : ''}`.trim()
+                        : `${totalMin}m`;
+                    if (ambBlockDuration) ambBlockDuration.textContent = durLabel;
+                    if (ambBlockDuration2) ambBlockDuration2.textContent = durLabel;
+
+                    // Default split: 50/50, with the most prominent token in each side.
+                    if (ambWastedMin) ambWastedMin.value = halfMin;
+                    if (ambProductiveMin) ambProductiveMin.value = totalMin - halfMin;
+                    if (ambWastedLabel) ambWastedLabel.value = pending.analysis.wastedTokens[0] || '';
+                    if (ambProductiveLabel) ambProductiveLabel.value = pending.analysis.productiveTokens[0] || '';
+                    updateAmbSum();
+
+                    ambModal.classList.remove('hidden');
+                    ambModal.classList.add('flex');
+                    ambModal.setAttribute('aria-hidden', 'false');
+                };
+
+                const updateAmbSum = () => {
+                    if (!ambPending) return;
+                    const w = parseInt(ambWastedMin?.value || '0', 10) || 0;
+                    const p = parseInt(ambProductiveMin?.value || '0', 10) || 0;
+                    const totalMin = Math.round(ambPending.durationMs / 60000);
+                    const sum = w + p;
+                    if (ambSum) ambSum.textContent = `${sum}m`;
+                    const off = sum - totalMin;
+                    if (ambSumWarn) {
+                        if (off === 0) {
+                            ambSumWarn.classList.add('hidden');
+                            ambSumWarn.textContent = '';
+                        } else {
+                            ambSumWarn.classList.remove('hidden');
+                            ambSumWarn.textContent = off > 0
+                                ? `${off}m over — reduce one side`
+                                : `${-off}m short — bump one side`;
+                        }
+                    }
+                    if (ambSplitBtn) ambSplitBtn.disabled = off !== 0 || w < 0 || p < 0 || (w === 0 && p === 0);
+                };
+
+                ambWastedMin?.addEventListener('input', updateAmbSum);
+                ambProductiveMin?.addEventListener('input', updateAmbSum);
+                ambCancelBtn?.addEventListener('click', closeAmbModal);
+                ambModal?.addEventListener('click', (e) => { if (e.target === ambModal) closeAmbModal(); });
+
+                ambSplitBtn?.addEventListener('click', () => {
+                    if (!ambPending) return;
+                    const w = parseInt(ambWastedMin?.value || '0', 10) || 0;
+                    const p = parseInt(ambProductiveMin?.value || '0', 10) || 0;
+                    const wLab = (ambWastedLabel?.value || ambPending.analysis.wastedTokens[0] || 'wasted').trim();
+                    const pLab = (ambProductiveLabel?.value || ambPending.analysis.productiveTokens[0] || 'work').trim();
+
+                    // Build a synthetic label that the existing auto-split
+                    // pipeline understands: "Xm wasted-label and Ym productive-label".
+                    const parts = [];
+                    if (w > 0) parts.push(`${w}m ${wLab}`);
+                    if (p > 0) parts.push(`${p}m ${pLab}`);
+                    const synthLabel = parts.join(' and ');
+
+                    addWithSplit({
+                        source: 'manual',
+                        start: ambPending.start,
+                        end: ambPending.end,
+                        durationMs: ambPending.durationMs,
+                        label: synthLabel,
+                        status: 'completed',
+                        allowSplit: true,
+                    });
+                    closeAmbModal();
+                    setFormMode('add');
+                });
+
+                ambModal?.querySelectorAll('[data-amb-pick]').forEach((btn) => {
+                    btn.addEventListener('click', () => {
+                        if (!ambPending) return;
+                        const cat = btn.dataset.ambPick;       // 'productive' | 'wasted'
+                        // Save as a single block with the original label, but
+                        // force the category and mark it as a manual choice
+                        // so the migration loop won't reclassify it.
+                        const block = add({
+                            source: 'manual',
+                            start: ambPending.start,
+                            end: ambPending.end,
+                            durationMs: ambPending.durationMs,
+                            label: ambPending.label,
+                            status: 'completed',
+                            category: cat,
+                            categoryManual: true,
+                        });
+                        closeAmbModal();
+                        setFormMode('add');
+                    });
+                });
 
                 if (saveBtn) saveBtn.addEventListener('click', handleSave);
                 if (cancelBtn) cancelBtn.addEventListener('click', handleCancel);
@@ -2510,10 +3406,13 @@
                     const awakeElapsedMs = Math.max(0, passedMs - sleepElapsedMs);
                     const unloggedAwakeMs = Math.max(0, awakeElapsedMs - productiveMs - wastedMs);
 
-                    // Efficiency = productive ÷ awake elapsed (penalises both
-                    // wasted AND unlogged awake hours).
-                    const efficiencyPct = awakeElapsedMs > 0
-                        ? Math.min(100, Math.round((productiveMs / awakeElapsedMs) * 100))
+                    // Efficiency = productive ÷ (productive + wasted + unlogged).
+                    // Wasted AND unlogged time both count against the user — the
+                    // only way to reach 100% is logging productive blocks across
+                    // the full awake window.
+                    const effDenomMs = productiveMs + wastedMs + unloggedAwakeMs;
+                    const efficiencyPct = effDenomMs > 0
+                        ? Math.min(100, Math.round((productiveMs / effDenomMs) * 100))
                         : 0;
 
                     // Segmented bar: percentages over awakeElapsedMs.
@@ -2532,6 +3431,7 @@
                     const productive = section.querySelector('[data-period-productive]');
                     const wastedEl = section.querySelector('[data-period-wasted]');
                     const unloggedEl = section.querySelector('[data-period-unlogged]');
+                    const nonProductiveEl = section.querySelector('[data-period-nonproductive]');
                     const ratioEl = section.querySelector('[data-period-ratio]');
                     const progressEl = section.querySelector('[data-period-progress]');
                     const barProductive = section.querySelector('[data-period-bar-productive]');
@@ -2553,7 +3453,11 @@
                     if (productive) productive.textContent = productiveMs > 0 ? formatHours(productiveMs) : '—';
                     if (wastedEl) wastedEl.textContent = wastedMs > 0 ? formatHours(wastedMs) : '—';
                     if (unloggedEl) unloggedEl.textContent = unloggedAwakeMs > 0 ? formatHours(unloggedAwakeMs) : '—';
-                    if (ratioEl) ratioEl.textContent = awakeElapsedMs > 0 ? `${efficiencyPct}%` : '—';
+                    if (nonProductiveEl) {
+                        const np = wastedMs + unloggedAwakeMs;
+                        nonProductiveEl.textContent = np > 0 ? formatHours(np) : '0h';
+                    }
+                    if (ratioEl) ratioEl.textContent = effDenomMs > 0 ? `${efficiencyPct}%` : '—';
                     if (progressEl) progressEl.style.width = `${progressPct.toFixed(2)}%`;
                     if (barProductive) barProductive.style.width = `${prodPct}%`;
                     if (barWasted) barWasted.style.width = `${wastedBarPct}%`;
@@ -2615,12 +3519,20 @@
                         const d = new Date(now);
                         d.setDate(d.getDate() - i);
                         const dateStr = localDateString(d);
-                        const totalMs = blocks
-                            .filter((b) => b.status === 'completed' && b.date === dateStr)
+
+                        // Show *productive* time only — wasted hours don't
+                        // count as a logged-success on the tile.
+                        const productiveMs = blocks
+                            .filter((b) => b.status === 'completed' && b.date === dateStr && b.category !== 'wasted')
                             .reduce((s, b) => s + (b.durationMs || 0), 0);
+                        const wastedMs = blocks
+                            .filter((b) => b.status === 'completed' && b.date === dateStr && b.category === 'wasted')
+                            .reduce((s, b) => s + (b.durationMs || 0), 0);
+
                         const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
                         const isToday = dateStr === todayKey;
                         const isPreSignup = signupKey && dateStr < signupKey;
+
                         let cls;
                         if (isPreSignup) {
                             cls = 'border-slate-800/30 bg-slate-900/20 opacity-50';
@@ -2629,15 +3541,30 @@
                         } else {
                             cls = 'border-slate-800/60 bg-slate-900/40 hover:border-[var(--chrono-blue)]/60 transition-colors cursor-pointer';
                         }
-                        const valueCls = totalMs > 0 ? 'text-slate-100' : 'text-slate-600';
-                        const valueText = isPreSignup
-                            ? '<span class="text-slate-600 italic">pre-signup</span>'
-                            : (totalMs > 0 ? escapeHtml(formatDuration(totalMs)) : '—');
+
+                        // Tile value:
+                        //   pre-signup → "pre-signup" italics
+                        //   productive logged   → green duration label
+                        //   nothing logged      → red "0" so it stands out
+                        let valueHtml;
+                        if (isPreSignup) {
+                            valueHtml = '<span class="text-slate-600 italic">pre-signup</span>';
+                        } else if (productiveMs > 0) {
+                            valueHtml = `<span class="text-emerald-300 font-medium">${escapeHtml(formatDuration(productiveMs))}</span>`;
+                        } else {
+                            valueHtml = '<span class="text-rose-400 font-medium">0</span>';
+                        }
+
+                        // Optional secondary line: small wasted callout if any.
+                        const wastedLine = (!isPreSignup && wastedMs > 0)
+                            ? `<div class="text-[0.6rem] text-rose-400/80 mt-0.5">${escapeHtml(formatDuration(wastedMs))} wasted</div>`
+                            : '';
 
                         const inner =
                             `<div class="text-[0.65rem] uppercase tracking-wider text-slate-400">${escapeHtml(dayName)}</div>` +
                             `<div class="text-[0.65rem] text-slate-500">${d.getDate()}</div>` +
-                            `<div class="mt-1 text-sm ${valueCls}">${valueText}</div>`;
+                            `<div class="mt-1 text-sm">${valueHtml}</div>` +
+                            wastedLine;
 
                         // Past, post-signup days are clickable links to the
                         // read-only day report. Today and pre-signup tiles
@@ -2645,7 +3572,7 @@
                         if (!isPreSignup && !isToday && dayUrlTemplate) {
                             const url = dayUrlTemplate.replace('__DATE__', dateStr);
                             tiles.push(
-                                `<a href="${url}" class="block rounded-lg border ${cls} p-2 text-center" title="Open day report">` +
+                                `<a href="${url}" class="block rounded-lg border ${cls} p-2 text-center" title="Click to see detailed report">` +
                                 inner +
                                 '</a>'
                             );
@@ -2728,30 +3655,38 @@
                     if (unloggedContextEl) unloggedContextEl.textContent = context;
 
                     // ── Day efficiency ────────────────────────────────────
-                    // Productive% = productive_minutes / elapsed_active_minutes.
-                    // Penalises both wasted time AND unlogged time, so the
-                    // only way to reach 100% is to log productive blocks
-                    // covering the full waking window so far.
+                    // Productive% = productive ÷ (productive + wasted + unlogged).
+                    // Wasted AND unlogged time both count against the user, so
+                    // the only way to reach 100% is logging productive blocks
+                    // across the full waking window so far.
                     const productiveTodayMs = Math.max(0, loggedTodayMs - wastedTodayMs);
                     const elapsedMs = Math.max(0, elapsedActiveMs);
-                    const productivePct = elapsedMs > 0
-                        ? Math.min(100, Math.round((productiveTodayMs / elapsedMs) * 100))
+                    const unloggedTodayMs = Math.max(0, elapsedMs - loggedTodayMs);
+                    const dayDenomMs = productiveTodayMs + wastedTodayMs + unloggedTodayMs;
+                    const productivePct = dayDenomMs > 0
+                        ? Math.min(100, Math.round((productiveTodayMs / dayDenomMs) * 100))
                         : 0;
-                    const wastedPct = elapsedMs > 0
-                        ? Math.min(100 - productivePct, Math.round((wastedTodayMs / elapsedMs) * 100))
+                    const wastedPct = dayDenomMs > 0
+                        ? Math.min(100 - productivePct, Math.round((wastedTodayMs / dayDenomMs) * 100))
                         : 0;
+                    const unloggedBarPct = Math.max(0, 100 - productivePct - wastedPct);
+                    const nonProductiveMs = wastedTodayMs + unloggedTodayMs;
                     const dayPctEl = document.querySelector('[data-day-effective-pct]');
                     const dayProdBar = document.querySelector('[data-day-productive-bar]');
                     const dayWastedBar = document.querySelector('[data-day-wasted-bar]');
+                    const dayUnloggedBar = document.querySelector('[data-day-unlogged-bar]');
                     const dayProdTime = document.querySelector('[data-day-productive-time]');
                     const dayWastedTime = document.querySelector('[data-day-wasted-time]');
                     const dayUnloggedTime = document.querySelector('[data-day-unlogged-time]');
-                    if (dayPctEl) dayPctEl.textContent = elapsedMs > 0 ? `${productivePct}%` : '—';
+                    const dayNonProdTime = document.querySelector('[data-day-nonproductive-time]');
+                    if (dayPctEl) dayPctEl.textContent = dayDenomMs > 0 ? `${productivePct}%` : '—';
                     if (dayProdBar) dayProdBar.style.width = `${productivePct}%`;
                     if (dayWastedBar) dayWastedBar.style.width = `${wastedPct}%`;
+                    if (dayUnloggedBar) dayUnloggedBar.style.width = `${unloggedBarPct}%`;
                     if (dayProdTime) dayProdTime.textContent = formatDuration(productiveTodayMs);
                     if (dayWastedTime) dayWastedTime.textContent = formatDuration(wastedTodayMs);
                     if (dayUnloggedTime) dayUnloggedTime.textContent = formatDuration(unloggedMins * 60000);
+                    if (dayNonProdTime) dayNonProdTime.textContent = formatDuration(nonProductiveMs);
 
                     renderTopBlocks(todayBlocks);
 

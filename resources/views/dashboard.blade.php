@@ -88,6 +88,37 @@
                 </div>
             </div>
 
+            {{-- Day efficiency: at-a-glance breakdown of how the elapsed
+                 waking window has been spent. Productive vs Wasted vs
+                 Unlogged on a single segmented bar. --}}
+            <div class="mt-5">
+                <div class="flex items-center justify-between text-xs uppercase tracking-[0.2em] text-slate-400 mb-2">
+                    <span>Day efficiency</span>
+                    <span>
+                        <span class="text-emerald-300 font-digital text-base" data-day-effective-pct>—</span>
+                        <span class="text-slate-500 ml-1">effective</span>
+                    </span>
+                </div>
+                <div class="h-2 rounded-full bg-slate-800/80 overflow-hidden flex">
+                    <div class="h-full bg-emerald-400 transition-[width] duration-500" data-day-productive-bar style="width: 0%"></div>
+                    <div class="h-full bg-rose-400 transition-[width] duration-500" data-day-wasted-bar style="width: 0%"></div>
+                </div>
+                <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[0.65rem] uppercase tracking-wider text-slate-500">
+                    <span class="inline-flex items-center gap-1.5">
+                        <span class="inline-block h-2 w-2 rounded-full bg-emerald-400"></span>
+                        Productive <span data-day-productive-time class="text-emerald-300 normal-case font-digital">—</span>
+                    </span>
+                    <span class="inline-flex items-center gap-1.5">
+                        <span class="inline-block h-2 w-2 rounded-full bg-rose-400"></span>
+                        Wasted <span data-day-wasted-time class="text-rose-300 normal-case font-digital">—</span>
+                    </span>
+                    <span class="inline-flex items-center gap-1.5">
+                        <span class="inline-block h-2 w-2 rounded-full bg-slate-600"></span>
+                        Unlogged <span data-day-unlogged-time class="text-slate-400 normal-case font-digital">—</span>
+                    </span>
+                </div>
+            </div>
+
             <div class="mt-5 flex flex-wrap items-center gap-3 text-xs">
                 <label class="font-display uppercase tracking-[0.3em] text-slate-500" for="dashboard_end_time_display">
                     Edit end time
@@ -124,30 +155,78 @@
                 <div class="h-full bg-[var(--chrono-blue)] transition-[width] duration-500" data-period-progress style="width: 0%"></div>
             </div>
             <div class="mt-2 text-xs space-y-1 hidden" data-period-note></div>
-            <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 mt-4">
-                <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
-                    <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Passed</div>
-                    <div class="mt-1 text-lg text-slate-100" data-period-passed>—</div>
-                </div>
-                <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
-                    <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Left</div>
-                    <div class="mt-1 text-lg text-slate-100" data-period-left>—</div>
-                </div>
-                <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
-                    <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Productive</div>
-                    <div class="mt-1 text-lg text-emerald-300" data-period-productive>—</div>
-                </div>
-                <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
-                    <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Wasted</div>
-                    <div class="mt-1 text-lg text-rose-300" data-period-wasted>—</div>
-                </div>
-                <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
-                    <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Utilization</div>
-                    <div class="mt-1 text-lg text-slate-100" data-period-ratio>—</div>
+
+            {{-- Window row: total, sleep, awake, elapsed --}}
+            <div class="mt-4">
+                <div class="text-[0.65rem] uppercase tracking-wider text-slate-500 mb-1.5">The week</div>
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
+                        <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Total hours</div>
+                        <div class="mt-1 font-digital text-lg text-slate-100" data-period-total>—</div>
+                        <div class="text-[0.65rem] text-slate-500 mt-0.5">since signup, capped at week</div>
+                    </div>
+                    <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
+                        <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Sleep</div>
+                        <div class="mt-1 font-digital text-lg text-slate-300" data-period-sleep>—</div>
+                        <div class="text-[0.65rem] text-slate-500 mt-0.5" data-period-sleep-note>—</div>
+                    </div>
+                    <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
+                        <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Awake hours</div>
+                        <div class="mt-1 font-digital text-lg text-slate-100" data-period-awake>—</div>
+                        <div class="text-[0.65rem] text-slate-500 mt-0.5">total − sleep</div>
+                    </div>
+                    <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
+                        <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Time left</div>
+                        <div class="mt-1 font-digital text-lg text-slate-100" data-period-left>—</div>
+                        <div class="text-[0.65rem] text-slate-500 mt-0.5">until end of week</div>
+                    </div>
                 </div>
             </div>
+
+            {{-- Activity row: productive, wasted, unlogged, efficiency --}}
+            <div class="mt-4">
+                <div class="text-[0.65rem] uppercase tracking-wider text-slate-500 mb-1.5">How you spent it</div>
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div class="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">
+                        <div class="text-[0.6rem] uppercase tracking-wider text-emerald-300">Productive</div>
+                        <div class="mt-1 font-digital text-lg text-emerald-200" data-period-productive>—</div>
+                    </div>
+                    <div class="rounded-xl border border-rose-500/30 bg-rose-500/5 p-3">
+                        <div class="text-[0.6rem] uppercase tracking-wider text-rose-300">Wasted</div>
+                        <div class="mt-1 font-digital text-lg text-rose-200" data-period-wasted>—</div>
+                    </div>
+                    <div class="rounded-xl border border-slate-700/60 bg-slate-900/40 p-3">
+                        <div class="text-[0.6rem] uppercase tracking-wider text-slate-400">Unlogged (awake)</div>
+                        <div class="mt-1 font-digital text-lg text-slate-300" data-period-unlogged>—</div>
+                    </div>
+                    <div class="rounded-xl border border-[var(--chrono-blue)]/30 bg-[var(--chrono-blue)]/5 p-3">
+                        <div class="text-[0.6rem] uppercase tracking-wider text-[var(--chrono-blue)]">Efficiency</div>
+                        <div class="mt-1 font-digital text-lg text-[var(--chrono-blue)]" data-period-ratio>—</div>
+                    </div>
+                </div>
+            </div>
+
+            {{-- Awake-window segmented bar --}}
+            <div class="mt-4">
+                <div class="flex items-center justify-between text-[0.65rem] uppercase tracking-wider text-slate-500 mb-1.5">
+                    <span>Awake-window breakdown</span>
+                    <span data-period-awake-label>—</span>
+                </div>
+                <div class="h-2 rounded-full bg-slate-800/80 overflow-hidden flex">
+                    <div class="h-full bg-emerald-400 transition-[width] duration-500" data-period-bar-productive style="width: 0%"></div>
+                    <div class="h-full bg-rose-400 transition-[width] duration-500" data-period-bar-wasted style="width: 0%"></div>
+                    <div class="h-full bg-slate-600 transition-[width] duration-500" data-period-bar-unlogged style="width: 0%"></div>
+                </div>
+                <div class="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[0.65rem] uppercase tracking-wider text-slate-500">
+                    <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-emerald-400"></span> Productive</span>
+                    <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-rose-400"></span> Wasted</span>
+                    <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-slate-600"></span> Unlogged</span>
+                </div>
+            </div>
+
             <div class="mt-5">
                 <h3 class="text-xs uppercase tracking-[0.2em] text-slate-400">Last 7 days</h3>
+                <p class="text-[0.65rem] text-slate-500 mt-0.5">Click any past day for a read-only report.</p>
                 <div class="mt-2 grid grid-cols-7 gap-2" data-last-7-days></div>
             </div>
         </section>
@@ -310,6 +389,9 @@
             <p class="mt-1 text-xs text-slate-500">
                 Words like <span class="text-rose-300/80">wasted</span>, <span class="text-rose-300/80">scrolling</span>, <span class="text-rose-300/80">youtube</span>, <span class="text-rose-300/80">social media</span>, <span class="text-rose-300/80">procrastinating</span> auto-flag the block as <span class="text-rose-300/80">Wasted</span> — even when run together (e.g. <span class="text-rose-300/80">seenyoutube</span>, <span class="text-rose-300/80">sotimegotwasted</span>). Click the chip in the table to flip a classification.
             </p>
+            <p class="mt-1 text-xs text-slate-500">
+                Tip: include durations like <span class="text-slate-300">30m sleep and 30m deep work</span> to auto-split the block.
+            </p>
             <div class="mt-4 flex flex-wrap items-center gap-2">
                 <button id="block_save_button" type="button" data-time12-gate="block_form"
                     class="rounded-lg bg-[var(--chrono-orange)] text-slate-950 font-semibold px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed">
@@ -360,17 +442,19 @@
         <div class="w-full max-w-md rounded-2xl border border-slate-700/60 bg-[var(--chrono-bg)] p-6 shadow-2xl">
             <h3 id="hourly_modal_title" class="font-display text-base uppercase tracking-[0.2em] text-slate-100">Hourly check-in</h3>
             <p class="mt-2 text-sm text-slate-300">
-                What did you do between
+                We found an unlogged gap from
                 <span class="font-medium text-slate-100" data-hourly-from></span>
-                and
-                <span class="font-medium text-slate-100" data-hourly-to></span>?
+                to
+                <span class="font-medium text-slate-100" data-hourly-to></span>. What were you doing?
             </p>
-            <textarea id="hourly_modal_input" rows="3" maxlength="240" placeholder="e.g. Reviewed pull requests, helped on Slack"
+            <textarea id="hourly_modal_input" rows="3" maxlength="240" placeholder="e.g. Sleep, commute, deep work"
                 class="mt-3 w-full rounded-lg bg-slate-900/70 border border-slate-700 px-3 py-2 text-slate-100"></textarea>
-            <p class="mt-1 text-xs text-slate-500">Saving creates a completed time block for that hour.</p>
+            <p class="mt-1 text-xs text-slate-500">
+                We'll keep reminding you until it's logged. Near end of day, reminders speed up; remaining gaps are auto-marked as Wasted.
+            </p>
             <div class="mt-4 flex justify-end gap-2">
                 <button type="button" id="hourly_modal_skip"
-                    class="rounded-lg border border-slate-600 px-4 py-2 text-sm">Skip</button>
+                    class="rounded-lg border border-slate-600 px-4 py-2 text-sm">Remind me later</button>
                 <button type="button" id="hourly_modal_save" disabled
                     class="rounded-lg bg-[var(--chrono-blue)] text-slate-950 font-semibold px-4 py-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed">Save block</button>
             </div>
@@ -406,6 +490,9 @@
                 signupTimestamp: @json($signupTimestamp),
                 signupDateLabel: @json($signupDateLabel),
                 activeGoals: @json($activeGoalsForJs),
+                // Used by Last-7-Days tiles to link past days to their
+                // read-only detail report. {date} is replaced client-side.
+                dayDetailUrl: @json(route('history.day', ['date' => '__DATE__'])),
             };
         </script>
         <script>
@@ -456,6 +543,7 @@
                     'mindless', 'mindlessly',
                     'unproductive',
                     'lazy', 'laziness',
+                    'sleep', 'sleeping', 'slept', 'nap', 'napping', 'doze', 'dozing',
                     'youtube', 'instagram', 'tiktok', 'twitter', 'reddit',
                     'facebook', 'snapchat', 'netflix',
                     'aimless', 'aimlessly',
@@ -468,7 +556,7 @@
                     'binge watch',
                     'binge-watch',
                 ];
-                const SCORE_THRESHOLD = 2;
+                const WASTED_SCORE_THRESHOLD = 2;
 
                 const scoreTokenAgainstKeyword = (token, kw) => {
                     if (token === kw) return 3;
@@ -487,7 +575,7 @@
                     for (const phrase of WASTED_PHRASES) {
                         if (text.includes(phrase)) {
                             score += 3;
-                            if (score >= SCORE_THRESHOLD) return 'wasted';
+                            if (score >= WASTED_SCORE_THRESHOLD) return 'wasted';
                         }
                     }
 
@@ -505,10 +593,76 @@
                             if (best === 3) break;
                         }
                         score += best;
-                        if (score >= SCORE_THRESHOLD) return 'wasted';
+                        if (score >= WASTED_SCORE_THRESHOLD) return 'wasted';
                     }
 
                     return 'productive';
+                };
+
+                const minutesToHHMM = (mins) => {
+                    const clamped = Math.max(0, Math.min(23 * 60 + 59, Math.round(mins)));
+                    const h = Math.floor(clamped / 60);
+                    const m = clamped % 60;
+                    return `${pad(h)}:${pad(m)}`;
+                };
+
+                const DURATION_SEGMENT_RE = /(\d+(?:\.\d+)?)\s*(h|hr|hrs|hour|hours|m|min|mins|minute|minutes)\s+([^,;]+?)(?=\s*(?:and|&|then|,|;)\s+|\s*$)/gi;
+                const parseDurationSegments = (label) => {
+                    const text = String(label || '').trim();
+                    if (!text) return [];
+                    const segments = [];
+                    let match;
+                    while ((match = DURATION_SEGMENT_RE.exec(text)) !== null) {
+                        const value = Number(match[1]);
+                        const unit = String(match[2] || '').toLowerCase();
+                        if (!isFinite(value) || value <= 0) continue;
+                        const minutes = unit.startsWith('h') ? value * 60 : value;
+                        const segLabel = String(match[3] || '').trim();
+                        if (!segLabel || minutes <= 0) continue;
+                        segments.push({ minutes, label: segLabel });
+                    }
+                    return segments;
+                };
+
+                const buildSplitPayloads = (data) => {
+                    if (!data || !data.allowSplit) return [data];
+                    const segments = parseDurationSegments(data.label);
+                    if (segments.length < 2) return [{ ...data, allowSplit: false }];
+
+                    const durationMin = Math.round((data.durationMs || 0) / 60000);
+                    const sumMinutes = Math.round(segments.reduce((s, seg) => s + seg.minutes, 0));
+                    if (!durationMin || Math.abs(sumMinutes - durationMin) > 1) {
+                        return [{ ...data, allowSplit: false }];
+                    }
+
+                    const startMin = hhmmToMinutes(data.start);
+                    if (startMin === null) return [{ ...data, allowSplit: false }];
+
+                    const base = { ...data };
+                    delete base.allowSplit;
+                    delete base.category;
+                    delete base.categoryManual;
+
+                    const payloads = [];
+                    let cursor = startMin;
+                    for (let i = 0; i < segments.length; i++) {
+                        const seg = segments[i];
+                        let segMinutes = Math.round(seg.minutes);
+                        if (i === segments.length - 1) {
+                            segMinutes = Math.max(0, startMin + durationMin - cursor);
+                        }
+                        if (segMinutes <= 0) continue;
+                        payloads.push({
+                            ...base,
+                            start: minutesToHHMM(cursor),
+                            end: minutesToHHMM(cursor + segMinutes),
+                            durationMs: segMinutes * 60000,
+                            label: seg.label,
+                        });
+                        cursor += segMinutes;
+                    }
+
+                    return payloads.length > 0 ? payloads : [{ ...data, allowSplit: false }];
                 };
 
                 const loadBlocks = () => {
@@ -606,6 +760,86 @@
                     if (dirty) saveBlocks(blocks);
                 })();
 
+                // Retroactive auto-split migration. If a block was logged before
+                // this dashboard had auto-split (or before its label was updated
+                // to include explicit durations), the block sits as a single
+                // row with one mixed label like "30mins sleep and 30mins coding"
+                // and inherits whichever category dominated the keyword scan
+                // (often Wasted, because "sleep" alone scores 3). Here we walk
+                // every existing block, re-parse its label for duration
+                // segments, and if it cleanly splits — replace the block with
+                // its segments, each carrying its own category.
+                //
+                // Skipped when:
+                //   - categoryManual === true   (user explicitly chose category)
+                //   - splitMigrated === true    (already processed)
+                //   - parseDurationSegments returns < 2 segments
+                //   - segment minutes don't sum to within 1m of block duration
+                (() => {
+                    const blocks = loadBlocks();
+                    const next = [];
+                    let changed = false;
+
+                    for (const block of blocks) {
+                        if (block.splitMigrated || block.categoryManual === true) {
+                            next.push(block);
+                            continue;
+                        }
+                        if (!block.start || !block.durationMs || !block.label) {
+                            next.push(block);
+                            continue;
+                        }
+                        const segments = parseDurationSegments(block.label);
+                        if (segments.length < 2) {
+                            // Mark as processed so we don't reparse forever.
+                            block.splitMigrated = true;
+                            changed = true;
+                            next.push(block);
+                            continue;
+                        }
+                        const durationMin = Math.round(block.durationMs / 60000);
+                        const sumMinutes = Math.round(segments.reduce((s, seg) => s + seg.minutes, 0));
+                        if (!durationMin || Math.abs(sumMinutes - durationMin) > 1) {
+                            block.splitMigrated = true;
+                            changed = true;
+                            next.push(block);
+                            continue;
+                        }
+                        const startMin = hhmmToMinutes(block.start);
+                        if (startMin === null) {
+                            block.splitMigrated = true;
+                            changed = true;
+                            next.push(block);
+                            continue;
+                        }
+
+                        // Replace the single block with N segment blocks.
+                        let cursor = startMin;
+                        for (let i = 0; i < segments.length; i++) {
+                            const seg = segments[i];
+                            let segMinutes = Math.round(seg.minutes);
+                            if (i === segments.length - 1) {
+                                segMinutes = Math.max(0, startMin + durationMin - cursor);
+                            }
+                            if (segMinutes <= 0) continue;
+                            next.push({
+                                ...block,
+                                id: `${block.id || Date.now()}_s${i}_${Math.random().toString(36).slice(2, 6)}`,
+                                start: minutesToHHMM(cursor),
+                                end: minutesToHHMM(cursor + segMinutes),
+                                durationMs: segMinutes * 60000,
+                                label: seg.label,
+                                category: categorizeLabel(seg.label),
+                                splitMigrated: true,
+                            });
+                            cursor += segMinutes;
+                        }
+                        changed = true;
+                    }
+
+                    if (changed) saveBlocks(next);
+                })();
+
                 // ── Goal attribution chip ─────────────────────────────────────
                 // Mirrors the server-side GoalAttributionService scoring so that
                 // each row shows whether the block is tracked toward an active
@@ -613,7 +847,7 @@
                 // to "untracked" on next render (the goal list comes from
                 // ChronoDashboardConfig which is rebuilt every page load).
                 const ACTIVE_GOALS = (window.ChronoDashboardConfig?.activeGoals) || [];
-                const SCORE_THRESHOLD = 0.4;
+                const GOAL_MATCH_THRESHOLD = 0.4;
 
                 const scoreReasonAgainstKeywords = (reason, keywords) => {
                     const r = String(reason || '').toLowerCase().trim();
@@ -653,7 +887,7 @@
                     const matches = [];
                     for (const g of ACTIVE_GOALS) {
                         const s = scoreReasonAgainstKeywords(reason, g.keywords);
-                        if (s >= SCORE_THRESHOLD) matches.push({ id: g.id, title: g.title, score: s });
+                        if (s >= GOAL_MATCH_THRESHOLD) matches.push({ id: g.id, title: g.title, score: s });
                     }
                     matches.sort((a, b) => b.score - a.score);
                     return matches;
@@ -721,8 +955,13 @@
                             || (block.source === 'countdown' ? 'Custom countdown' : 'Time block');
 
                         const isWasted = block.category === 'wasted';
+                        // Strong red/green so each row's category is unmistakable
+                        // at a glance. Click still toggles between the two.
+                        const chipClasses = isWasted
+                            ? 'bg-rose-500/20 text-rose-200 border border-rose-500/50 hover:bg-rose-500/30'
+                            : 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/25';
                         const categoryChip = `<button type="button" data-block-category` +
-                            ` class="ml-2 inline-flex items-center rounded-full px-2 py-0.5 text-[0.65rem] uppercase tracking-wider hover:opacity-80 ${isWasted ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30' : 'bg-slate-700/40 text-slate-400 border border-slate-600/40'}"` +
+                            ` class="ml-2 inline-flex items-center rounded-full px-2 py-0.5 text-[0.65rem] uppercase tracking-wider transition-colors ${chipClasses}"` +
                             ` title="Click to toggle productive / wasted">${isWasted ? 'Wasted' : 'Productive'}</button>`;
                         const goalChip = goalChipFor(block);
 
@@ -759,6 +998,17 @@
                     render();
                     dispatchChange();
                     return block;
+                };
+                const addWithSplit = (data) => {
+                    const payloads = buildSplitPayloads(data);
+                    const added = [];
+                    for (const payload of payloads) {
+                        if (!payload) continue;
+                        const cleaned = { ...payload };
+                        delete cleaned.allowSplit;
+                        added.push(add(cleaned));
+                    }
+                    return added;
                 };
                 const update = (id, updates) => {
                     const blocks = loadBlocks();
@@ -1005,13 +1255,14 @@
                         }
                         update(editingBlock.id, updates);
                     } else {
-                        add({
+                        addWithSplit({
                             source: 'manual',
                             start,
                             end,
                             durationMs,
                             label,
                             status: 'completed',
+                            allowSplit: true,
                         });
                     }
 
@@ -1127,7 +1378,7 @@
                 };
                 scheduleMidnightRollover();
 
-                window.ChronoBlocks = { add, update, remove, render, get, dateToHHMM };
+                window.ChronoBlocks = { add, addWithSplit, update, remove, render, get, dateToHHMM };
                 render();
             })();
         </script>
@@ -1682,21 +1933,20 @@
 
                 const cfg = window.ChronoDashboardConfig || {};
                 const BLOCKS_KEY = 'chrono.timeBlocks.v1';
-                // Stamp keyed by the [start, end] range we asked about, so that
-                // a partial-hour gap (e.g. 9:20–10:00) we already prompted for
-                // doesn't get re-asked while leaving the rest of that hour open.
-                const PROMPTED_KEY = 'chrono.hourlyPrompted.v2';
+                const PROMPT_STATE_KEY = 'chrono.hourlyPromptState.v1';
+                const PROMPT_FOCUS_KEY = 'chrono.hourlyPromptFocus.v1';
                 // Min gap that's worth interrupting the user for. Anything shorter
                 // is treated as noise (you bouncing between blocks for a minute).
                 const MIN_PROMPT_MINUTES = 5;
-                // Spacing between successive prompts when the user has been away.
-                // Keeps catch-up from being a 4-modal pile-on. 0 → first prompt
-                // fires immediately; subsequent ones wait this long after the
-                // previous one closes.
-                const NEXT_PROMPT_DELAY_MS = 5 * 60 * 1000;
+                // Prompt cadence ramps up near bedtime.
+                const DEFAULT_PROMPT_DELAY_MS = 60 * 60 * 1000;
+                const BEDTIME_WINDOW_MINUTES = 120;
+                const BEDTIME_PROMPT_DELAY_MS = 30 * 60 * 1000;
+                const FINAL_WINDOW_MINUTES = 20;
+                const FINAL_PROMPT_DELAY_MS = 5 * 60 * 1000;
                 // Cap the catch-up queue so a 12-hour absence doesn't queue 12
                 // popups; anything older than this is left to manual logging.
-                const MAX_QUEUE_DEPTH = 8;
+                const MAX_QUEUE_DEPTH = 24;
 
                 const pad = (n) => String(n).padStart(2, '0');
                 const formatTime12 = (date) => {
@@ -1717,6 +1967,21 @@
                 const rangeKey = (date, startMin, endMin) =>
                     `${localDateString(date)}_${startMin}_${endMin}`;
 
+                const getEndOfDayDate = (now) => {
+                    const [eh, em] = String(cfg.endTime || '22:00').split(':').map(Number);
+                    const end = new Date(now);
+                    end.setHours(eh || 0, em || 0, 0, 0);
+                    return end;
+                };
+                const minutesToEndOfDay = (now) =>
+                    Math.round((getEndOfDayDate(now).getTime() - now.getTime()) / 60000);
+                const getPromptDelayMs = (now) => {
+                    const mins = minutesToEndOfDay(now);
+                    if (mins <= FINAL_WINDOW_MINUTES) return FINAL_PROMPT_DELAY_MS;
+                    if (mins <= BEDTIME_WINDOW_MINUTES) return BEDTIME_PROMPT_DELAY_MS;
+                    return DEFAULT_PROMPT_DELAY_MS;
+                };
+
                 const loadBlocks = () => {
                     try {
                         const raw = localStorage.getItem(BLOCKS_KEY);
@@ -1725,20 +1990,48 @@
                         return Array.isArray(parsed) ? parsed : [];
                     } catch { return []; }
                 };
-                const loadPrompted = () => {
+                const loadPromptState = () => {
                     try {
-                        const raw = localStorage.getItem(PROMPTED_KEY);
-                        return new Set(raw ? JSON.parse(raw) : []);
-                    } catch { return new Set(); }
+                        const raw = localStorage.getItem(PROMPT_STATE_KEY);
+                        const parsed = raw ? JSON.parse(raw) : {};
+                        return parsed && typeof parsed === 'object' ? parsed : {};
+                    } catch { return {}; }
                 };
-                const markPrompted = (key) => {
+                const savePromptState = (state) => {
+                    try { localStorage.setItem(PROMPT_STATE_KEY, JSON.stringify(state)); } catch {}
+                };
+                const markPromptSeen = (key, timestamp = Date.now()) => {
                     if (!key) return;
+                    const state = loadPromptState();
+                    const prev = state[key] || {};
+                    state[key] = {
+                        lastPromptAt: timestamp,
+                        attempts: (prev.attempts || 0) + 1,
+                    };
+                    savePromptState(state);
+                };
+                const touchPromptTimestamp = (key, timestamp = Date.now()) => {
+                    if (!key) return;
+                    const state = loadPromptState();
+                    const prev = state[key] || { attempts: 0 };
+                    state[key] = { lastPromptAt: timestamp, attempts: prev.attempts || 0 };
+                    savePromptState(state);
+                };
+                const clearPromptState = (key) => {
+                    if (!key) return;
+                    const state = loadPromptState();
+                    if (state[key]) {
+                        delete state[key];
+                        savePromptState(state);
+                    }
+                };
+                const getFocusKey = () => {
+                    try { return localStorage.getItem(PROMPT_FOCUS_KEY) || null; } catch { return null; }
+                };
+                const setFocusKey = (key) => {
                     try {
-                        const set = loadPrompted();
-                        set.add(key);
-                        const arr = [...set];
-                        if (arr.length > 240) arr.splice(0, arr.length - 240);
-                        localStorage.setItem(PROMPTED_KEY, JSON.stringify(arr));
+                        if (key) localStorage.setItem(PROMPT_FOCUS_KEY, key);
+                        else localStorage.removeItem(PROMPT_FOCUS_KEY);
                     } catch {}
                 };
 
@@ -1782,7 +2075,6 @@
                     const wakeMin = hhmmToMinutes(cfg.wakeTime || '07:00') ?? 420;
                     const currentHour = now.getHours();
                     const lastCompletedHour = currentHour;   // hour `currentHour-1` is the last fully-elapsed hour
-                    const promptedSet = loadPrompted();
                     const queue = [];
 
                     // Walk backward from the most recent completed hour so the
@@ -1798,7 +2090,6 @@
                         for (const [s, e] of gaps) {
                             if (e - s < MIN_PROMPT_MINUTES) continue;
                             const key = rangeKey(now, s, e);
-                            if (promptedSet.has(key)) continue;
                             queue.push({
                                 key,
                                 startMin: s,
@@ -1811,6 +2102,71 @@
                     // Most recent → oldest is the natural ask order.
                     return queue;
                 };
+
+                    const shouldPromptNow = (entry, now, state) => {
+                        const meta = state[entry.key];
+                        if (!meta || !meta.lastPromptAt) return true;
+                        return (now.getTime() - meta.lastPromptAt) >= getPromptDelayMs(now);
+                    };
+
+                    const pickNextPrompt = (now) => {
+                        const queue = buildPromptQueue(now);
+                        if (queue.length === 0) return null;
+                        const state = loadPromptState();
+                        const focusKey = getFocusKey();
+
+                        if (focusKey) {
+                            const focused = queue.find((q) => q.key === focusKey);
+                            if (!focused) {
+                                setFocusKey(null);
+                            } else {
+                                return shouldPromptNow(focused, now, state) ? focused : null;
+                            }
+                        }
+
+                        for (const entry of queue) {
+                            if (shouldPromptNow(entry, now, state)) return entry;
+                        }
+                        return null;
+                    };
+
+                    const autoFillUnlogged = (now) => {
+                        const endToday = getEndOfDayDate(now);
+                        if (now.getTime() < endToday.getTime()) return false;
+
+                        const dayKey = localDateString(now);
+                        const wakeMin = hhmmToMinutes(cfg.wakeTime || '07:00') ?? 420;
+                        const endMin = hhmmToMinutes(cfg.endTime || '22:00') ?? 1320;
+                        if (endMin <= wakeMin) return false;
+
+                        const gaps = subtractBlocks([[wakeMin, endMin]], dayKey, endToday);
+                        if (!window.ChronoBlocks || gaps.length === 0) return false;
+
+                        let added = false;
+                        for (const [s, e] of gaps) {
+                            if (e - s < MIN_PROMPT_MINUTES) continue;
+                            const startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), Math.floor(s / 60), s % 60, 0, 0);
+                            const endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), Math.floor(e / 60), e % 60, 0, 0);
+                            window.ChronoBlocks.add({
+                                source: 'auto',
+                                start: dateToHHMM(startDate),
+                                end: dateToHHMM(endDate),
+                                durationMs: endDate.getTime() - startDate.getTime(),
+                                label: 'Unlogged (auto)',
+                                status: 'completed',
+                                category: 'wasted',
+                                categoryManual: true,
+                                auto_filled: true,
+                                date: dayKey,
+                            });
+                            added = true;
+                        }
+
+                        if (added) {
+                            setFocusKey(null);
+                        }
+                        return added;
+                    };
 
                 let currentKey = null;
                 let currentStart = null;
@@ -1844,6 +2200,8 @@
                     currentKey = entry.key;
                     currentStart = entry.start;
                     currentEnd = entry.end;
+                    setFocusKey(entry.key);
+                    markPromptSeen(entry.key);
                     fromEl.textContent = formatTime12(entry.start);
                     toEl.textContent = formatTime12(entry.end);
                     inputEl.value = '';
@@ -1856,42 +2214,56 @@
                     document.addEventListener('keydown', onKey);
                 };
 
-                // Pop the next eligible prompt off the freshly-rebuilt queue
-                // (so any block the user just logged is taken into account).
                 const showNextPrompt = () => {
                     if (modalOpen) return;
-                    const queue = buildPromptQueue(new Date());
-                    if (queue.length === 0) return;
-                    openModal(queue[0]);
+                    if (nextPromptTimer) {
+                        clearTimeout(nextPromptTimer);
+                        nextPromptTimer = null;
+                    }
+
+                    const now = new Date();
+                    if (autoFillUnlogged(now)) return;
+
+                    const entry = pickNextPrompt(now);
+                    if (!entry) return;
+                    openModal(entry);
                 };
 
                 const scheduleNext = (immediate = false) => {
                     if (nextPromptTimer) clearTimeout(nextPromptTimer);
-                    nextPromptTimer = setTimeout(showNextPrompt, immediate ? 600 : NEXT_PROMPT_DELAY_MS);
+                    const delay = immediate ? 600 : getPromptDelayMs(new Date());
+                    nextPromptTimer = setTimeout(showNextPrompt, delay);
                 };
 
                 const handleSkip = () => {
-                    markPrompted(currentKey);
+                    touchPromptTimestamp(currentKey);
                     closeModal();
-                    scheduleNext();              // wait NEXT_PROMPT_DELAY_MS, then ask the next gap
+                    scheduleNext();              // wait prompt delay, then ask again
                 };
 
                 const handleSave = () => {
                     const text = inputEl.value.trim();
                     if (!text) return;
                     if (window.ChronoBlocks && currentStart && currentEnd) {
-                        window.ChronoBlocks.add({
+                        const payload = {
                             source: 'manual',
                             start: dateToHHMM(currentStart),
                             end: dateToHHMM(currentEnd),
                             durationMs: currentEnd.getTime() - currentStart.getTime(),
                             label: text,
                             status: 'completed',
-                        });
+                            allowSplit: true,
+                        };
+                        if (window.ChronoBlocks.addWithSplit) {
+                            window.ChronoBlocks.addWithSplit(payload);
+                        } else {
+                            window.ChronoBlocks.add(payload);
+                        }
                     }
-                    markPrompted(currentKey);
+                    clearPromptState(currentKey);
+                    setFocusKey(null);
                     closeModal();
-                    scheduleNext();              // saving covers this gap; queue will skip it next round
+                    scheduleNext();              // saving covers this gap; move on after delay
                 };
 
                 saveBtn.addEventListener('click', handleSave);
@@ -1909,7 +2281,7 @@
                 setTimeout(() => {
                     showNextPrompt();
                     setInterval(() => {
-                        if (!modalOpen && !nextPromptTimer) showNextPrompt();
+                        if (!modalOpen) showNextPrompt();
                     }, 60000);
                 }, msUntilNextMinute);
             })();
@@ -2105,29 +2477,87 @@
                     const wastedMs = completedInRange
                         .filter((b) => b.category === 'wasted')
                         .reduce((s, b) => s + (b.durationMs || 0), 0);
-                    const ratio = passedMs > 0
-                        ? Math.min(100, Math.round((productiveMs / passedMs) * 100))
-                        : 0;
                     const progressPct = totalMs > 0
                         ? Math.min(100, (passedMs / totalMs) * 100)
                         : 0;
 
+                    // ── Sleep / Awake / Unlogged / Efficiency for this period
+                    // Count one bedtime per calendar day inside the elapsed
+                    // window, multiply by sleep_per_night.
+                    const wakeMins = hhmmToMins(wakeTime);
+                    const endMins = hhmmToMins(endTime);
+                    const sleepPerNightMin = wakeMins > endMins
+                        ? wakeMins - endMins
+                        : (24 * 60) - endMins + wakeMins;
+
+                    let elapsedNights = 0;
+                    if (passedMs > 0) {
+                        const cursor = new Date(effectiveStart);
+                        cursor.setHours(0, 0, 0, 0);
+                        const lastDay = new Date(now);
+                        lastDay.setHours(0, 0, 0, 0);
+                        while (cursor.getTime() <= lastDay.getTime()) {
+                            const bedtime = new Date(cursor);
+                            bedtime.setHours(Math.floor(endMins / 60), endMins % 60, 0, 0);
+                            if (bedtime.getTime() >= effectiveStart.getTime() &&
+                                bedtime.getTime() <= now.getTime()) {
+                                elapsedNights++;
+                            }
+                            cursor.setDate(cursor.getDate() + 1);
+                        }
+                    }
+                    const sleepElapsedMs = elapsedNights * sleepPerNightMin * 60 * 1000;
+                    const awakeElapsedMs = Math.max(0, passedMs - sleepElapsedMs);
+                    const unloggedAwakeMs = Math.max(0, awakeElapsedMs - productiveMs - wastedMs);
+
+                    // Efficiency = productive ÷ awake elapsed (penalises both
+                    // wasted AND unlogged awake hours).
+                    const efficiencyPct = awakeElapsedMs > 0
+                        ? Math.min(100, Math.round((productiveMs / awakeElapsedMs) * 100))
+                        : 0;
+
+                    // Segmented bar: percentages over awakeElapsedMs.
+                    const awakeForBar = Math.max(1, awakeElapsedMs);
+                    const prodPct = Math.round((productiveMs / awakeForBar) * 100);
+                    const wastedBarPct = Math.round((wastedMs / awakeForBar) * 100);
+                    const unloggedBarPct = Math.max(0, 100 - prodPct - wastedBarPct);
+
                     const range = section.querySelector('[data-period-range]');
-                    const passed = section.querySelector('[data-period-passed]');
+                    const totalEl = section.querySelector('[data-period-total]');
+                    const sleepEl = section.querySelector('[data-period-sleep]');
+                    const sleepNoteEl = section.querySelector('[data-period-sleep-note]');
+                    const awakeEl = section.querySelector('[data-period-awake]');
+                    const awakeLabelEl = section.querySelector('[data-period-awake-label]');
                     const left = section.querySelector('[data-period-left]');
                     const productive = section.querySelector('[data-period-productive]');
                     const wastedEl = section.querySelector('[data-period-wasted]');
+                    const unloggedEl = section.querySelector('[data-period-unlogged]');
                     const ratioEl = section.querySelector('[data-period-ratio]');
                     const progressEl = section.querySelector('[data-period-progress]');
-                    const noteEl = section.querySelector('[data-period-note]');
+                    const barProductive = section.querySelector('[data-period-bar-productive]');
+                    const barWasted = section.querySelector('[data-period-bar-wasted]');
+                    const barUnlogged = section.querySelector('[data-period-bar-unlogged]');
+                    // Older-style fields (still exposed for month/year sections that
+                    // haven't been redesigned yet).
+                    const passed = section.querySelector('[data-period-passed]');
 
                     if (range) range.textContent = formatRange(effectiveStart, endDate);
+                    if (totalEl) totalEl.textContent = formatHours(totalMs);
+                    if (sleepEl) sleepEl.textContent = formatHours(sleepElapsedMs);
+                    if (sleepNoteEl) sleepNoteEl.textContent =
+                        `${elapsedNights} ${elapsedNights === 1 ? 'night' : 'nights'} × ${formatHours(sleepPerNightMin * 60 * 1000)}`;
+                    if (awakeEl) awakeEl.textContent = formatHours(awakeElapsedMs);
+                    if (awakeLabelEl) awakeLabelEl.textContent = `${formatHours(awakeElapsedMs)} awake elapsed`;
                     if (passed) passed.textContent = formatHours(passedMs);
                     if (left) left.textContent = formatHours(leftMs);
                     if (productive) productive.textContent = productiveMs > 0 ? formatHours(productiveMs) : '—';
                     if (wastedEl) wastedEl.textContent = wastedMs > 0 ? formatHours(wastedMs) : '—';
-                    if (ratioEl) ratioEl.textContent = productiveMs > 0 ? `${ratio}%` : '—';
+                    if (unloggedEl) unloggedEl.textContent = unloggedAwakeMs > 0 ? formatHours(unloggedAwakeMs) : '—';
+                    if (ratioEl) ratioEl.textContent = awakeElapsedMs > 0 ? `${efficiencyPct}%` : '—';
                     if (progressEl) progressEl.style.width = `${progressPct.toFixed(2)}%`;
+                    if (barProductive) barProductive.style.width = `${prodPct}%`;
+                    if (barWasted) barWasted.style.width = `${wastedBarPct}%`;
+                    if (barUnlogged) barUnlogged.style.width = `${unloggedBarPct}%`;
                     if (noteEl) {
                         if (signupClamped && signupDateLabel) {
                             const preLabel = formatPreSignupSpan(startDate, signupTs);
@@ -2162,10 +2592,16 @@
                         return;
                     }
                     topBlocksEl.innerHTML = top.map((b) => {
-                        const wastedTag = b.category === 'wasted'
-                            ? ' <span class="ml-1 text-[0.65rem] uppercase tracking-wider text-rose-300">Wasted</span>'
-                            : '';
-                        return `<li class="text-slate-300"><span class="text-slate-100 font-medium">${escapeHtml(formatDuration(b.durationMs || 0))}</span> · ${escapeHtml(b.label || 'Time block')}${wastedTag}</li>`;
+                        const isWasted = b.category === 'wasted';
+                        const dotClass = isWasted ? 'bg-rose-400' : 'bg-emerald-400';
+                        const tagClass = isWasted ? 'text-rose-300' : 'text-emerald-300';
+                        const tagText = isWasted ? 'Wasted' : 'Productive';
+                        return `<li class="flex items-center gap-2 text-slate-300">` +
+                            `<span class="inline-block h-2 w-2 rounded-full ${dotClass} shrink-0"></span>` +
+                            `<span class="text-slate-100 font-medium">${escapeHtml(formatDuration(b.durationMs || 0))}</span>` +
+                            ` · ${escapeHtml(b.label || 'Time block')}` +
+                            ` <span class="ml-1 text-[0.65rem] uppercase tracking-wider ${tagClass}">${tagText}</span>` +
+                            `</li>`;
                     }).join('');
                 };
 
@@ -2173,6 +2609,7 @@
                     if (!last7DaysEl) return;
                     const todayKey = localDateString(now);
                     const signupKey = signupTs ? localDateString(signupTs) : null;
+                    const dayUrlTemplate = (window.ChronoDashboardConfig?.dayDetailUrl) || '';
                     const tiles = [];
                     for (let i = 6; i >= 0; i--) {
                         const d = new Date(now);
@@ -2190,20 +2627,38 @@
                         } else if (isToday) {
                             cls = 'border-[var(--chrono-blue)] bg-slate-800/60';
                         } else {
-                            cls = 'border-slate-800/60 bg-slate-900/40';
+                            cls = 'border-slate-800/60 bg-slate-900/40 hover:border-[var(--chrono-blue)]/60 transition-colors cursor-pointer';
                         }
                         const valueCls = totalMs > 0 ? 'text-slate-100' : 'text-slate-600';
                         const valueText = isPreSignup
                             ? '<span class="text-slate-600 italic">pre-signup</span>'
                             : (totalMs > 0 ? escapeHtml(formatDuration(totalMs)) : '—');
-                        const titleAttr = isPreSignup ? ' title="Before your signup"' : '';
-                        tiles.push(
-                            `<div class="rounded-lg border ${cls} p-2 text-center"${titleAttr}>` +
+
+                        const inner =
                             `<div class="text-[0.65rem] uppercase tracking-wider text-slate-400">${escapeHtml(dayName)}</div>` +
                             `<div class="text-[0.65rem] text-slate-500">${d.getDate()}</div>` +
-                            `<div class="mt-1 text-sm ${valueCls}">${valueText}</div>` +
-                            '</div>'
-                        );
+                            `<div class="mt-1 text-sm ${valueCls}">${valueText}</div>`;
+
+                        // Past, post-signup days are clickable links to the
+                        // read-only day report. Today and pre-signup tiles
+                        // stay as plain divs.
+                        if (!isPreSignup && !isToday && dayUrlTemplate) {
+                            const url = dayUrlTemplate.replace('__DATE__', dateStr);
+                            tiles.push(
+                                `<a href="${url}" class="block rounded-lg border ${cls} p-2 text-center" title="Open day report">` +
+                                inner +
+                                '</a>'
+                            );
+                        } else {
+                            const titleAttr = isPreSignup
+                                ? ' title="Before your signup"'
+                                : (isToday ? ' title="Current day — see Today section above"' : '');
+                            tiles.push(
+                                `<div class="rounded-lg border ${cls} p-2 text-center"${titleAttr}>` +
+                                inner +
+                                '</div>'
+                            );
+                        }
                     }
                     last7DaysEl.innerHTML = tiles.join('');
                 };
@@ -2271,6 +2726,32 @@
                     const unloggedMins = Math.max(0, elapsedActiveMins - loggedTodayMins);
                     if (unloggedTodayEl) unloggedTodayEl.textContent = formatDuration(unloggedMins * 60000);
                     if (unloggedContextEl) unloggedContextEl.textContent = context;
+
+                    // ── Day efficiency ────────────────────────────────────
+                    // Productive% = productive_minutes / elapsed_active_minutes.
+                    // Penalises both wasted time AND unlogged time, so the
+                    // only way to reach 100% is to log productive blocks
+                    // covering the full waking window so far.
+                    const productiveTodayMs = Math.max(0, loggedTodayMs - wastedTodayMs);
+                    const elapsedMs = Math.max(0, elapsedActiveMs);
+                    const productivePct = elapsedMs > 0
+                        ? Math.min(100, Math.round((productiveTodayMs / elapsedMs) * 100))
+                        : 0;
+                    const wastedPct = elapsedMs > 0
+                        ? Math.min(100 - productivePct, Math.round((wastedTodayMs / elapsedMs) * 100))
+                        : 0;
+                    const dayPctEl = document.querySelector('[data-day-effective-pct]');
+                    const dayProdBar = document.querySelector('[data-day-productive-bar]');
+                    const dayWastedBar = document.querySelector('[data-day-wasted-bar]');
+                    const dayProdTime = document.querySelector('[data-day-productive-time]');
+                    const dayWastedTime = document.querySelector('[data-day-wasted-time]');
+                    const dayUnloggedTime = document.querySelector('[data-day-unlogged-time]');
+                    if (dayPctEl) dayPctEl.textContent = elapsedMs > 0 ? `${productivePct}%` : '—';
+                    if (dayProdBar) dayProdBar.style.width = `${productivePct}%`;
+                    if (dayWastedBar) dayWastedBar.style.width = `${wastedPct}%`;
+                    if (dayProdTime) dayProdTime.textContent = formatDuration(productiveTodayMs);
+                    if (dayWastedTime) dayWastedTime.textContent = formatDuration(wastedTodayMs);
+                    if (dayUnloggedTime) dayUnloggedTime.textContent = formatDuration(unloggedMins * 60000);
 
                     renderTopBlocks(todayBlocks);
 

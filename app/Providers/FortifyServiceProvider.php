@@ -6,8 +6,11 @@ use App\Actions\Fortify\CreateNewUser;
 use App\Actions\Fortify\UpdateUserPassword;
 use App\Actions\Fortify\UpdateUserProfileInformation;
 use App\Models\User;
+use Illuminate\Auth\Notifications\ResetPassword;
+use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
@@ -87,5 +90,33 @@ class FortifyServiceProvider extends ServiceProvider
         Fortify::requestPasswordResetLinkView(fn () => view('auth.forgot-password'));
         Fortify::resetPasswordView(fn ($request) => view('auth.reset-password', ['request' => $request]));
         Fortify::verifyEmailView(fn () => view('auth.verify-email'));
+
+        // ── Branded transactional emails ───────────────────────────────────
+        // Override Laravel's default plain-text verification + password-reset
+        // notifications with the HTML templates in resources/views/emails/.
+        // These run for both the auth flow (registration + forgot password)
+        // and any admin-triggered resends from /admin/users/{id}.
+        VerifyEmail::toMailUsing(function ($notifiable, $url) {
+            return (new MailMessage)
+                ->subject('Verify your Track Your Time email')
+                ->view('emails.verify-email', [
+                    'url' => $url,
+                    'user' => $notifiable,
+                ]);
+        });
+
+        ResetPassword::toMailUsing(function ($notifiable, $token) {
+            $url = url(route('password.reset', [
+                'token' => $token,
+                'email' => $notifiable->getEmailForPasswordReset(),
+            ], false));
+
+            return (new MailMessage)
+                ->subject('Reset your Track Your Time password')
+                ->view('emails.reset-password', [
+                    'url' => $url,
+                    'user' => $notifiable,
+                ]);
+        });
     }
 }

@@ -1,7 +1,7 @@
 {{--
-  Branded password-reset email. Mirrors the verify-email layout for visual
-  consistency. Uses an amber accent on the CTA + a clear "you can ignore this"
-  fallback so users who didn't request a reset aren't worried.
+  Branded password-reset email. Mirrors verify-email layout for visual
+  consistency. Same CSS-animation strategy: enhances Apple/iOS Mail,
+  silently ignored by Gmail/Outlook (the static design still looks great).
 --}}
 <!DOCTYPE html>
 <html lang="en" xmlns="http://www.w3.org/1999/xhtml">
@@ -11,6 +11,41 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="x-apple-disable-message-reformatting">
     <title>Reset your password — Time Management Pet</title>
+
+    <style>
+        @media (prefers-reduced-motion: no-preference) {
+            @keyframes tmp-glow {
+                0%, 100% { filter: drop-shadow(0 0 0 rgba(0, 224, 255, 0)); }
+                50%      { filter: drop-shadow(0 0 10px rgba(0, 224, 255, 0.55)); }
+            }
+            @keyframes tmp-tick {
+                from { transform: rotate(0deg); }
+                to   { transform: rotate(360deg); }
+            }
+            @keyframes tmp-shimmer {
+                0%   { background-position: -200% 0; }
+                100% { background-position: 200% 0; }
+            }
+            @keyframes tmp-rise {
+                from { opacity: 0; transform: translateY(10px); }
+                to   { opacity: 1; transform: translateY(0); }
+            }
+            @keyframes tmp-cta-amber {
+                0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.55); }
+                50%      { box-shadow: 0 0 0 8px rgba(245, 158, 11, 0); }
+            }
+
+            .tmp-logo       { animation: tmp-glow 2.6s ease-in-out infinite; }
+            .tmp-second     { transform-origin: 16px 18px; animation: tmp-tick 60s linear infinite; }
+            .tmp-header     {
+                background-image: linear-gradient(135deg,#0f172a 0%,#1e293b 40%,#0f172a 60%,#1e293b 100%);
+                background-size: 200% 100%;
+                animation: tmp-shimmer 8s ease-in-out infinite;
+            }
+            .tmp-rise       { animation: tmp-rise 0.7s ease-out both; }
+            .tmp-cta        { animation: tmp-cta-amber 2.2s ease-in-out infinite; }
+        }
+    </style>
 </head>
 <body style="margin:0;padding:0;background-color:#f4f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#0f172a;-webkit-font-smoothing:antialiased;">
 
@@ -25,12 +60,26 @@
 
                     {{-- ── Header ─────────────────────────────────────── --}}
                     <tr>
-                        <td style="background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);padding:28px 36px;">
+                        <td class="tmp-header" style="background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);padding:28px 36px;">
                             <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                                 <tr>
                                     <td>
-                                        <span style="display:inline-block;width:9px;height:9px;border-radius:50%;background-color:#00e0ff;box-shadow:0 0 12px rgba(0,224,255,0.6);vertical-align:middle;margin-right:10px;"></span>
-                                        <span style="display:inline-block;color:#f1f5f9;font-size:13px;letter-spacing:3px;text-transform:uppercase;font-weight:600;vertical-align:middle;">Time Management Pet</span>
+                                        <span class="tmp-logo" style="display:inline-block;vertical-align:middle;margin-right:12px;line-height:0;">
+                                            <svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                                                <path d="M9 8 L7.2 2.8 L12.5 6.2 Z" fill="#00e0ff" opacity="0.95"/>
+                                                <path d="M23 8 L24.8 2.8 L19.5 6.2 Z" fill="#00e0ff" opacity="0.95"/>
+                                                <circle cx="16" cy="18" r="10.5" fill="#0b1424" stroke="#00e0ff" stroke-width="1.8"/>
+                                                <line x1="16" y1="9.5"  x2="16" y2="11"   stroke="#00e0ff" stroke-width="1.4" stroke-linecap="round"/>
+                                                <line x1="16" y1="25"   x2="16" y2="26.5" stroke="#00e0ff" stroke-width="1.4" stroke-linecap="round"/>
+                                                <line x1="7.5" y1="18"  x2="9"  y2="18"   stroke="#00e0ff" stroke-width="1.4" stroke-linecap="round"/>
+                                                <line x1="23" y1="18"   x2="24.5" y2="18" stroke="#00e0ff" stroke-width="1.4" stroke-linecap="round"/>
+                                                <line x1="16" y1="18" x2="16" y2="12.5" stroke="#f1f5f9" stroke-width="1.8" stroke-linecap="round"/>
+                                                <line x1="16" y1="18" x2="20" y2="20"   stroke="#f1f5f9" stroke-width="1.8" stroke-linecap="round"/>
+                                                <line class="tmp-second" x1="16" y1="18" x2="16" y2="10" stroke="#ff6b1a" stroke-width="1" stroke-linecap="round"/>
+                                                <circle cx="16" cy="18" r="1.6" fill="#00e0ff"/>
+                                            </svg>
+                                        </span>
+                                        <span style="display:inline-block;color:#f1f5f9;font-size:13px;letter-spacing:3px;text-transform:uppercase;font-weight:700;vertical-align:middle;">Time Management Pet</span>
                                     </td>
                                 </tr>
                             </table>
@@ -39,7 +88,7 @@
 
                     {{-- ── Body ───────────────────────────────────────── --}}
                     <tr>
-                        <td style="padding:40px 36px 16px;">
+                        <td class="tmp-rise" style="padding:40px 36px 16px;">
                             <div style="display:inline-block;background-color:#fef3c7;color:#92400e;font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;padding:4px 10px;border-radius:999px;margin-bottom:18px;">
                                 Password reset
                             </div>
@@ -53,11 +102,10 @@
                                 We received a request to reset the password for your Time Management Pet account ({{ $user?->email ?? 'this address' }}). Click the button below to set a new one. The link expires in 60 minutes.
                             </p>
 
-                            {{-- CTA button --}}
                             <table role="presentation" cellpadding="0" cellspacing="0" border="0">
                                 <tr>
                                     <td align="center" bgcolor="#f59e0b" style="border-radius:8px;">
-                                        <a href="{{ $url }}"
+                                        <a href="{{ $url }}" class="tmp-cta"
                                             style="display:inline-block;background-color:#f59e0b;color:#0f172a;font-size:14px;font-weight:700;text-decoration:none;padding:13px 32px;border-radius:8px;letter-spacing:0.4px;mso-padding-alt:0;">
                                             Reset password →
                                         </a>

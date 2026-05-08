@@ -1,8 +1,11 @@
 {{--
   Branded email-verification template.
-  Inline styles only — Gmail and many other clients strip <style> tags.
-  Tables for layout — older clients (and some modern ones) ignore flex/grid.
-  600px max width, ~14-15px body font, single CTA button + fallback text link.
+  - Inline styles for static rendering (Gmail/Outlook-safe)
+  - <style> block for CSS animations — Apple Mail, iOS Mail, Thunderbird,
+    most native clients honour @keyframes; clients that strip <style> just
+    get the polished static design.
+  - Inline SVG logo (clock face with cute pet-ears) — modern clients render
+    SVG fine; the wordmark is right next to it as a fallback identity.
 --}}
 <!DOCTYPE html>
 <html lang="en" xmlns="http://www.w3.org/1999/xhtml">
@@ -12,10 +15,47 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="x-apple-disable-message-reformatting">
     <title>Verify your email — Time Management Pet</title>
+
+    <style>
+        /* Animations applied as progressive enhancement — clients that strip
+           <style> tags simply skip these and the static design still looks great. */
+        @media (prefers-reduced-motion: no-preference) {
+            @keyframes tmp-glow {
+                0%, 100% { filter: drop-shadow(0 0 0 rgba(0, 224, 255, 0)); }
+                50%      { filter: drop-shadow(0 0 10px rgba(0, 224, 255, 0.55)); }
+            }
+            @keyframes tmp-tick {
+                from { transform: rotate(0deg); }
+                to   { transform: rotate(360deg); }
+            }
+            @keyframes tmp-shimmer {
+                0%   { background-position: -200% 0; }
+                100% { background-position: 200% 0; }
+            }
+            @keyframes tmp-rise {
+                from { opacity: 0; transform: translateY(10px); }
+                to   { opacity: 1; transform: translateY(0); }
+            }
+            @keyframes tmp-cta {
+                0%, 100% { box-shadow: 0 0 0 0 rgba(0, 224, 255, 0.45); }
+                50%      { box-shadow: 0 0 0 8px rgba(0, 224, 255, 0); }
+            }
+
+            .tmp-logo       { animation: tmp-glow 2.6s ease-in-out infinite; }
+            .tmp-second     { transform-origin: 16px 18px; animation: tmp-tick 60s linear infinite; }
+            .tmp-header     {
+                background-image: linear-gradient(135deg,#0f172a 0%,#1e293b 40%,#0f172a 60%,#1e293b 100%);
+                background-size: 200% 100%;
+                animation: tmp-shimmer 8s ease-in-out infinite;
+            }
+            .tmp-rise       { animation: tmp-rise 0.7s ease-out both; }
+            .tmp-cta        { animation: tmp-cta 2.2s ease-in-out infinite; }
+        }
+    </style>
 </head>
 <body style="margin:0;padding:0;background-color:#f4f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#0f172a;-webkit-font-smoothing:antialiased;">
 
-    {{-- Hidden preheader (preview text shown in Gmail/Outlook list view) --}}
+    {{-- Hidden preheader (preview shown by Gmail/Outlook in the inbox list) --}}
     <div style="display:none;max-height:0;overflow:hidden;font-size:1px;line-height:1px;color:#f4f5f7;opacity:0;">
         Confirm your email so we can finish setting up your Time Management Pet account.
     </div>
@@ -25,14 +65,35 @@
             <td align="center">
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(15,23,42,0.06),0 1px 2px rgba(15,23,42,0.04);">
 
-                    {{-- ── Header ─────────────────────────────────────── --}}
+                    {{-- ── Header (gradient w/ animated shimmer in supporting clients) ── --}}
                     <tr>
-                        <td style="background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);padding:28px 36px;">
+                        <td class="tmp-header" style="background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);padding:28px 36px;">
                             <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                                 <tr>
                                     <td>
-                                        <span style="display:inline-block;width:9px;height:9px;border-radius:50%;background-color:#00e0ff;box-shadow:0 0 12px rgba(0,224,255,0.6);vertical-align:middle;margin-right:10px;"></span>
-                                        <span style="display:inline-block;color:#f1f5f9;font-size:13px;letter-spacing:3px;text-transform:uppercase;font-weight:600;vertical-align:middle;">Time Management Pet</span>
+                                        {{-- Inline SVG logo: clock face + pet-ears mark --}}
+                                        <span class="tmp-logo" style="display:inline-block;vertical-align:middle;margin-right:12px;line-height:0;">
+                                            <svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                                                <!-- Pet ears -->
+                                                <path d="M9 8 L7.2 2.8 L12.5 6.2 Z" fill="#00e0ff" opacity="0.95"/>
+                                                <path d="M23 8 L24.8 2.8 L19.5 6.2 Z" fill="#00e0ff" opacity="0.95"/>
+                                                <!-- Outer clock ring -->
+                                                <circle cx="16" cy="18" r="10.5" fill="#0b1424" stroke="#00e0ff" stroke-width="1.8"/>
+                                                <!-- Tick marks -->
+                                                <line x1="16" y1="9.5"  x2="16" y2="11"  stroke="#00e0ff" stroke-width="1.4" stroke-linecap="round"/>
+                                                <line x1="16" y1="25"   x2="16" y2="26.5" stroke="#00e0ff" stroke-width="1.4" stroke-linecap="round"/>
+                                                <line x1="7.5" y1="18"  x2="9"  y2="18"  stroke="#00e0ff" stroke-width="1.4" stroke-linecap="round"/>
+                                                <line x1="23" y1="18"   x2="24.5" y2="18" stroke="#00e0ff" stroke-width="1.4" stroke-linecap="round"/>
+                                                <!-- Hour + minute hands -->
+                                                <line x1="16" y1="18" x2="16"   y2="12.5" stroke="#f1f5f9" stroke-width="1.8" stroke-linecap="round"/>
+                                                <line x1="16" y1="18" x2="20"   y2="20"   stroke="#f1f5f9" stroke-width="1.8" stroke-linecap="round"/>
+                                                <!-- Sweeping second hand (animated) -->
+                                                <line class="tmp-second" x1="16" y1="18" x2="16" y2="10" stroke="#ff6b1a" stroke-width="1" stroke-linecap="round"/>
+                                                <!-- Centre dot -->
+                                                <circle cx="16" cy="18" r="1.6" fill="#00e0ff"/>
+                                            </svg>
+                                        </span>
+                                        <span style="display:inline-block;color:#f1f5f9;font-size:13px;letter-spacing:3px;text-transform:uppercase;font-weight:700;vertical-align:middle;">Time Management Pet</span>
                                     </td>
                                 </tr>
                             </table>
@@ -41,7 +102,7 @@
 
                     {{-- ── Body ───────────────────────────────────────── --}}
                     <tr>
-                        <td style="padding:40px 36px 16px;">
+                        <td class="tmp-rise" style="padding:40px 36px 16px;">
                             <h1 style="margin:0 0 18px;font-size:22px;line-height:1.3;font-weight:700;color:#0f172a;letter-spacing:-0.01em;">
                                 Verify your email address
                             </h1>
@@ -52,11 +113,11 @@
                                 Welcome to Time Management Pet. Please confirm this is your email address so you can start logging time blocks, tracking goals, and seeing your daily efficiency. The link expires in 60 minutes.
                             </p>
 
-                            {{-- CTA button (table-based for Outlook compatibility) --}}
+                            {{-- CTA button --}}
                             <table role="presentation" cellpadding="0" cellspacing="0" border="0">
                                 <tr>
                                     <td align="center" bgcolor="#00e0ff" style="border-radius:8px;">
-                                        <a href="{{ $url }}"
+                                        <a href="{{ $url }}" class="tmp-cta"
                                             style="display:inline-block;background-color:#00e0ff;color:#0f172a;font-size:14px;font-weight:700;text-decoration:none;padding:13px 32px;border-radius:8px;letter-spacing:0.4px;mso-padding-alt:0;">
                                             Verify email →
                                         </a>
@@ -85,7 +146,6 @@
 
                 </table>
 
-                {{-- Outer footer --}}
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="max-width:600px;width:100%;margin-top:14px;">
                     <tr>
                         <td align="center" style="padding:0 16px;">

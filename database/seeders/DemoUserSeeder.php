@@ -18,7 +18,7 @@ class DemoUserSeeder extends Seeder
         $user = User::updateOrCreate(
             ['email' => 'demo@chronolog.test'],
             [
-                'name' => 'Track Your Time · Demo',
+                'name' => 'Time Management Pet · Demo',
                 'password' => 'password1234',
                 'timezone' => 'UTC',
                 'end_of_day_time' => '22:00',

@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('page_title', auth()->check() ? 'Dashboard' : 'Track Your Time')
+@section('page_title', auth()->check() ? 'Dashboard' : 'Time Management Pet')
 
 @section('content')
     @php

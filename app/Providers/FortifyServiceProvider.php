@@ -6,13 +6,18 @@ use App\Actions\Fortify\CreateNewUser;
 use App\Actions\Fortify\UpdateUserPassword;
 use App\Actions\Fortify\UpdateUserProfileInformation;
 use App\Models\User;
+use Illuminate\Auth\Notifications\ResetPassword;
+use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\ValidationException;
+use Laravel\Fortify\Contracts\RegisterResponse as RegisterResponseContract;
 use Laravel\Fortify\Fortify;
+use Symfony\Component\HttpFoundation\Response;
 
 class FortifyServiceProvider extends ServiceProvider
 {
@@ -21,7 +26,23 @@ class FortifyServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Replace Fortify's default RegisterResponse so a freshly registered
+        // user always lands on the home page. The default uses
+        // redirect()->intended(...), which sends them back to whatever URL
+        // was stashed in the session — including /admin/* URLs that the
+        // guest previously hit and got bounced from. That ends up routing
+        // a brand-new (non-admin) user to the admin login screen, which is
+        // confusing. The user dashboard is the right post-register landing.
+        $this->app->singleton(RegisterResponseContract::class, function () {
+            return new class implements RegisterResponseContract {
+                public function toResponse($request): Response
+                {
+                    return $request->wantsJson()
+                        ? response()->json('', 201)
+                        : redirect()->to('/');
+                }
+            };
+        });
     }
 
     /**
@@ -87,5 +108,33 @@ class FortifyServiceProvider extends ServiceProvider
         Fortify::requestPasswordResetLinkView(fn () => view('auth.forgot-password'));
         Fortify::resetPasswordView(fn ($request) => view('auth.reset-password', ['request' => $request]));
         Fortify::verifyEmailView(fn () => view('auth.verify-email'));
+
+        // ── Branded transactional emails ───────────────────────────────────
+        // Override Laravel's default plain-text verification + password-reset
+        // notifications with the HTML templates in resources/views/emails/.
+        // These run for both the auth flow (registration + forgot password)
+        // and any admin-triggered resends from /admin/users/{id}.
+        VerifyEmail::toMailUsing(function ($notifiable, $url) {
+            return (new MailMessage)
+                ->subject('Verify your Time Management Pet email')
+                ->view('emails.verify-email', [
+                    'url' => $url,
+                    'user' => $notifiable,
+                ]);
+        });
+
+        ResetPassword::toMailUsing(function ($notifiable, $token) {
+            $url = url(route('password.reset', [
+                'token' => $token,
+                'email' => $notifiable->getEmailForPasswordReset(),
+            ], false));
+
+            return (new MailMessage)
+                ->subject('Reset your Time Management Pet password')
+                ->view('emails.reset-password', [
+                    'url' => $url,
+                    'user' => $notifiable,
+                ]);
+        });
     }
 }

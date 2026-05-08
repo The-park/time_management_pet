@@ -8,7 +8,7 @@
         <div>
             <div class="text-xs uppercase tracking-[0.3em] text-[var(--chrono-blue)] mb-3">Welcome</div>
             <h1 class="font-display text-3xl md:text-5xl tracking-[0.2em] uppercase leading-tight">
-                Track Your Time
+                Time Management Pet
             </h1>
             <p class="mt-4 text-slate-300 text-sm md:text-base max-w-xl">
                 A focused space to log how you spend your hours, run countdowns for your work,
@@ -40,7 +40,7 @@
                  and a faintly glowing shoulder dial. Pure SVG so it scales and stays crisp. --}}
             <div class="chrono-bob">
                 <svg width="220" height="220" viewBox="0 0 220 220" fill="none" xmlns="http://www.w3.org/2000/svg"
-                    role="img" aria-label="Track Your Time mascot">
+                    role="img" aria-label="Time Management Pet mascot">
                     <defs>
                         <radialGradient id="m_face" cx="0.5" cy="0.4" r="0.7">
                             <stop offset="0%" stop-color="#1f2937"/>

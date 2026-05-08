@@ -30,6 +30,12 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->web(append: [
             \App\Http\Middleware\EnsureUserIsActive::class,
         ]);
+
+        // Trust the load balancer / shared-hosting proxy that terminates TLS
+        // and forwards the X-Forwarded-* headers. Without this, Laravel sees
+        // requests as plain HTTP behind cPanel-style hosts (TMD, etc.) and
+        // generates http:// URLs even when the user is on https://.
+        $middleware->trustProxies(at: '*');
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         // When a route-model-bound resource can't be resolved (deleted,

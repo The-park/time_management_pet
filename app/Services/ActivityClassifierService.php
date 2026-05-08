@@ -6,6 +6,7 @@ use Phpml\Classification\NaiveBayes;
 use Phpml\FeatureExtraction\TfIdfTransformer;
 use Phpml\FeatureExtraction\TokenCountVectorizer;
 use Phpml\ModelManager;
+use Phpml\Tokenization\NGramWordTokenizer;
 use Phpml\Tokenization\WordTokenizer;
 
 /**
@@ -61,71 +62,15 @@ class ActivityClassifierService
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Curated training corpus. 32 examples covering:
-     *   - obvious productive (coding, studying, reading) and unproductive
-     *     (binge-watching, doomscrolling)
-     *   - mixed-sentiment cases ("played PubG for 20 mins as a break then
-     *     coded for 4 hours" → productive)
-     *   - double-negatives ("not wasted, finished the assignment" → productive)
-     *   - "the day got wasted" full-day-review pattern → unproductive
-     *
-     * Returns ['samples' => [...texts...], 'labels' => [...]].
+     * Returns the training corpus in php-ml's expected shape.
+     * Sources from ActivityClassifierCorpus which ships ~1,000 hand-curated
+     * examples spanning every realistic activity category — see that class
+     * for the breakdown. Splitting it out keeps this service focused on
+     * pipeline orchestration.
      */
     public static function defaultCorpus(): array
     {
-        $productive = [
-            'finished the AWS Lambda module and ran the practice test',
-            'wrote unit tests for the goal attribution service',
-            'studied chapter 8 of the CEH study guide',
-            'pair programmed with the team on the OAuth flow',
-            'completed homework for differential equations',
-            'shipped the dashboard refactor and reviewed PRs',
-            'deep work session on the quarterly planning doc',
-            'attended the design review and took action items',
-            'read three chapters of the system design book',
-            'practiced LeetCode for an hour, solved two mediums',
-            'gym workout, leg day, full routine',
-            'morning run 5k, then journaled for 15 minutes',
-            'cleaned the apartment and did the laundry properly',
-            'cooked a proper meal instead of ordering takeout',
-            'practiced guitar scales for 30 minutes',
-            'meditation 20 minutes then planned the week',
-            // Mixed-sentiment but ultimately productive:
-            'played PubG for 20 mins as a break then coded for 4 hours',
-            'scrolled instagram for 5 mins then finished the report',
-            'not wasted, actually finished the assignment',
-            'started watching netflix but stopped after 10 mins to study',
-            'commute home but used it to listen to a tech podcast',
-        ];
-
-        $unproductive = [
-            'binge watched netflix all afternoon',
-            'doomscrolling reels on instagram for hours',
-            'spent the evening on youtube shorts',
-            'random reddit rabbit hole, lost track of time',
-            'tiktok all morning, did nothing else',
-            'argued in twitter replies for two hours',
-            'gaming session on cod, six hours straight',
-            'watched random anime episodes back to back',
-            'scrolled facebook feed mindlessly all evening',
-            'discord drama for the entire night',
-            // Tricky long-form full-day reviews:
-            'wake up and eat breakfast and roaming in the end whole day got wasted',
-            'planned to study but ended up napping and binging youtube',
-            'thought I would code today, just procrastinated and watched twitch',
-            'meant to gym, lay in bed scrolling instead, complete waste',
-            'long shower, then phone for hours, basically a wasted day',
-            // Edge: short outings that were unfocused
-            'aimless mall walking, bought nothing, watched random people',
-        ];
-
-        $samples = array_merge($productive, $unproductive);
-        $labels  = array_merge(
-            array_fill(0, count($productive),   self::PRODUCTIVE),
-            array_fill(0, count($unproductive), self::UNPRODUCTIVE),
-        );
-
-        return ['samples' => $samples, 'labels' => $labels];
+        return ActivityClassifierCorpus::all();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -147,12 +92,26 @@ class ActivityClassifierService
         // vocabulary tight and deterministic across runs.
         $samples = array_map(fn ($t) => $this->normalise((string) $t), $samples);
 
+        // php-ml's NaiveBayes is a Gaussian implementation: it computes
+        // mean + variance per feature per class. Feeding it TF-IDF floats
+        // dilutes high-signal class-specific tokens (e.g. "gym", "tiktok")
+        // because the IDF down-weights them when they appear in short logs.
+        // Raw bag-of-words counts via TokenCountVectorizer keep those
+        // signals strong and improve held-out accuracy on short queries.
+        //
+        // (Aside: NGramWordTokenizer(1,2) was tried — it explodes the
+        // vocabulary 5-7x and OOM'd the serializer at 1k+ examples. Stuck
+        // with WordTokenizer; accuracy is recovered via richer corpus
+        // anchoring instead — see ActivityClassifierCorpus.)
         $vectorizer = new TokenCountVectorizer(new WordTokenizer());
         $vectorizer->fit($samples);
         $vectorizer->transform($samples);
 
+        // The transformer is still constructed (and persisted) so that the
+        // pipeline shape is forward-compatible if we re-introduce TF-IDF
+        // later — predict() is identical regardless. But we don't apply it
+        // to the training data here.
         $transformer = new TfIdfTransformer($samples);
-        $transformer->transform($samples);
 
         $classifier = new NaiveBayes();
         $classifier->train($samples, $labels);
@@ -212,19 +171,99 @@ class ActivityClassifierService
      * Classify a single activity description. Returns 'productive' or
      * 'unproductive'. Triggers loadOrTrain() lazily so callers don't have
      * to remember.
+     *
+     * Hybrid pipeline:
+     *   1. shortInputOverride() — for ≤ 3-token inputs with an
+     *      unambiguous productive or unproductive keyword and no
+     *      negator words, return the deterministic label. Solves the
+     *      Gaussian NB blind spot on single-token text where per-feature
+     *      variance washes out the per-class mean.
+     *   2. NaiveBayes classifier on the full vectorised input — handles
+     *      multi-word logs with nuanced context, mixed sentiment, and
+     *      double negatives.
      */
     public function predict(string $text): string
     {
+        $override = $this->shortInputOverride($text);
+        if ($override !== null) {
+            return $override;
+        }
+
         $this->loadOrTrain();
 
         $sample = [$this->normalise($text)];
-        // CRITICAL: re-use the FITTED vectorizer + transformer. Calling
-        // ->fit() again here would rebuild the vocabulary against this one
-        // sample and silently produce useless predictions.
+        // CRITICAL: re-use the FITTED vectorizer. Calling ->fit() again
+        // here would rebuild the vocabulary against this one sample and
+        // silently produce useless predictions. TF-IDF transformer is
+        // intentionally NOT applied here — see train() comment.
         $this->vectorizer->transform($sample);
-        $this->transformer->transform($sample);
 
         return (string) $this->classifier->predict($sample[0]);
+    }
+
+    /**
+     * Lexicon-based short-input handler. For an input of 3 tokens or
+     * fewer (no negators present), return the deterministic class if
+     * exactly one of the two keyword lists matches. Otherwise return
+     * null so predict() falls through to the NB classifier.
+     *
+     * The negator escape ("no gym", "skipped meditation") forces the
+     * harder, multi-word-aware ML path to handle nuance.
+     */
+    private function shortInputOverride(string $text): ?string
+    {
+        $tokens = preg_split('/[^a-z0-9]+/', mb_strtolower(trim($text))) ?: [];
+        $tokens = array_values(array_filter($tokens, fn ($t) => $t !== ''));
+        if (count($tokens) === 0 || count($tokens) > 3) {
+            return null;
+        }
+
+        static $productiveWords = [
+            // verbs / activities
+            'studied', 'studying', 'study', 'finished', 'completed',
+            'shipped', 'deployed', 'coded', 'coding', 'code', 'debugged',
+            'reviewed', 'planning', 'planned', 'journaling', 'journaled',
+            'meditate', 'meditated', 'meditation', 'learn', 'learning',
+            'learnt', 'learned', 'practice', 'practiced', 'practising',
+            'practicing', 'reading', 'write', 'writing', 'wrote', 'built',
+            'build', 'designed', 'organized', 'organised', 'mentored',
+            'taught', 'created', 'researching', 'researched', 'worked',
+            'practised',
+            // nouns / domains that are essentially productive on their own
+            'gym', 'workout', 'exercise', 'yoga', 'pilates', 'run',
+            'running', 'jog', 'jogging', 'cycling', 'cycle', 'swimming',
+            'swim', 'leetcode', 'focus', 'productive',
+        ];
+        static $unproductiveWords = [
+            'tiktok', 'reels', 'instagram', 'twitter', 'facebook',
+            'snapchat', 'discord', 'doomscrolling', 'doomscroll', 'scroll',
+            'scrolled', 'scrolling', 'binge', 'binged', 'binging', 'lazy',
+            'wasted', 'procrastinated', 'procrastinating', 'hungover',
+            'netflix', 'youtube', 'twitch', 'cod', 'pubg', 'unproductive',
+        ];
+        static $negators = [
+            'no', 'not', 'never', 'didnt', 'skipped', 'skip', 'missed',
+            'avoided', 'instead', 'failed',
+        ];
+
+        // Negator anywhere → defer to ML (handles "no gym", "skipped study").
+        foreach ($tokens as $t) {
+            if (in_array($t, $negators, true)) {
+                return null;
+            }
+        }
+
+        $hitsP = false;
+        $hitsU = false;
+        foreach ($tokens as $t) {
+            if (in_array($t, $productiveWords, true))   $hitsP = true;
+            if (in_array($t, $unproductiveWords, true)) $hitsU = true;
+        }
+
+        if ($hitsP && ! $hitsU) return self::PRODUCTIVE;
+        if ($hitsU && ! $hitsP) return self::UNPRODUCTIVE;
+        // Mixed (both classes match) or no match — defer to ML.
+        return null;
     }
 
     // ─────────────────────────────────────────────────────────────────────────

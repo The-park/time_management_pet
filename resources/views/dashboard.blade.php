@@ -145,6 +145,34 @@
                 $wastedBarPct = (int) round(($wastedMs / $awakeForBar) * 100);
                 $unloggedBarPct = max(0, 100 - $prodPct - $wastedBarPct);
 
+                // Joined-mid-period detection. When the user signed up
+                // *after* this period started, we display a callout so it's
+                // obvious why their stats are clamped. The moment the period
+                // boundary moves past their signup (e.g. new calendar year
+                // starts), this flips off and the callout auto-hides.
+                $signupClampedHere = $signupClampDt && $signupClampDt->gt($startDt);
+                $preSignupLabel = null;
+                if ($signupClampedHere) {
+                    // Build a human-readable gap like "4 months · 3 days" or
+                    // "12 days" describing how much of the period was already
+                    // gone before signup. Carbon's diff* methods can return
+                    // floats in newer versions — floor to whole months and
+                    // recompute the day remainder explicitly.
+                    $gapDays = max(0, (int) floor($startDt->diffInDays($signupClampDt)));
+                    if ($key === 'year') {
+                        $months = (int) floor($startDt->diffInMonths($signupClampDt));
+                        $afterMonths = $startDt->copy()->addMonths($months);
+                        $extraDays = max(0, (int) floor($afterMonths->diffInDays($signupClampDt)));
+                        $parts = [];
+                        if ($months >= 1) $parts[] = $months.' '.($months === 1 ? 'month' : 'months');
+                        if ($extraDays >= 1) $parts[] = $extraDays.' '.($extraDays === 1 ? 'day' : 'days');
+                        if (empty($parts)) $parts[] = $gapDays.' '.($gapDays === 1 ? 'day' : 'days');
+                        $preSignupLabel = implode(' · ', $parts);
+                    } else {
+                        $preSignupLabel = $gapDays.' '.($gapDays === 1 ? 'day' : 'days');
+                    }
+                }
+
                 $serverPeriodStats[$key] = [
                     'passed_ms' => (int) $passedMs,
                     'left_ms' => (int) $leftMs,
@@ -162,6 +190,9 @@
                     'bar_wasted_pct' => $wastedBarPct,
                     'bar_unlogged_pct' => $unloggedBarPct,
                     'range_label' => $effectiveStart->format('M j').' – '.$endDt->copy()->subDay()->format('M j'),
+                    'signup_clamped' => $signupClampedHere,
+                    'pre_signup_label' => $preSignupLabel,
+                    'signup_date_label' => $signupClampedHere ? $signupClampDt->format('M j, Y') : null,
                 ];
             }
         }
@@ -187,14 +218,140 @@
                 <span class="text-xs text-slate-500" data-today-date></span>
             </div>
 
-            <div class="flex flex-col sm:flex-row sm:items-center gap-3">
-                <input id="todays_goal_input" type="text" maxlength="240" placeholder="Today's goal — ship the MVP before 6pm"
-                    class="flex-1 rounded-lg bg-slate-900/70 border border-slate-700 px-4 py-3 text-slate-100">
-                <label class="flex items-center gap-2 text-sm text-slate-300 select-none">
-                    <input id="todays_goal_done" type="checkbox"
-                        class="h-4 w-4 rounded border-slate-600 bg-slate-900 accent-[var(--chrono-blue)]">
-                    Done
-                </label>
+            {{-- Today's goals — multi-goal panel. Each goal is a card with
+                 an auto-growing textarea, a Done checkbox, and a delete (×)
+                 button. Empty cards drop on blur. Press Enter for new lines.
+                 The reminder banner above shows pending vs completed counts
+                 and how many hours remain until the user's bedtime. --}}
+            <div class="space-y-3" id="todays_goals_panel">
+                {{-- Reminder banner --}}
+                <div data-goals-reminder
+                    class="hidden rounded-lg border px-4 py-2.5 text-sm flex flex-wrap items-center justify-between gap-3">
+                    <div class="flex items-center gap-2">
+                        <span data-goals-reminder-icon class="font-display text-base leading-none"></span>
+                        <span data-goals-reminder-text></span>
+                    </div>
+                    <span class="text-xs" data-goals-bedtime></span>
+                </div>
+
+                {{-- Goal cards stack --}}
+                <div data-goals-list class="space-y-2.5"></div>
+
+                {{-- Hidden template — cloned by JS for each goal card.
+                     A 4px left-edge accent strip turns emerald when the goal
+                     is done, slate otherwise. Done is a real button (not
+                     a bare checkbox) for a more professional feel. --}}
+                <template id="todays_goal_template">
+                    <div class="relative overflow-hidden rounded-xl border border-slate-700/60 bg-slate-900/60 transition-colors" data-goal-card>
+                        <span class="absolute inset-y-0 left-0 w-1 bg-slate-700/60" data-goal-accent></span>
+                        <div class="pl-5 pr-4 py-3.5">
+                            <div class="flex items-center justify-between gap-3 mb-2">
+                                <div class="flex items-center gap-2 min-w-0">
+                                    <span class="inline-flex items-center justify-center h-5 px-2 rounded-full bg-slate-800/60 border border-slate-700/60 text-[0.6rem] uppercase tracking-wider text-slate-300 font-semibold" data-goal-index>Goal 1</span>
+                                    <span class="hidden inline-flex items-center gap-1 rounded-full px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/40 text-emerald-300 text-[0.6rem] uppercase tracking-wider" data-goal-completed-chip>
+                                        <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                                        <span data-goal-completed-window></span>
+                                    </span>
+                                </div>
+                                <div class="flex items-center gap-1.5 shrink-0">
+                                    <button type="button" data-goal-done
+                                        class="group inline-flex items-center gap-1.5 rounded-md border border-slate-700 hover:border-emerald-500/60 hover:bg-emerald-500/10 hover:text-emerald-300 text-slate-300 px-2.5 py-1 text-xs font-medium transition-colors"
+                                        title="Mark this goal complete">
+                                        <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                                        <span data-goal-done-label>Done</span>
+                                    </button>
+                                    <button type="button" data-goal-delete
+                                        class="inline-flex items-center justify-center h-7 w-7 rounded-md border border-slate-700/60 hover:border-rose-500/50 hover:bg-rose-500/10 text-slate-500 hover:text-rose-300 transition-colors"
+                                        aria-label="Remove goal" title="Remove goal">
+                                        <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3"/></svg>
+                                    </button>
+                                </div>
+                            </div>
+                            <textarea data-goal-text rows="2" maxlength="2000"
+                                placeholder="Written the detailed description for the day and act accordingly"
+                                class="w-full rounded-md bg-slate-950/60 border border-slate-700/60 px-3 py-2 text-slate-100 placeholder-slate-500 leading-relaxed resize-none overflow-hidden focus:border-[var(--chrono-blue)] focus:outline-none focus:ring-1 focus:ring-[var(--chrono-blue)]/40 transition-colors"
+                                style="color-scheme: dark; min-height: 2.75rem"></textarea>
+                            <div class="mt-1.5 flex items-center justify-between gap-3 text-[0.6rem] text-slate-500">
+                                <span><span data-goal-count>0</span> / 2000 · Enter for new line</span>
+                                <span data-goal-empty-hint class="hidden text-amber-300">
+                                    Write a description before marking it done.
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <div class="flex items-center gap-3">
+                    <button type="button" data-goal-add
+                        class="inline-flex items-center gap-1.5 rounded-md border border-slate-700 hover:border-[var(--chrono-blue)]/60 hover:text-[var(--chrono-blue)] text-slate-300 px-3 py-1.5 text-xs transition-colors">
+                        <span class="font-display text-base leading-none">+</span>
+                        Add another goal
+                    </button>
+                    <span class="text-[0.65rem] text-slate-500" data-goals-stats>—</span>
+                </div>
+            </div>
+
+            {{-- Goal-completion modal — opens when the user ticks Done on a
+                 goal. Asks for the time frame so we can also log a time
+                 block for the work. Cancel keeps the goal undone. --}}
+            <div id="goal_complete_modal" role="dialog" aria-modal="true" aria-hidden="true"
+                aria-labelledby="goal_complete_title"
+                class="fixed inset-0 z-50 hidden items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+                <div class="w-full max-w-md rounded-2xl border border-emerald-500/30 bg-[var(--chrono-bg)] shadow-2xl overflow-hidden">
+                    {{-- Header — emerald hero with check icon --}}
+                    <div class="px-6 pt-5 pb-4 border-b border-slate-800/60 bg-gradient-to-br from-emerald-500/10 to-transparent">
+                        <div class="flex items-center gap-3">
+                            <span class="inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-500/40 bg-emerald-500/10 text-emerald-300">
+                                <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                            </span>
+                            <div>
+                                <h3 id="goal_complete_title" class="font-display text-sm uppercase tracking-[0.2em] text-emerald-200">
+                                    When did you complete it?
+                                </h3>
+                                <p class="text-xs text-slate-400 mt-0.5">Tell us the time window — we'll log a productive block.</p>
+                            </div>
+                        </div>
+                        <p class="mt-3 text-sm text-slate-200 italic" data-goal-complete-text></p>
+                    </div>
+
+                    {{-- Body --}}
+                    <div class="px-6 py-5">
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-[0.65rem] uppercase tracking-wider text-slate-500 mb-1.5" for="goal_complete_from">From</label>
+                                <input type="text" id="goal_complete_from" inputmode="numeric"
+                                    placeholder="9:00 AM"
+                                    data-time12 data-time12-hidden-id="goal_complete_from_value" data-time12-error-id="goal_complete_error"
+                                    data-time12-label="Start" data-time12-example="9:00 AM"
+                                    class="w-full rounded-md bg-slate-950/60 border border-slate-700 px-3 py-2.5 text-slate-100 font-digital text-base focus:border-emerald-500/60 focus:outline-none focus:ring-1 focus:ring-emerald-500/30">
+                                <input type="hidden" id="goal_complete_from_value">
+                            </div>
+                            <div>
+                                <label class="block text-[0.65rem] uppercase tracking-wider text-slate-500 mb-1.5" for="goal_complete_to">To</label>
+                                <input type="text" id="goal_complete_to" inputmode="numeric"
+                                    placeholder="10:30 AM"
+                                    data-time12 data-time12-hidden-id="goal_complete_to_value" data-time12-error-id="goal_complete_error"
+                                    data-time12-label="End" data-time12-example="10:30 AM"
+                                    class="w-full rounded-md bg-slate-950/60 border border-slate-700 px-3 py-2.5 text-slate-100 font-digital text-base focus:border-emerald-500/60 focus:outline-none focus:ring-1 focus:ring-emerald-500/30">
+                                <input type="hidden" id="goal_complete_to_value">
+                            </div>
+                        </div>
+                        <p id="goal_complete_error" class="mt-2 hidden text-xs text-rose-400" aria-live="polite"></p>
+                    </div>
+
+                    {{-- Footer --}}
+                    <div class="px-6 py-4 bg-slate-950/40 border-t border-slate-800/60 flex justify-end gap-2">
+                        <button type="button" id="goal_complete_cancel"
+                            class="rounded-md border border-slate-700 hover:border-slate-500 hover:text-slate-100 text-slate-300 px-4 py-2 text-sm transition-colors">
+                            Cancel
+                        </button>
+                        <button type="button" id="goal_complete_save"
+                            class="inline-flex items-center gap-2 rounded-md bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold px-4 py-2 text-sm transition-colors">
+                            <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                            Mark complete
+                        </button>
+                    </div>
+                </div>
             </div>
 
             <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-6">
@@ -306,6 +463,27 @@
             </div>
             <div class="mt-4 h-2 rounded-full bg-slate-800/80 overflow-hidden">
                 <div class="h-full bg-[var(--chrono-blue)] transition-[width] duration-500" data-period-progress style="width: 0%"></div>
+            </div>
+
+            {{-- Joined-mid-period callout — shown only when signup falls
+                 inside this period. Auto-hides when the period boundary
+                 moves past the signup date (new week / month / year). --}}
+            <div class="mt-3 hidden rounded-lg border border-[var(--chrono-blue)]/30 bg-[var(--chrono-blue)]/5 p-3" data-period-joined-note>
+                <div class="flex items-start gap-2.5">
+                    <span class="font-display text-base text-[var(--chrono-blue)] leading-none">i</span>
+                    <div class="flex-1 min-w-0 text-xs">
+                        <p class="text-slate-200">
+                            <strong class="text-[var(--chrono-blue)]">Calculating from your signup</strong> on
+                            <span data-period-joined-date class="text-slate-100 font-medium">—</span>
+                            — pre-signup time isn't included.
+                        </p>
+                        <p class="mt-0.5 text-slate-400">
+                            <span data-period-joined-gap class="font-digital text-slate-300">—</span>
+                            of this week passed before you joined our community.
+                            We'll start showing the full week once a new one begins.
+                        </p>
+                    </div>
+                </div>
             </div>
             <div class="mt-2 text-xs space-y-1 hidden" data-period-note></div>
 
@@ -453,6 +631,27 @@
                 <div class="h-full bg-[var(--chrono-orange)] transition-[width] duration-500" data-period-progress
                     style="width: {{ $monthStats['progress_pct'] ?? 0 }}%"></div>
             </div>
+
+            {{-- Joined-mid-month callout: server-rendered. Auto-hides next
+                 month because the @if condition flips off as soon as
+                 signup is no longer inside the current month. --}}
+            <div class="mt-3 rounded-lg border border-[var(--chrono-orange)]/30 bg-[var(--chrono-orange)]/5 p-3 {{ ($monthStats['signup_clamped'] ?? false) ? '' : 'hidden' }}" data-period-joined-note>
+                <div class="flex items-start gap-2.5">
+                    <span class="font-display text-base text-[var(--chrono-orange)] leading-none">i</span>
+                    <div class="flex-1 min-w-0 text-xs">
+                        <p class="text-slate-200">
+                            <strong class="text-[var(--chrono-orange)]">Calculating from your signup</strong> on
+                            <span data-period-joined-date class="text-slate-100 font-medium">{{ $monthStats['signup_date_label'] ?? '—' }}</span>
+                            — pre-signup time isn't included.
+                        </p>
+                        <p class="mt-0.5 text-slate-400">
+                            <span data-period-joined-gap class="font-digital text-slate-300">{{ $monthStats['pre_signup_label'] ?? '—' }}</span>
+                            of this month passed before you joined our community.
+                            We'll start showing the full month once a new one begins.
+                        </p>
+                    </div>
+                </div>
+            </div>
             <div class="mt-2 text-xs space-y-1 hidden" data-period-note></div>
 
             {{-- Window row: total, sleep, awake, time left --}}
@@ -544,6 +743,28 @@
             <div class="mt-4 h-2 rounded-full bg-slate-800/80 overflow-hidden">
                 <div class="h-full bg-emerald-400 transition-[width] duration-500" data-period-progress
                     style="width: {{ $yearStats['progress_pct'] ?? 0 }}%"></div>
+            </div>
+
+            {{-- Joined-mid-year callout: most relevant for users who join
+                 partway through the calendar. Auto-hides on Jan 1 of the
+                 next year because signup falls *before* the new year
+                 start, so signup_clamped becomes false server-side. --}}
+            <div class="mt-3 rounded-lg border border-emerald-400/30 bg-emerald-400/5 p-3 {{ ($yearStats['signup_clamped'] ?? false) ? '' : 'hidden' }}" data-period-joined-note>
+                <div class="flex items-start gap-2.5">
+                    <span class="font-display text-base text-emerald-300 leading-none">i</span>
+                    <div class="flex-1 min-w-0 text-xs">
+                        <p class="text-slate-200">
+                            <strong class="text-emerald-300">Calculating from your signup</strong> on
+                            <span data-period-joined-date class="text-slate-100 font-medium">{{ $yearStats['signup_date_label'] ?? '—' }}</span>
+                            — pre-signup time isn't counted in this year's stats.
+                        </p>
+                        <p class="mt-0.5 text-slate-400">
+                            <span data-period-joined-gap class="font-digital text-slate-300">{{ $yearStats['pre_signup_label'] ?? '—' }}</span>
+                            of {{ now()->year }} passed before you joined our community.
+                            Starting next January, you'll see the full year unrestricted.
+                        </p>
+                    </div>
+                </div>
             </div>
             <div class="mt-2 text-xs space-y-1 hidden" data-period-note></div>
 
@@ -3254,67 +3475,473 @@
                     return `${start.toLocaleDateString('en-US', opt)} – ${lastDay.toLocaleDateString('en-US', opt)}`;
                 };
 
-                // Today's goal — per-date persistence + done checkbox
-                const goalInput = document.getElementById('todays_goal_input');
-                const goalDone = document.getElementById('todays_goal_done');
-                const goalKeyFor = (date) => `${GOAL_KEY_PREFIX}${date}`;
+                // ── Today's goals: multi-goal panel ───────────────────────
+                // Storage:
+                //   v1 (legacy):  chrono.todayGoal.{YYYY-MM-DD} = {text, done}
+                //   v2 (current): chrono.todayGoals.v2.{YYYY-MM-DD}
+                //                 = [{id, text, done, completedFrom, completedTo, completedAt}]
+                // v1 is auto-migrated to a single-element v2 array on first
+                // load. v1 keys are NOT deleted (so any other view still
+                // showing them keeps working) — v2 is the source of truth.
+                const GOALS_V1_PREFIX = GOAL_KEY_PREFIX;            // 'chrono.todayGoal.'
+                const GOALS_V2_PREFIX = 'chrono.todayGoals.v2.';
+                const goalsV1Key = (date) => `${GOALS_V1_PREFIX}${date}`;
+                const goalsV2Key = (date) => `${GOALS_V2_PREFIX}${date}`;
 
-                const loadGoal = () => {
+                const newGoalId = () =>
+                    `g_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+                const loadGoals = (date = localDateString()) => {
                     try {
-                        const raw = localStorage.getItem(goalKeyFor(localDateString()));
-                        return raw ? JSON.parse(raw) : { text: '', done: false };
-                    } catch {
-                        return { text: '', done: false };
-                    }
+                        const raw = localStorage.getItem(goalsV2Key(date));
+                        if (raw) {
+                            const arr = JSON.parse(raw);
+                            return Array.isArray(arr) ? arr : [];
+                        }
+                    } catch {}
+                    // Fall back to v1 — migrate to v2 immediately so we
+                    // never lose user data if the migration runs late.
+                    try {
+                        const rawV1 = localStorage.getItem(goalsV1Key(date));
+                        if (rawV1) {
+                            const obj = JSON.parse(rawV1);
+                            if (obj && typeof obj === 'object') {
+                                const migrated = obj.text
+                                    ? [{
+                                          id: newGoalId(),
+                                          text: obj.text,
+                                          done: !!obj.done,
+                                          completedFrom: null,
+                                          completedTo: null,
+                                          completedAt: null,
+                                      }]
+                                    : [];
+                                if (migrated.length > 0) {
+                                    localStorage.setItem(goalsV2Key(date), JSON.stringify(migrated));
+                                }
+                                return migrated;
+                            }
+                        }
+                    } catch {}
+                    return [];
                 };
-                const saveGoal = () => {
+
+                const saveGoals = (goals, date = localDateString()) => {
                     try {
-                        localStorage.setItem(goalKeyFor(localDateString()), JSON.stringify({
-                            text: goalInput?.value || '',
-                            done: !!goalDone?.checked,
-                        }));
+                        // Persist goals as-is. Cleanup of empty cards is the
+                        // blur handler's job — filtering here would silently
+                        // drop a freshly-added empty card before the user
+                        // even types in it (broke "+ Add another goal").
+                        const arr = Array.isArray(goals) ? goals.filter(Boolean) : [];
+                        if (arr.length === 0) {
+                            localStorage.removeItem(goalsV2Key(date));
+                        } else {
+                            localStorage.setItem(goalsV2Key(date), JSON.stringify(arr));
+                        }
+                        // Keep v1 mirror updated with the *first* goal so any
+                        // legacy display surface keeps working.
+                        if (arr.length > 0) {
+                            localStorage.setItem(goalsV1Key(date), JSON.stringify({
+                                text: arr[0].text || '',
+                                done: !!arr[0].done,
+                            }));
+                        } else {
+                            localStorage.removeItem(goalsV1Key(date));
+                        }
                     } catch {}
                 };
-                const applyDoneStyle = () => {
-                    if (!goalInput || !goalDone) return;
-                    if (goalDone.checked) {
-                        goalInput.classList.add('line-through', 'opacity-60');
-                    } else {
-                        goalInput.classList.remove('line-through', 'opacity-60');
-                    }
-                };
 
-                if (goalInput && goalDone) {
-                    const stored = loadGoal();
-                    goalInput.value = stored.text || '';
-                    goalDone.checked = !!stored.done;
-                    applyDoneStyle();
+                // ── DOM refs ──────────────────────────────────────────────
+                const goalsListEl = document.querySelector('[data-goals-list]');
+                const goalsTemplate = document.getElementById('todays_goal_template');
+                const goalsAddBtn = document.querySelector('[data-goal-add]');
+                const goalsStatsEl = document.querySelector('[data-goals-stats]');
+                const goalsReminderEl = document.querySelector('[data-goals-reminder]');
+                const goalsReminderIcon = document.querySelector('[data-goals-reminder-icon]');
+                const goalsReminderText = document.querySelector('[data-goals-reminder-text]');
+                const goalsBedtimeEl = document.querySelector('[data-goals-bedtime]');
 
+                // Done modal refs.
+                const completeModal = document.getElementById('goal_complete_modal');
+                const completeText = completeModal?.querySelector('[data-goal-complete-text]');
+                const completeFromInput = document.getElementById('goal_complete_from');
+                const completeToInput = document.getElementById('goal_complete_to');
+                const completeFromHidden = document.getElementById('goal_complete_from_value');
+                const completeToHidden = document.getElementById('goal_complete_to_value');
+                const completeError = document.getElementById('goal_complete_error');
+                const completeCancelBtn = document.getElementById('goal_complete_cancel');
+                const completeSaveBtn = document.getElementById('goal_complete_save');
+
+                let pendingCompleteId = null;
+
+                if (goalsListEl && goalsTemplate) {
                     const isAuthed = () => !!window.ChronoAuth?.isAuthenticated;
 
-                    // Guests: focus shows the sign-in prompt and the field stays unfocused so
-                    // the visual stays clean. Once signed in, normal save-on-input works.
-                    goalInput.addEventListener('focus', (e) => {
-                        if (!isAuthed()) {
-                            e.target.blur();
-                            window.ChronoAuthRequire?.('save your daily goal');
+                    // Auto-grow each textarea as content is typed so multi-line
+                    // goals always show their full content.
+                    const autoGrow = (ta, counter) => {
+                        ta.style.height = 'auto';
+                        ta.style.height = ta.scrollHeight + 'px';
+                        if (counter) counter.textContent = String(ta.value.length);
+                    };
+
+                    // Format an "HH:MM" → "9:00 AM"-style label.
+                    const fmt12 = (hhmm) => {
+                        if (!hhmm) return '';
+                        const [h, m] = hhmm.split(':').map(Number);
+                        const period = h >= 12 ? 'PM' : 'AM';
+                        const h12 = h === 0 ? 12 : (h > 12 ? h - 12 : h);
+                        return `${h12}:${pad(m)} ${period}`;
+                    };
+
+                    // Apply done-state styling and reveal the completion-window chip.
+                    const applyGoalDoneStyle = (card, goal) => {
+                        const ta = card.querySelector('[data-goal-text]');
+                        const accent = card.querySelector('[data-goal-accent]');
+                        const doneBtn = card.querySelector('[data-goal-done]');
+                        const doneLabel = card.querySelector('[data-goal-done-label]');
+                        const chip = card.querySelector('[data-goal-completed-chip]');
+                        const completedWindow = card.querySelector('[data-goal-completed-window]');
+                        const isDone = !!goal.done;
+                        if (isDone) {
+                            ta.classList.add('line-through', 'opacity-60');
+                            card.classList.remove('border-slate-700/60');
+                            card.classList.add('border-emerald-500/40', 'bg-emerald-500/[0.04]');
+                            if (accent) {
+                                accent.classList.remove('bg-slate-700/60');
+                                accent.classList.add('bg-emerald-400');
+                            }
+                            if (doneBtn) {
+                                doneBtn.classList.remove('border-slate-700', 'text-slate-300', 'hover:border-emerald-500/60', 'hover:bg-emerald-500/10', 'hover:text-emerald-300');
+                                doneBtn.classList.add('border-emerald-500/40', 'bg-emerald-500/10', 'text-emerald-300');
+                                doneBtn.title = 'Click to undo';
+                            }
+                            if (doneLabel) doneLabel.textContent = 'Done';
+                        } else {
+                            ta.classList.remove('line-through', 'opacity-60');
+                            card.classList.remove('border-emerald-500/40', 'bg-emerald-500/[0.04]');
+                            card.classList.add('border-slate-700/60');
+                            if (accent) {
+                                accent.classList.remove('bg-emerald-400');
+                                accent.classList.add('bg-slate-700/60');
+                            }
+                            if (doneBtn) {
+                                doneBtn.classList.remove('border-emerald-500/40', 'bg-emerald-500/10', 'text-emerald-300');
+                                doneBtn.classList.add('border-slate-700', 'text-slate-300', 'hover:border-emerald-500/60', 'hover:bg-emerald-500/10', 'hover:text-emerald-300');
+                                doneBtn.title = 'Mark this goal complete';
+                            }
+                            if (doneLabel) doneLabel.textContent = 'Done';
                         }
-                    });
-                    goalInput.addEventListener('input', () => {
-                        if (!isAuthed()) return;
-                        saveGoal();
-                    });
-                    goalDone.addEventListener('click', (e) => {
-                        if (!isAuthed()) {
-                            e.preventDefault();
-                            window.ChronoAuthRequire?.('mark your goal as done');
+                        if (chip && completedWindow) {
+                            if (isDone && goal.completedFrom && goal.completedTo) {
+                                completedWindow.textContent = `${fmt12(goal.completedFrom)} – ${fmt12(goal.completedTo)}`;
+                                chip.classList.remove('hidden');
+                                chip.classList.add('inline-flex');
+                            } else {
+                                chip.classList.add('hidden');
+                                chip.classList.remove('inline-flex');
+                                completedWindow.textContent = '';
+                            }
                         }
+                    };
+
+                    const renderGoals = () => {
+                        const goals = loadGoals();
+                        // Always keep at least one card visible so the panel
+                        // doesn't collapse to nothing.
+                        if (goals.length === 0) {
+                            goals.push({
+                                id: newGoalId(), text: '', done: false,
+                                completedFrom: null, completedTo: null, completedAt: null,
+                            });
+                        }
+                        goalsListEl.innerHTML = '';
+                        goals.forEach((goal, idx) => {
+                            const card = goalsTemplate.content.firstElementChild.cloneNode(true);
+                            card.dataset.goalId = goal.id;
+                            const idxEl = card.querySelector('[data-goal-index]');
+                            const ta = card.querySelector('[data-goal-text]');
+                            const counter = card.querySelector('[data-goal-count]');
+                            const doneBtn = card.querySelector('[data-goal-done]');
+                            const deleteBtn = card.querySelector('[data-goal-delete]');
+                            const emptyHint = card.querySelector('[data-goal-empty-hint]');
+
+                            if (idxEl) idxEl.textContent = `Goal ${idx + 1}`;
+                            ta.value = goal.text || '';
+                            applyGoalDoneStyle(card, goal);
+
+                            ta.addEventListener('focus', (e) => {
+                                if (!isAuthed()) {
+                                    e.target.blur();
+                                    window.ChronoAuthRequire?.('save your daily goal');
+                                    return;
+                                }
+                                if (emptyHint) emptyHint.classList.add('hidden');
+                            });
+                            ta.addEventListener('input', () => {
+                                autoGrow(ta, counter);
+                                if (emptyHint) emptyHint.classList.add('hidden');
+                                if (!isAuthed()) return;
+                                const all = loadGoals();
+                                const target = all.find((g) => g.id === goal.id);
+                                if (target) target.text = ta.value;
+                                saveGoals(all);
+                                refreshStats();
+                            });
+                            ta.addEventListener('blur', () => {
+                                if (!isAuthed()) return;
+                                // Drop empty cards (unless they were marked
+                                // done — preserve completed records). Skip
+                                // cleanup if the user just clicked the Add
+                                // button — the new card needs to stay.
+                                const all = loadGoals();
+                                const target = all.find((g) => g.id === goal.id);
+                                if (target && !target.done && (target.text || '').trim() === '' && all.length > 1) {
+                                    const next = all.filter((g) => g.id !== goal.id);
+                                    saveGoals(next);
+                                    renderGoals();
+                                }
+                            });
+
+                            doneBtn.addEventListener('click', () => {
+                                if (!isAuthed()) {
+                                    window.ChronoAuthRequire?.('mark your goal as done');
+                                    return;
+                                }
+                                // Re-read the latest goal from storage in case
+                                // the user typed and Done was clicked back-to-back.
+                                const all = loadGoals();
+                                const target = all.find((g) => g.id === goal.id);
+                                const text = (target?.text || ta.value || '').trim();
+
+                                if (target?.done) {
+                                    // Currently done → undo. Clear completion data.
+                                    target.done = false;
+                                    target.completedFrom = null;
+                                    target.completedTo = null;
+                                    target.completedAt = null;
+                                    saveGoals(all);
+                                    renderGoals();
+                                    refreshStats();
+                                    return;
+                                }
+
+                                // Empty-goal guard: refuse to open the modal
+                                // when there's nothing to mark complete.
+                                if (text === '') {
+                                    if (emptyHint) emptyHint.classList.remove('hidden');
+                                    ta.focus();
+                                    return;
+                                }
+                                openCompleteModal(goal.id, text);
+                            });
+
+                            deleteBtn.addEventListener('click', () => {
+                                if (!isAuthed()) {
+                                    window.ChronoAuthRequire?.('manage your goals');
+                                    return;
+                                }
+                                const all = loadGoals();
+                                const next = all.filter((g) => g.id !== goal.id);
+                                saveGoals(next);
+                                renderGoals();
+                                refreshStats();
+                            });
+
+                            goalsListEl.appendChild(card);
+                            // Initial autogrow once the card is in the DOM.
+                            requestAnimationFrame(() => autoGrow(ta, counter));
+                        });
+                        refreshStats();
+                    };
+
+                    const refreshStats = () => {
+                        const all = loadGoals();
+                        const total = all.length;
+                        const done = all.filter((g) => g.done).length;
+                        const pending = total - done;
+                        if (goalsStatsEl) {
+                            goalsStatsEl.textContent = total === 0
+                                ? '—'
+                                : `${done}/${total} completed${pending > 0 ? ` · ${pending} pending` : ''}`;
+                        }
+                        renderReminder(pending);
+                    };
+
+                    // Reminder banner: live ticker that says "X hours until
+                    // bedtime" and turns rose/amber when the user has pending
+                    // goals and bedtime is close.
+                    const minutesUntilBedtime = () => {
+                        const now = new Date();
+                        const [bedH, bedM] = (cfg.endTime || '22:00').split(':').map(Number);
+                        const bed = new Date(now);
+                        bed.setHours(bedH, bedM, 0, 0);
+                        if (bed.getTime() <= now.getTime()) bed.setDate(bed.getDate() + 1);
+                        return Math.max(0, Math.round((bed.getTime() - now.getTime()) / 60000));
+                    };
+                    const renderReminder = (pendingCount) => {
+                        if (!goalsReminderEl) return;
+                        const all = loadGoals();
+                        const total = all.length;
+                        if (total === 0) {
+                            goalsReminderEl.classList.add('hidden');
+                            return;
+                        }
+                        const done = all.filter((g) => g.done).length;
+                        const pending = total - done;
+                        const mins = minutesUntilBedtime();
+                        const h = Math.floor(mins / 60);
+                        const m = mins % 60;
+                        const timeLabel = h > 0 ? `${h}h ${m}m` : `${m}m`;
+
+                        let tone, icon, msg;
+                        if (pending === 0) {
+                            tone = 'border-emerald-500/40 bg-emerald-500/5 text-emerald-200';
+                            icon = '✓';
+                            msg = `All ${total} ${total === 1 ? 'goal' : 'goals'} done — nice work.`;
+                        } else if (mins <= 120) {
+                            tone = 'border-rose-500/40 bg-rose-500/10 text-rose-100';
+                            icon = '⏰';
+                            msg = `Time is ticking — ${pending} of ${total} ${pending === 1 ? 'goal' : 'goals'} still pending.`;
+                        } else if (mins <= 240) {
+                            tone = 'border-amber-500/40 bg-amber-500/10 text-amber-100';
+                            icon = '⏳';
+                            msg = `${pending} of ${total} pending — keep moving.`;
+                        } else {
+                            tone = 'border-slate-700/60 bg-slate-900/40 text-slate-300';
+                            icon = '◆';
+                            msg = `${pending} of ${total} pending.`;
+                        }
+                        goalsReminderEl.className = `rounded-lg border px-4 py-2.5 text-sm flex flex-wrap items-center justify-between gap-3 ${tone}`;
+                        if (goalsReminderIcon) goalsReminderIcon.textContent = icon;
+                        if (goalsReminderText) goalsReminderText.textContent = msg;
+                        if (goalsBedtimeEl) goalsBedtimeEl.textContent = `${timeLabel} until bed`;
+                        goalsReminderEl.classList.remove('hidden');
+                    };
+
+                    // Done modal — opens when user ticks Done on a goal.
+                    const openCompleteModal = (goalId, label) => {
+                        if (!completeModal) return;
+                        pendingCompleteId = goalId;
+                        if (completeText) completeText.textContent = `"${label.slice(0, 80)}${label.length > 80 ? '…' : ''}"`;
+                        // Default: from one hour ago to now (rounded to 5 min).
+                        const now = new Date();
+                        const round5 = (d) => { d.setSeconds(0, 0); d.setMinutes(Math.round(d.getMinutes() / 5) * 5); return d; };
+                        const end = round5(new Date(now));
+                        const start = round5(new Date(now.getTime() - 60 * 60 * 1000));
+                        const toHHMM = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+                        if (completeFromHidden) completeFromHidden.value = toHHMM(start);
+                        if (completeToHidden) completeToHidden.value = toHHMM(end);
+                        if (completeFromInput) completeFromInput.value = fmt12(toHHMM(start));
+                        if (completeToInput) completeToInput.value = fmt12(toHHMM(end));
+                        if (completeError) {
+                            completeError.classList.add('hidden');
+                            completeError.textContent = '';
+                        }
+                        completeModal.classList.remove('hidden');
+                        completeModal.classList.add('flex');
+                        completeModal.setAttribute('aria-hidden', 'false');
+                    };
+                    const closeCompleteModal = () => {
+                        if (!completeModal) return;
+                        completeModal.classList.add('hidden');
+                        completeModal.classList.remove('flex');
+                        completeModal.setAttribute('aria-hidden', 'true');
+                        pendingCompleteId = null;
+                    };
+                    completeCancelBtn?.addEventListener('click', closeCompleteModal);
+                    completeModal?.addEventListener('click', (e) => {
+                        if (e.target === completeModal) closeCompleteModal();
                     });
-                    goalDone.addEventListener('change', () => {
-                        if (!isAuthed()) return;
-                        saveGoal();
-                        applyDoneStyle();
+
+                    completeSaveBtn?.addEventListener('click', () => {
+                        if (!pendingCompleteId) return;
+                        // The data-time12 helper writes into the hidden field
+                        // when the visible input parses cleanly. If it's empty
+                        // we read the visible value and try to parse manually.
+                        const fromHm = completeFromHidden?.value
+                            || (completeFromInput?.value ? parseLooseTime12(completeFromInput.value) : '');
+                        const toHm = completeToHidden?.value
+                            || (completeToInput?.value ? parseLooseTime12(completeToInput.value) : '');
+                        if (!fromHm || !toHm) {
+                            if (completeError) {
+                                completeError.textContent = 'Enter both Start and End in 12-hour format (e.g. 9:00 AM).';
+                                completeError.classList.remove('hidden');
+                            }
+                            return;
+                        }
+                        const fromMin = hhmmToMins(fromHm);
+                        const toMin = hhmmToMins(toHm);
+                        if (toMin <= fromMin) {
+                            if (completeError) {
+                                completeError.textContent = 'End must be after Start.';
+                                completeError.classList.remove('hidden');
+                            }
+                            return;
+                        }
+                        const all = loadGoals();
+                        const target = all.find((g) => g.id === pendingCompleteId);
+                        if (target) {
+                            target.done = true;
+                            target.completedFrom = fromHm;
+                            target.completedTo = toHm;
+                            target.completedAt = new Date().toISOString();
+                        }
+                        saveGoals(all);
+
+                        // Also create a productive time block so the work
+                        // counts toward Today's stats.
+                        if (window.ChronoBlocks?.add && target) {
+                            const text = (target.text || '').trim() || 'Goal';
+                            window.ChronoBlocks.add({
+                                source: 'manual',
+                                start: fromHm,
+                                end: toHm,
+                                durationMs: (toMin - fromMin) * 60000,
+                                label: `Goal: ${text.slice(0, 200)}`,
+                                category: 'productive',
+                                categoryManual: true,
+                                status: 'completed',
+                            });
+                        }
+                        closeCompleteModal();
+                        renderGoals();
                     });
+
+                    // Helper: parse '9:00 AM' / '9:00am' / '9 PM' to HH:MM.
+                    const parseLooseTime12 = (s) => {
+                        const m = String(s).trim().match(/^(\d{1,2}):?(\d{2})?\s*(AM|PM|am|pm|a\.m\.|p\.m\.)$/i);
+                        if (!m) return '';
+                        let h = parseInt(m[1], 10);
+                        const min = parseInt(m[2] || '0', 10);
+                        const ampm = (m[3] || '').toLowerCase().replace(/\./g, '');
+                        if (h < 1 || h > 12 || min < 0 || min > 59) return '';
+                        if (ampm.startsWith('p') && h !== 12) h += 12;
+                        if (ampm.startsWith('a') && h === 12) h = 0;
+                        return `${pad(h)}:${pad(min)}`;
+                    };
+
+                    goalsAddBtn?.addEventListener('click', () => {
+                        if (!isAuthed()) {
+                            window.ChronoAuthRequire?.('add a goal');
+                            return;
+                        }
+                        const all = loadGoals();
+                        all.push({
+                            id: newGoalId(), text: '', done: false,
+                            completedFrom: null, completedTo: null, completedAt: null,
+                        });
+                        saveGoals(all);
+                        renderGoals();
+                        // Focus the newly-added card's textarea.
+                        const last = goalsListEl.lastElementChild;
+                        last?.querySelector('[data-goal-text]')?.focus();
+                    });
+
+                    renderGoals();
+                    // Live-tick the bedtime label every 30s so the reminder
+                    // tone shifts as the deadline approaches.
+                    setInterval(refreshStats, 30000);
                 }
 
                 // DOM refs for stats
@@ -3463,19 +4090,29 @@
                     if (barWasted) barWasted.style.width = `${wastedBarPct}%`;
                     if (barUnlogged) barUnlogged.style.width = `${unloggedBarPct}%`;
                     if (noteEl) {
+                        // Legacy text note kept hidden — replaced by the
+                        // visible callout below. Empty so screen readers
+                        // don't double-announce.
+                        noteEl.classList.add('hidden');
+                        noteEl.innerHTML = '';
+                    }
+
+                    // Joined-mid-period callout. Only visible while signup
+                    // is inside this period; the moment the period boundary
+                    // moves past signup, signupClamped goes false and the
+                    // callout hides — that's the auto-hide behaviour the
+                    // user asked for.
+                    const joinedNote = section.querySelector('[data-period-joined-note]');
+                    const joinedDate = section.querySelector('[data-period-joined-date]');
+                    const joinedGap = section.querySelector('[data-period-joined-gap]');
+                    if (joinedNote) {
                         if (signupClamped && signupDateLabel) {
                             const preLabel = formatPreSignupSpan(startDate, signupTs);
-                            const mainLine = `Counting since your signup on ${signupDateLabel} — pre-signup time isn't included.`;
-                            const preLine = preLabel
-                                ? `Time doesn't stop for anyone — ${preLabel} of this ${periodName} passed before you joined. Make the rest count.`
-                                : '';
-                            noteEl.innerHTML =
-                                `<p class="text-slate-500">${escapeHtml(mainLine)}</p>` +
-                                (preLine ? `<p class="text-slate-400 italic">${escapeHtml(preLine)}</p>` : '');
-                            noteEl.classList.remove('hidden');
+                            if (joinedDate) joinedDate.textContent = signupDateLabel;
+                            if (joinedGap) joinedGap.textContent = preLabel || 'Some';
+                            joinedNote.classList.remove('hidden');
                         } else {
-                            noteEl.classList.add('hidden');
-                            noteEl.innerHTML = '';
+                            joinedNote.classList.add('hidden');
                         }
                     }
                 };

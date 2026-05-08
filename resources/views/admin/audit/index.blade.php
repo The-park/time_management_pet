@@ -89,6 +89,13 @@
                         <td class="px-3 py-2.5 text-slate-100 text-sm">{{ $e->admin?->name ?? '—' }}</td>
                         <td class="px-3 py-2.5">
                             <code class="rounded bg-slate-800/60 px-1.5 py-0.5 text-xs text-rose-300 border border-slate-800/60">{{ $e->action }}</code>
+                            @if (! empty($e->metadata))
+                                @foreach ($e->metadata as $k => $v)
+                                    <span class="ml-1 inline-flex items-center rounded border border-slate-700/60 bg-slate-950/40 px-1.5 py-0.5 text-[0.6rem] text-slate-300">
+                                        <span class="text-slate-500">{{ $k }}:</span>&nbsp;<span class="text-slate-200">{{ is_scalar($v) ? $v : json_encode($v) }}</span>
+                                    </span>
+                                @endforeach
+                            @endif
                         </td>
                         <td class="px-3 py-2.5 text-sm">
                             @if ($e->viewedUser)

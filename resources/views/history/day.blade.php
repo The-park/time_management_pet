@@ -67,6 +67,21 @@
         </div>
     </div>
 
+    {{-- Day's goals — populated client-side from localStorage. Today's
+         multi-goal panel persists per-date entries; here we surface them
+         read-only for any past date. The whole section hides itself if
+         no goals were recorded for this date. --}}
+    <section id="day_goals_section" class="chrono-panel rounded-2xl p-6 md:p-8 mb-6 hidden">
+        <div class="flex items-baseline justify-between gap-3 mb-4">
+            <h2 class="font-display text-sm uppercase tracking-[0.3em] text-slate-300">Day's goals</h2>
+            <span class="text-xs text-slate-500" data-day-goals-summary>—</span>
+        </div>
+        <ul class="space-y-2.5" data-day-goals-list></ul>
+        <p class="mt-3 text-[0.65rem] text-slate-500">
+            Goals are stored in your browser. They appear here only when the same browser viewed them on that date.
+        </p>
+    </section>
+
     {{-- Stat tiles --}}
     <section class="chrono-panel rounded-2xl p-6 md:p-8 mb-6">
         <h2 class="font-display text-sm uppercase tracking-[0.3em] text-slate-300 mb-4">Time breakdown</h2>
@@ -201,4 +216,91 @@
             </div>
         @endif
     </section>
+
+    @push('scripts')
+        <script>
+            (() => {
+                // Read multi-goal panel data from localStorage and surface
+                // the goals recorded on this date (if any). Falls back to the
+                // legacy single-goal v1 key for older entries. Pure read —
+                // never mutates anything.
+                const date = @json($date->toDateString());
+                const v2Key = 'chrono.todayGoals.v2.' + date;
+                const v1Key = 'chrono.todayGoal.' + date;
+                const section = document.getElementById('day_goals_section');
+                const listEl = section?.querySelector('[data-day-goals-list]');
+                const summaryEl = section?.querySelector('[data-day-goals-summary]');
+                if (!section || !listEl) return;
+
+                const escapeHtml = (str) => String(str ?? '').replace(/[&<>"']/g, (c) => ({
+                    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+                }[c]));
+                const fmt12 = (hhmm) => {
+                    if (!hhmm) return '';
+                    const [h, m] = hhmm.split(':').map(Number);
+                    const period = h >= 12 ? 'PM' : 'AM';
+                    const h12 = h === 0 ? 12 : (h > 12 ? h - 12 : h);
+                    return `${h12}:${String(m).padStart(2, '0')} ${period}`;
+                };
+
+                let goals = [];
+                try {
+                    const rawV2 = localStorage.getItem(v2Key);
+                    if (rawV2) {
+                        const arr = JSON.parse(rawV2);
+                        if (Array.isArray(arr)) goals = arr;
+                    }
+                } catch {}
+                if (goals.length === 0) {
+                    // Fall back to v1 (legacy single-goal storage).
+                    try {
+                        const rawV1 = localStorage.getItem(v1Key);
+                        if (rawV1) {
+                            const obj = JSON.parse(rawV1);
+                            if (obj && obj.text) {
+                                goals = [{ text: obj.text, done: !!obj.done }];
+                            }
+                        }
+                    } catch {}
+                }
+                if (goals.length === 0) return;        // section stays hidden
+
+                const total = goals.length;
+                const done = goals.filter((g) => g.done).length;
+                if (summaryEl) {
+                    summaryEl.textContent = `${done}/${total} completed`;
+                }
+
+                listEl.innerHTML = goals.map((g, i) => {
+                    const text = (g.text || '').trim() || '(no text)';
+                    const isDone = !!g.done;
+                    const dotClass = isDone ? 'bg-emerald-400' : 'bg-slate-600';
+                    const tagClass = isDone ? 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10' : 'text-slate-400 border-slate-700 bg-slate-900/40';
+                    const tagText = isDone ? 'Completed' : 'Pending';
+                    const window = (isDone && g.completedFrom && g.completedTo)
+                        ? `<span class="text-[0.65rem] text-emerald-300/80 ml-2">${escapeHtml(fmt12(g.completedFrom))} – ${escapeHtml(fmt12(g.completedTo))}</span>`
+                        : '';
+                    return `
+                        <li class="rounded-lg border border-slate-800/60 bg-slate-900/40 p-3">
+                            <div class="flex items-start justify-between gap-3">
+                                <div class="flex items-start gap-2.5 min-w-0">
+                                    <span class="inline-block h-2 w-2 mt-1.5 shrink-0 rounded-full ${dotClass}"></span>
+                                    <div class="min-w-0">
+                                        <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Goal ${i + 1}</div>
+                                        <div class="mt-0.5 text-sm whitespace-pre-line ${isDone ? 'text-slate-300 line-through opacity-70' : 'text-slate-100'}">${escapeHtml(text)}</div>
+                                    </div>
+                                </div>
+                                <div class="flex flex-col items-end gap-1 shrink-0">
+                                    <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[0.6rem] uppercase tracking-wider border ${tagClass}">${tagText}</span>
+                                    ${window}
+                                </div>
+                            </div>
+                        </li>
+                    `;
+                }).join('');
+
+                section.classList.remove('hidden');
+            })();
+        </script>
+    @endpush
 @endsection

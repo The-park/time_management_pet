@@ -2,9 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Goal;
 use App\Models\TimeBlock;
-use App\Services\GoalAttributionService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 
@@ -96,14 +94,6 @@ class HistoryController extends Controller
             ? (int) round(($productiveMs / $effDenomMs) * 100)
             : 0;
         $efficiencyPct = max(0, min(100, $efficiencyPct));
-
-        // Goal attribution per block (read-only — just for display).
-        $attributionByExt = [];
-        $activeGoals = Goal::query()
-            ->where('user_id', $user->id)
-            ->where('status', 'active')
-            ->get();
-        $attribution = app(GoalAttributionService::class);
 
         return view('history.day', [
             'date' => $target,

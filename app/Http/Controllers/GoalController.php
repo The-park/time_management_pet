@@ -156,6 +156,58 @@ class GoalController extends Controller
 
         $timeAnalysis = $this->timeAnalysis->analyze($goal, $request->user());
 
+        // Productive vs wasted split among the blocks attributed to this
+        // goal. Each entry in $attribution['blocks'] has its block model and
+        // the share allocated to this goal; we apply the same share to the
+        // category so a 50/50 split block correctly contributes 0.5h to
+        // whichever side it lands on.
+        $productiveAttributedHours = 0.0;
+        $wastedAttributedHours = 0.0;
+        foreach ($attribution['blocks'] as $entry) {
+            $hours = (float) ($entry['attributed_hours'] ?? 0);
+            $cat = $entry['block']->category ?? 'productive';
+            if ($cat === 'wasted') {
+                $wastedAttributedHours += $hours;
+            } else {
+                $productiveAttributedHours += $hours;
+            }
+        }
+        $unloggedAwakeHours = max(0.0, ((float) $timeAnalysis['elapsed']['awake_hours'])
+            - $productiveAttributedHours - $wastedAttributedHours);
+
+        $activityBreakdown = [
+            'productive_hours' => round($productiveAttributedHours, 2),
+            'wasted_hours' => round($wastedAttributedHours, 2),
+            'unlogged_awake_hours' => round($unloggedAwakeHours, 2),
+            'non_productive_hours' => round($wastedAttributedHours + $unloggedAwakeHours, 2),
+        ];
+
+        // Goal lifecycle facts for the new "Goal at a glance" strip.
+        $createdAt = $goal->created_at;
+        $startDate = CarbonImmutable::parse($goal->start_date)->startOfDay();
+        $targetDate = CarbonImmutable::parse($goal->target_date)->startOfDay();
+        $originalTarget = CarbonImmutable::parse($goal->original_target_date)->startOfDay();
+        $todayImm = CarbonImmutable::today();
+        $daysActive = max(0, $startDate->diffInDays($todayImm->lt($targetDate) ? $todayImm : $targetDate));
+        $daysRemaining = $todayImm->lt($targetDate)
+            ? $todayImm->diffInDays($targetDate)
+            : 0;
+        $extensionDays = $originalTarget->diffInDays($targetDate);
+
+        $lifecycle = [
+            'created_at' => $createdAt,
+            'created_age_for_humans' => $createdAt?->diffForHumans(),
+            'days_active' => (int) $daysActive,
+            'days_remaining' => (int) $daysRemaining,
+            'original_target' => $originalTarget,
+            'current_target' => $targetDate,
+            'extension_days' => (int) $extensionDays,
+            'extension_count' => (int) $goal->extension_count,
+            'change_count' => (int) $goal->change_count,
+            'log_entries' => $logCount,
+            'updated_at' => $goal->updated_at,
+        ];
+
         return view('goals.show', [
             'goal' => $goal,
             'result' => $result,
@@ -168,6 +220,8 @@ class GoalController extends Controller
             'sparkline' => $sparkline,
             'today' => $today->toDateString(),
             'timeAnalysis' => $timeAnalysis,
+            'activityBreakdown' => $activityBreakdown,
+            'lifecycle' => $lifecycle,
         ]);
     }
 

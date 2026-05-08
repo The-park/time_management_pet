@@ -92,7 +92,7 @@
             <h2 class="font-display text-sm uppercase tracking-[0.3em] text-slate-300 mb-1">Password</h2>
             <p class="text-xs text-slate-500 mb-5">Use a strong password you don't reuse anywhere else.</p>
 
-            <form method="POST" action="/user/password" class="space-y-4">
+            <form method="POST" action="{{ route('user-password.update') }}" class="space-y-4">
                 @csrf
                 @method('PUT')
 

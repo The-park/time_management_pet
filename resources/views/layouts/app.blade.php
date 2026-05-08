@@ -112,6 +112,26 @@
             </header>
 
             <main class="mx-auto max-w-6xl px-6 py-10">
+                @auth
+                    @if (! auth()->user()->hasVerifiedEmail())
+                        <div class="mb-6 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                            <div class="text-sm text-amber-100">
+                                <span class="font-semibold">Email not verified.</span>
+                                We sent a verification link to <span class="text-amber-50">{{ auth()->user()->email }}</span>.
+                                @if (session('status') === 'verification-link-sent')
+                                    <span class="text-emerald-200">A new link was just sent — check your inbox.</span>
+                                @endif
+                            </div>
+                            <form method="POST" action="{{ route('verification.send') }}" class="shrink-0">
+                                @csrf
+                                <button type="submit"
+                                    class="rounded-lg border border-amber-400/60 bg-amber-500/20 hover:bg-amber-500/30 text-amber-100 text-xs font-semibold uppercase tracking-[0.2em] px-3 py-1.5">
+                                    Resend link
+                                </button>
+                            </form>
+                        </div>
+                    @endif
+                @endauth
                 @if (session('status') || session('toast'))
                     @php($toastMessage = session('toast') ?? match (session('status')) {
                         'profile-updated' => 'Profile saved.',

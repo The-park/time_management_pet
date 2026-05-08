@@ -14,27 +14,6 @@
         $wakeTimeDisplay = \Carbon\Carbon::createFromFormat('H:i', $wakeTimeValue)->format('g:i A');
         $selectedTz = old('timezone', $timezone);
         $gap = old('gap_threshold_minutes', $user?->gap_threshold_minutes ?? 30);
-
-        $regionLabels = [
-            'Africa' => 'Africa',
-            'America' => 'America',
-            'Antarctica' => 'Antarctica',
-            'Arctic' => 'Arctic',
-            'Asia' => 'Asia',
-            'Atlantic' => 'Atlantic',
-            'Australia' => 'Australia',
-            'Europe' => 'Europe',
-            'Indian' => 'Indian Ocean',
-            'Pacific' => 'Pacific',
-        ];
-        $tzLabels = [
-            'Asia/Kolkata' => 'Asia/Kolkata — India Standard Time (Chennai, Mumbai, Delhi · IST, +5:30)',
-        ];
-        $grouped = [];
-        foreach (DateTimeZone::listIdentifiers() as $tz) {
-            $region = str_contains($tz, '/') ? explode('/', $tz, 2)[0] : 'Other';
-            $grouped[$region][] = $tz;
-        }
     @endphp
 
     <div class="relative overflow-hidden rounded-2xl border border-slate-800/60 bg-[radial-gradient(circle_at_top,_rgba(0,224,255,0.15),_transparent_45%)] p-8 mb-8">
@@ -58,19 +37,11 @@
                 <div class="space-y-4">
                     <div>
                         <label class="block text-xs uppercase tracking-[0.2em] text-slate-400 mb-1" for="timezone">Timezone</label>
-                        <select id="timezone" name="timezone" required
-                            class="w-full rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-slate-100">
-                            <option value="UTC" @selected($selectedTz === 'UTC')>UTC</option>
-                            @foreach ($regionLabels as $region => $label)
-                                @if (!empty($grouped[$region]))
-                                    <optgroup label="{{ $label }}">
-                                        @foreach ($grouped[$region] as $tz)
-                                            <option value="{{ $tz }}" @selected($selectedTz === $tz)>{{ $tzLabels[$tz] ?? $tz }}</option>
-                                        @endforeach
-                                    </optgroup>
-                                @endif
-                            @endforeach
-                        </select>
+                        @include('partials.timezone-select', [
+                            'selected'   => $selectedTz,
+                            'autodetect' => false,
+                            'extraClass' => 'w-full rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-slate-100',
+                        ])
                         @error('timezone')<p class="mt-1 text-xs text-rose-400">{{ $message }}</p>@enderror
                     </div>
 

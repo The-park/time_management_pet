@@ -42,7 +42,11 @@
                 $d = $start->copy()->addDays($i);
                 $key = $d->toDateString();
                 $blocksForDay = $blocksByDate[$key] ?? collect();
-                $productiveSec = (int) $blocksForDay->where('category', '!=', 'wasted')->sum('duration_seconds');
+                // Productive excludes wasted AND neutral so neutral time
+                // (eating, transit, chores) doesn't inflate productive hours.
+                $productiveSec = (int) $blocksForDay
+                    ->whereNotIn('category', ['wasted', 'neutral'])
+                    ->sum('duration_seconds');
                 $wastedSec = (int) $blocksForDay->where('category', 'wasted')->sum('duration_seconds');
                 $serverLast7->push([
                     'date' => $key,
@@ -111,7 +115,9 @@
                 $blocksInRange = $allYearBlocks->filter(function ($b) use ($effectiveStart, $endDt) {
                     return $b->start_time->gte($effectiveStart) && $b->start_time->lt($endDt);
                 });
-                $productiveMs = (int) ($blocksInRange->where('category', '!=', 'wasted')->sum('duration_seconds') * 1000);
+                $productiveMs = (int) ($blocksInRange
+                    ->whereNotIn('category', ['wasted', 'neutral'])
+                    ->sum('duration_seconds') * 1000);
                 $wastedMs = (int) ($blocksInRange->where('category', 'wasted')->sum('duration_seconds') * 1000);
 
                 // Sleep math (mirrors JS): one bedtime per calendar day in elapsed window.
@@ -888,6 +894,76 @@
             </div>
         </section>
 
+        {{-- Pause-gap modal: opens on Resume after the user has been paused for
+             at least 60 seconds. Lets them log what they did during the gap as
+             a separate time block (productive / wasted), or skip if it was
+             nothing worth tracking. --}}
+        <div id="cc_gap_modal" role="dialog" aria-modal="true" aria-hidden="true"
+            aria-labelledby="cc_gap_title"
+            class="fixed inset-0 z-50 hidden items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+            <div class="w-full max-w-md rounded-2xl border border-amber-500/30 bg-[var(--chrono-bg)] shadow-2xl overflow-hidden">
+                <div class="px-6 pt-5 pb-4 border-b border-slate-800/60 bg-gradient-to-br from-amber-500/10 to-transparent">
+                    <div class="flex items-center gap-3">
+                        <span class="inline-flex h-9 w-9 items-center justify-center rounded-full border border-amber-500/40 bg-amber-500/10 text-amber-300">
+                            <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                                <circle cx="12" cy="12" r="9"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 7v5l3 2"/>
+                            </svg>
+                        </span>
+                        <div>
+                            <h3 id="cc_gap_title" class="font-display text-sm uppercase tracking-[0.2em] text-amber-200">
+                                What did you do during the pause?
+                            </h3>
+                            <p class="text-xs text-slate-400 mt-0.5">
+                                Paused at <span class="text-slate-200" data-cc-gap-from>—</span>,
+                                resumed at <span class="text-slate-200" data-cc-gap-to>—</span>
+                                (<span class="text-slate-200" data-cc-gap-duration>—</span>).
+                                Log it as its own block?
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <div class="px-6 py-5 space-y-4">
+                    <div>
+                        <label for="cc_gap_label" class="block text-[0.65rem] uppercase tracking-wider text-slate-500 mb-1.5">
+                            What were you doing? <span class="text-slate-600 normal-case">(optional)</span>
+                        </label>
+                        <input type="text" id="cc_gap_label" maxlength="200"
+                            placeholder="Coffee break, distracted by Slack, quick chat, etc."
+                            class="w-full rounded-md bg-slate-950/60 border border-slate-700 px-3 py-2 text-slate-100 focus:border-amber-500/60 focus:outline-none focus:ring-1 focus:ring-amber-500/30">
+                    </div>
+                    <div>
+                        <label class="block text-[0.65rem] uppercase tracking-wider text-slate-500 mb-2">Category</label>
+                        <div class="grid grid-cols-3 gap-2" data-cc-gap-category-group>
+                            <button type="button" data-cc-gap-cat="productive"
+                                class="rounded-md border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 hover:border-emerald-400 text-emerald-200 px-3 py-2 text-sm font-medium transition-colors data-[active=1]:bg-emerald-500/30 data-[active=1]:border-emerald-400">
+                                Productive
+                            </button>
+                            <button type="button" data-cc-gap-cat="wasted"
+                                class="rounded-md border border-rose-500/40 bg-rose-500/10 hover:bg-rose-500/20 hover:border-rose-400 text-rose-200 px-3 py-2 text-sm font-medium transition-colors data-[active=1]:bg-rose-500/30 data-[active=1]:border-rose-400">
+                                Wasted
+                            </button>
+                            <button type="button" data-cc-gap-cat="neutral"
+                                class="rounded-md border border-slate-500/40 bg-slate-500/10 hover:bg-slate-500/20 hover:border-slate-400 text-slate-200 px-3 py-2 text-sm font-medium transition-colors data-[active=1]:bg-slate-500/30 data-[active=1]:border-slate-400">
+                                Neutral
+                            </button>
+                        </div>
+                    </div>
+                    <p data-cc-gap-error class="text-xs text-rose-400 hidden" aria-live="polite"></p>
+                </div>
+                <div class="px-6 pb-5 flex justify-end gap-2">
+                    <button type="button" data-cc-gap-skip
+                        class="rounded-md border border-slate-700 hover:border-slate-500 text-slate-300 px-3 py-2 text-sm transition-colors">
+                        Skip
+                    </button>
+                    <button type="button" data-cc-gap-save
+                        class="rounded-md bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold px-4 py-2 text-sm transition-colors">
+                        Log gap
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <section class="chrono-panel rounded-2xl p-6 md:p-8">
             <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                 <h2 class="font-display text-sm uppercase tracking-[0.3em] text-slate-300">Today's time blocks</h2>
@@ -1037,6 +1113,10 @@
                             <button type="button" data-amb-pick="wasted"
                                 class="rounded-md border border-rose-500/40 bg-rose-500/10 hover:bg-rose-500/20 text-rose-200 px-3 py-1.5 text-sm">
                                 All wasted
+                            </button>
+                            <button type="button" data-amb-pick="neutral"
+                                class="rounded-md border border-slate-500/40 bg-slate-500/10 hover:bg-slate-500/20 text-slate-200 px-3 py-1.5 text-sm">
+                                All neutral
                             </button>
                         </div>
                     </div>
@@ -1805,7 +1885,9 @@
                 };
 
                 const goalChipFor = (block) => {
-                    if (block.category === 'wasted') return '';
+                    // Neutral blocks (e.g. eating, transit) don't count toward
+                    // any goal either, so skip the goal chip there too.
+                    if (block.category === 'wasted' || block.category === 'neutral') return '';
                     const matches = matchedGoalsFor(block.label || '');
                     if (matches.length === 0) {
                         // Productive but tied to no current goal. Only surface this
@@ -1865,15 +1947,21 @@
                         const labelText = block.label
                             || (block.source === 'countdown' ? 'Custom countdown' : 'Time block');
 
-                        const isWasted = block.category === 'wasted';
-                        // Strong red/green so each row's category is unmistakable
-                        // at a glance. Click still toggles between the two.
-                        const chipClasses = isWasted
-                            ? 'bg-rose-500/20 text-rose-200 border border-rose-500/50 hover:bg-rose-500/30'
-                            : 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/25';
+                        // Three categories now: productive (emerald), wasted (rose),
+                        // neutral (slate — neither good nor bad, e.g. eating, transit,
+                        // chores). Clicking the chip cycles through them in order.
+                        const cat = block.category === 'wasted' ? 'wasted'
+                                  : block.category === 'neutral' ? 'neutral'
+                                  : 'productive';
+                        const chipStyles = {
+                            productive: { cls: 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/25', label: 'Productive' },
+                            wasted:     { cls: 'bg-rose-500/20 text-rose-200 border border-rose-500/50 hover:bg-rose-500/30', label: 'Wasted' },
+                            neutral:    { cls: 'bg-slate-500/15 text-slate-300 border border-slate-500/40 hover:bg-slate-500/25', label: 'Neutral' },
+                        };
+                        const chip = chipStyles[cat];
                         const categoryChip = `<button type="button" data-block-category` +
-                            ` class="ml-2 inline-flex items-center rounded-full px-2 py-0.5 text-[0.65rem] uppercase tracking-wider transition-colors ${chipClasses}"` +
-                            ` title="Click to toggle productive / wasted">${isWasted ? 'Wasted' : 'Productive'}</button>`;
+                            ` class="ml-2 inline-flex items-center rounded-full px-2 py-0.5 text-[0.65rem] uppercase tracking-wider transition-colors ${chip.cls}"` +
+                            ` title="Click to cycle: productive → wasted → neutral">${chip.label}</button>`;
                         const goalChip = goalChipFor(block);
 
                         const editButton = block.status === 'completed'
@@ -2400,8 +2488,13 @@
                         if (!id) return;
                         const block = get(id);
                         if (!block) return;
+                        // Cycle: productive → wasted → neutral → productive
+                        const cycle = { productive: 'wasted', wasted: 'neutral', neutral: 'productive' };
+                        const current = block.category === 'wasted' ? 'wasted'
+                                      : block.category === 'neutral' ? 'neutral'
+                                      : 'productive';
                         update(id, {
-                            category: block.category === 'wasted' ? 'productive' : 'wasted',
+                            category: cycle[current],
                             categoryManual: true,
                         });
                         return;
@@ -2761,8 +2854,118 @@
                     loop();
                 };
 
-                let state = { mode: 'idle', deadline: null, remainingMs: 0, label: '', blockId: null };
+                // pausedAt = wall-clock ms when handlePause fired; cleared on
+                // resume. Used to build a "what did you do during the gap?"
+                // prompt when the user resumes after a non-trivial pause.
+                let state = { mode: 'idle', deadline: null, remainingMs: 0, label: '', blockId: null, pausedAt: null };
                 let tickHandle = null;
+
+                // Pause-gap modal — surfaced on Resume after >= 60s pause.
+                const GAP_PROMPT_MIN_MS = 60 * 1000;
+                const gapModal = document.getElementById('cc_gap_modal');
+                const gapFromEl = gapModal?.querySelector('[data-cc-gap-from]');
+                const gapToEl = gapModal?.querySelector('[data-cc-gap-to]');
+                const gapDurEl = gapModal?.querySelector('[data-cc-gap-duration]');
+                const gapLabelEl = gapModal?.querySelector('#cc_gap_label');
+                const gapCatGroup = gapModal?.querySelector('[data-cc-gap-category-group]');
+                const gapErrorEl = gapModal?.querySelector('[data-cc-gap-error]');
+                const gapSkipBtn = gapModal?.querySelector('[data-cc-gap-skip]');
+                const gapSaveBtn = gapModal?.querySelector('[data-cc-gap-save]');
+                let pendingGap = null;     // { fromMs, toMs, durationMs, category }
+
+                const formatHM12 = (d) => {
+                    let h = d.getHours();
+                    const m = pad2(d.getMinutes());
+                    const ampm = h >= 12 ? 'PM' : 'AM';
+                    h = h % 12 || 12;
+                    return `${h}:${m} ${ampm}`;
+                };
+                const formatGapDuration = (ms) => {
+                    const totalMin = Math.max(1, Math.round(ms / 60000));
+                    const h = Math.floor(totalMin / 60);
+                    const m = totalMin % 60;
+                    if (h === 0) return `${m} min`;
+                    if (m === 0) return `${h}h`;
+                    return `${h}h ${m}m`;
+                };
+
+                const openGapModal = (fromMs, toMs) => {
+                    if (!gapModal) return;
+                    pendingGap = {
+                        fromMs,
+                        toMs,
+                        durationMs: toMs - fromMs,
+                        category: null,
+                    };
+                    if (gapFromEl) gapFromEl.textContent = formatHM12(new Date(fromMs));
+                    if (gapToEl) gapToEl.textContent = formatHM12(new Date(toMs));
+                    if (gapDurEl) gapDurEl.textContent = formatGapDuration(toMs - fromMs);
+                    if (gapLabelEl) gapLabelEl.value = '';
+                    if (gapErrorEl) {
+                        gapErrorEl.classList.add('hidden');
+                        gapErrorEl.textContent = '';
+                    }
+                    // Reset any previous category selection.
+                    gapCatGroup?.querySelectorAll('[data-cc-gap-cat]').forEach((b) => {
+                        b.removeAttribute('data-active');
+                    });
+                    gapModal.classList.remove('hidden');
+                    gapModal.classList.add('flex');
+                    gapModal.setAttribute('aria-hidden', 'false');
+                    setTimeout(() => gapLabelEl?.focus(), 50);
+                };
+
+                const closeGapModal = () => {
+                    if (!gapModal) return;
+                    gapModal.classList.add('hidden');
+                    gapModal.classList.remove('flex');
+                    gapModal.setAttribute('aria-hidden', 'true');
+                    pendingGap = null;
+                };
+
+                gapCatGroup?.addEventListener('click', (e) => {
+                    const btn = e.target.closest('[data-cc-gap-cat]');
+                    if (!btn || !pendingGap) return;
+                    pendingGap.category = btn.dataset.ccGapCat;
+                    gapCatGroup.querySelectorAll('[data-cc-gap-cat]').forEach((b) => {
+                        b.toggleAttribute('data-active', b === btn);
+                    });
+                    if (gapErrorEl) gapErrorEl.classList.add('hidden');
+                });
+
+                gapSkipBtn?.addEventListener('click', closeGapModal);
+
+                // Click outside modal closes it (no save).
+                gapModal?.addEventListener('click', (e) => {
+                    if (e.target === gapModal) closeGapModal();
+                });
+
+                gapSaveBtn?.addEventListener('click', () => {
+                    if (!pendingGap) return;
+                    if (!pendingGap.category) {
+                        if (gapErrorEl) {
+                            gapErrorEl.textContent = 'Pick a category before logging.';
+                            gapErrorEl.classList.remove('hidden');
+                        }
+                        return;
+                    }
+                    if (window.ChronoBlocks?.add) {
+                        const fromDate = new Date(pendingGap.fromMs);
+                        const toDate = new Date(pendingGap.toMs);
+                        const labelText = (gapLabelEl?.value || '').trim() || 'Pause gap';
+                        window.ChronoBlocks.add({
+                            source: 'countdown-gap',
+                            start: dateToHHMM(fromDate),
+                            end: dateToHHMM(toDate),
+                            durationMs: pendingGap.durationMs,
+                            label: labelText,
+                            category: pendingGap.category,
+                            categoryManual: true,
+                            status: 'completed',
+                        });
+                    }
+                    closeGapModal();
+                });
 
                 const pad2 = (n) => String(n).padStart(2, '0');
                 const dateToHHMM = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
@@ -2908,10 +3111,21 @@
                     let durationMs;
                     let label;
                     let blockId = state.blockId;
+                    // Capture the pause window before we clear state.pausedAt
+                    // so we can prompt the user about that gap after resume.
+                    let gapStartMs = null;
+                    let gapEndMs = null;
 
                     if (state.mode === 'paused') {
                         durationMs = state.remainingMs;
                         label = state.label;
+                        if (state.pausedAt) {
+                            const now = Date.now();
+                            if (now - state.pausedAt >= GAP_PROMPT_MIN_MS) {
+                                gapStartMs = state.pausedAt;
+                                gapEndMs = now;
+                            }
+                        }
                         if (window.ChronoBlocks && blockId) {
                             const newEnd = new Date(Date.now() + durationMs);
                             window.ChronoBlocks.update(blockId, {
@@ -2950,10 +3164,18 @@
                         remainingMs: 0,
                         label,
                         blockId,
+                        pausedAt: null,
                     };
                     saveState();
                     startTicking();
                     render();
+
+                    // After resuming, surface the pause-gap modal if the
+                    // pause was non-trivial. The timer is already running —
+                    // the modal is informational, not blocking.
+                    if (gapStartMs && gapEndMs) {
+                        openGapModal(gapStartMs, gapEndMs);
+                    }
                 };
 
                 const handlePause = () => {
@@ -2967,6 +3189,7 @@
                         remainingMs: Math.max(0, state.deadline - Date.now()),
                         label: state.label,
                         blockId: state.blockId,
+                        pausedAt: Date.now(),
                     };
                     saveState();
                     stopTicking();
@@ -2979,7 +3202,7 @@
                     if (window.ChronoBlocks && state.blockId && wasUncompleted) {
                         window.ChronoBlocks.remove(state.blockId);
                     }
-                    state = { mode: 'idle', deadline: null, remainingMs: 0, label: '', blockId: null };
+                    state = { mode: 'idle', deadline: null, remainingMs: 0, label: '', blockId: null, pausedAt: null };
                     saveState();
                     stopTicking();
                     render();
@@ -3645,15 +3868,27 @@
                         }
                     };
 
+                    // Track the most recently-added goal id so renderGoals
+                    // can mark its card with a slide-in animation. Cleared
+                    // after the animation runs once so re-renders don't
+                    // re-trigger it.
+                    let justAddedGoalId = null;
+
                     const renderGoals = () => {
-                        const goals = loadGoals();
+                        let goals = loadGoals();
                         // Always keep at least one card visible so the panel
-                        // doesn't collapse to nothing.
+                        // doesn't collapse to nothing. CRITICAL: persist the
+                        // placeholder immediately so the input handler can
+                        // find it by id when the user types — without this
+                        // line, every keystroke was being silently dropped
+                        // because find() returned undefined for a goal that
+                        // existed only in memory.
                         if (goals.length === 0) {
-                            goals.push({
+                            goals = [{
                                 id: newGoalId(), text: '', done: false,
                                 completedFrom: null, completedTo: null, completedAt: null,
-                            });
+                            }];
+                            saveGoals(goals);
                         }
                         goalsListEl.innerHTML = '';
                         goals.forEach((goal, idx) => {
@@ -3683,8 +3918,17 @@
                                 if (emptyHint) emptyHint.classList.add('hidden');
                                 if (!isAuthed()) return;
                                 const all = loadGoals();
-                                const target = all.find((g) => g.id === goal.id);
-                                if (target) target.text = ta.value;
+                                let target = all.find((g) => g.id === goal.id);
+                                // Defensive: if the card isn't yet in storage
+                                // (e.g. it was a render-time placeholder that
+                                // somehow didn't get persisted), adopt it now
+                                // so the user's typing isn't lost.
+                                if (!target) {
+                                    target = { ...goal, text: ta.value };
+                                    all.push(target);
+                                } else {
+                                    target.text = ta.value;
+                                }
                                 saveGoals(all);
                                 refreshStats();
                             });
@@ -3749,9 +3993,34 @@
                             });
 
                             goalsListEl.appendChild(card);
+                            // Slide-in only the just-added card. Inline
+                            // styles + a one-shot transition keep this
+                            // tasteful — no layout thrash, no animation on
+                            // initial page paint, fires only after Add.
+                            if (justAddedGoalId && goal.id === justAddedGoalId) {
+                                card.style.opacity = '0';
+                                card.style.transform = 'translateY(8px)';
+                                card.style.transition = 'opacity 280ms ease-out, transform 280ms ease-out';
+                                requestAnimationFrame(() => {
+                                    requestAnimationFrame(() => {
+                                        card.style.opacity = '1';
+                                        card.style.transform = 'translateY(0)';
+                                    });
+                                });
+                                // Clear inline styles after the animation so
+                                // a future re-render doesn't re-animate it.
+                                setTimeout(() => {
+                                    card.style.removeProperty('opacity');
+                                    card.style.removeProperty('transform');
+                                    card.style.removeProperty('transition');
+                                }, 320);
+                            }
                             // Initial autogrow once the card is in the DOM.
                             requestAnimationFrame(() => autoGrow(ta, counter));
                         });
+                        // Reset the marker so subsequent re-renders don't
+                        // re-animate the same card.
+                        justAddedGoalId = null;
                         refreshStats();
                     };
 
@@ -3927,10 +4196,13 @@
                             return;
                         }
                         const all = loadGoals();
-                        all.push({
+                        const newGoal = {
                             id: newGoalId(), text: '', done: false,
                             completedFrom: null, completedTo: null, completedAt: null,
-                        });
+                        };
+                        all.push(newGoal);
+                        // Mark this card so renderGoals slides it in.
+                        justAddedGoalId = newGoal.id;
                         saveGoals(all);
                         renderGoals();
                         // Focus the newly-added card's textarea.
@@ -3994,8 +4266,11 @@
                     const completedInRange = blocks.filter((b) =>
                         b.status === 'completed' && b.date && b.date >= startKey && b.date < endKey
                     );
+                    // Neutral blocks (eating, transit, chores, etc.) don't count
+                    // as productive OR wasted — they're a third bucket. Excluded
+                    // from productive sum so the productivity number stays honest.
                     const productiveMs = completedInRange
-                        .filter((b) => b.category !== 'wasted')
+                        .filter((b) => b.category !== 'wasted' && b.category !== 'neutral')
                         .reduce((s, b) => s + (b.durationMs || 0), 0);
                     const wastedMs = completedInRange
                         .filter((b) => b.category === 'wasted')
@@ -4133,10 +4408,17 @@
                         return;
                     }
                     topBlocksEl.innerHTML = top.map((b) => {
-                        const isWasted = b.category === 'wasted';
-                        const dotClass = isWasted ? 'bg-rose-400' : 'bg-emerald-400';
-                        const tagClass = isWasted ? 'text-rose-300' : 'text-emerald-300';
-                        const tagText = isWasted ? 'Wasted' : 'Productive';
+                        const cat = b.category === 'wasted' ? 'wasted'
+                                  : b.category === 'neutral' ? 'neutral'
+                                  : 'productive';
+                        const styles = {
+                            productive: { dot: 'bg-emerald-400', tag: 'text-emerald-300', text: 'Productive' },
+                            wasted:     { dot: 'bg-rose-400',    tag: 'text-rose-300',    text: 'Wasted'     },
+                            neutral:    { dot: 'bg-slate-400',   tag: 'text-slate-300',   text: 'Neutral'    },
+                        };
+                        const dotClass = styles[cat].dot;
+                        const tagClass = styles[cat].tag;
+                        const tagText  = styles[cat].text;
                         return `<li class="flex items-center gap-2 text-slate-300">` +
                             `<span class="inline-block h-2 w-2 rounded-full ${dotClass} shrink-0"></span>` +
                             `<span class="text-slate-100 font-medium">${escapeHtml(formatDuration(b.durationMs || 0))}</span>` +
@@ -4158,9 +4440,10 @@
                         const dateStr = localDateString(d);
 
                         // Show *productive* time only — wasted hours don't
-                        // count as a logged-success on the tile.
+                        // count as a logged-success on the tile, and neutral
+                        // hours (eating, transit, etc.) don't count either way.
                         const productiveMs = blocks
-                            .filter((b) => b.status === 'completed' && b.date === dateStr && b.category !== 'wasted')
+                            .filter((b) => b.status === 'completed' && b.date === dateStr && b.category !== 'wasted' && b.category !== 'neutral')
                             .reduce((s, b) => s + (b.durationMs || 0), 0);
                         const wastedMs = blocks
                             .filter((b) => b.status === 'completed' && b.date === dateStr && b.category === 'wasted')
@@ -4244,6 +4527,12 @@
                     const wastedTodayMs = completedToday
                         .filter((b) => b.category === 'wasted')
                         .reduce((s, b) => s + (b.durationMs || 0), 0);
+                    // Neutral blocks (eating, transit, chores, etc.) are excluded
+                    // from both productive and wasted — they're a third bucket
+                    // that doesn't help OR hurt the efficiency number.
+                    const neutralTodayMs = completedToday
+                        .filter((b) => b.category === 'neutral')
+                        .reduce((s, b) => s + (b.durationMs || 0), 0);
                     if (loggedTodayEl) loggedTodayEl.textContent = formatDuration(loggedTodayMs);
                     if (loggedCountEl) {
                         const n = completedToday.length;
@@ -4296,8 +4585,11 @@
                     // Wasted AND unlogged time both count against the user, so
                     // the only way to reach 100% is logging productive blocks
                     // across the full waking window so far.
-                    const productiveTodayMs = Math.max(0, loggedTodayMs - wastedTodayMs);
+                    const productiveTodayMs = Math.max(0, loggedTodayMs - wastedTodayMs - neutralTodayMs);
                     const elapsedMs = Math.max(0, elapsedActiveMs);
+                    // Unlogged = elapsed-since-wake minus EVERYTHING logged (incl.
+                    // neutral). So neutral time eats into the unlogged window
+                    // without being counted as either positive or negative.
                     const unloggedTodayMs = Math.max(0, elapsedMs - loggedTodayMs);
                     const dayDenomMs = productiveTodayMs + wastedTodayMs + unloggedTodayMs;
                     const productivePct = dayDenomMs > 0

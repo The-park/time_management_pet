@@ -44,14 +44,21 @@ class HistoryController extends Controller
 
         $productiveMs = 0;
         $wastedMs = 0;
+        $neutralMs = 0;
         $rows = [];
         foreach ($blocks as $b) {
-            $isWasted = $this->isWasted($b);
             $durationMs = max(0, (int) $b->duration_seconds * 1000);
+            $isNeutral = $this->isNeutral($b);
+            $isWasted = ! $isNeutral && $this->isWasted($b);
             if ($isWasted) {
                 $wastedMs += $durationMs;
+                $rowCat = 'wasted';
+            } elseif ($isNeutral) {
+                $neutralMs += $durationMs;
+                $rowCat = 'neutral';
             } else {
                 $productiveMs += $durationMs;
+                $rowCat = 'productive';
             }
             $rows[] = [
                 'start' => $b->start_time->format('g:i A'),
@@ -59,7 +66,7 @@ class HistoryController extends Controller
                 'durationMs' => $durationMs,
                 'durationLabel' => $this->formatDuration($durationMs),
                 'reason' => (string) ($b->reason ?? ''),
-                'category' => $isWasted ? 'wasted' : 'productive',
+                'category' => $rowCat,
             ];
         }
 
@@ -83,12 +90,11 @@ class HistoryController extends Controller
             $awakeForRatio = max(1, $awakeMs);
         }
 
-        $loggedMs = $productiveMs + $wastedMs;
+        $loggedMs = $productiveMs + $wastedMs + $neutralMs;
         $unloggedMs = max(0, $awakeForRatio - $loggedMs);
         // Efficiency = productive ÷ (productive + wasted + unlogged).
-        // Wasted AND unlogged time both count against the user, so the only
-        // path to 100% is logging productive blocks across the whole awake
-        // window.
+        // Neutral time (eating, transit, chores) is excluded from BOTH sides
+        // of the ratio so it neither helps nor hurts the score.
         $effDenomMs = $productiveMs + $wastedMs + $unloggedMs;
         $efficiencyPct = $effDenomMs > 0
             ? (int) round(($productiveMs / $effDenomMs) * 100)
@@ -103,6 +109,7 @@ class HistoryController extends Controller
             'rows' => $rows,
             'productiveMs' => $productiveMs,
             'wastedMs' => $wastedMs,
+            'neutralMs' => $neutralMs,
             'loggedMs' => $loggedMs,
             'unloggedMs' => $unloggedMs,
             'sleepMs' => $sleepMs,
@@ -118,8 +125,14 @@ class HistoryController extends Controller
     {
         if ($b->category === 'wasted') return true;
         if ($b->category === 'productive') return false;
+        if ($b->category === 'neutral') return false;
         // No category stored (older rows): re-classify by reason text.
         return $this->scoreReason($b->reason ?? '') >= 2;
+    }
+
+    private function isNeutral(TimeBlock $b): bool
+    {
+        return $b->category === 'neutral';
     }
 
     private function scoreReason(string $reason): int

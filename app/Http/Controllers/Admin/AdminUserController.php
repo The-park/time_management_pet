@@ -102,7 +102,7 @@ class AdminUserController extends Controller
             $date = $monthStart->setDay($d);
             $key = $date->toDateString();
             $blocks = $byDate[$key] ?? collect();
-            $productiveSec = (int) $blocks->where('category', '!=', 'wasted')->sum('duration_seconds');
+            $productiveSec = (int) $blocks->whereNotIn('category', ['wasted', 'neutral'])->sum('duration_seconds');
             $wastedSec = (int) $blocks->where('category', 'wasted')->sum('duration_seconds');
             $cells[] = [
                 'date' => $date->toDateString(),
@@ -118,7 +118,7 @@ class AdminUserController extends Controller
         while (count($cells) % 7 !== 0) $cells[] = null;
 
         $monthTotals = [
-            'productive_seconds' => (int) $monthBlocks->where('category', '!=', 'wasted')->sum('duration_seconds'),
+            'productive_seconds' => (int) $monthBlocks->whereNotIn('category', ['wasted', 'neutral'])->sum('duration_seconds'),
             'wasted_seconds' => (int) $monthBlocks->where('category', 'wasted')->sum('duration_seconds'),
             'block_count' => $monthBlocks->count(),
             'days_logged' => $byDate->count(),
@@ -190,7 +190,7 @@ class AdminUserController extends Controller
             ->orderBy('start_time')
             ->get();
 
-        $productiveSec = (int) $blocks->where('category', '!=', 'wasted')->sum('duration_seconds');
+        $productiveSec = (int) $blocks->whereNotIn('category', ['wasted', 'neutral'])->sum('duration_seconds');
         $wastedSec = (int) $blocks->where('category', 'wasted')->sum('duration_seconds');
 
         // Sleep math (mirrors GoalTimeAnalysisService approach).

@@ -6,6 +6,7 @@ use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\Admin\AdminDomainController;
 use App\Http\Controllers\Admin\AdminUserController;
 use App\Http\Controllers\Admin\AdministratorController;
+use App\Http\Controllers\ActivityClassifierController;
 use App\Http\Controllers\GoalController;
 use App\Http\Controllers\HistoryController;
 use App\Http\Controllers\ProfileController;
@@ -98,4 +99,10 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/settings', [SettingsController::class, 'show'])->name('settings.show');
     Route::put('/settings', [SettingsController::class, 'update'])->name('settings.update');
     Route::delete('/settings/account', [SettingsController::class, 'destroyAccount'])->name('account.destroy');
+
+    // Naive Bayes activity classifier — local, no external API.
+    // POST /classify           → predict productive vs unproductive
+    // POST /classify/feedback  → record a user correction & retrain
+    Route::post('/classify',          [ActivityClassifierController::class, 'classify'])->name('classify');
+    Route::post('/classify/feedback', [ActivityClassifierController::class, 'feedback'])->name('classify.feedback');
 });

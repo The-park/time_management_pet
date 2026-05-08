@@ -28,42 +28,11 @@
 
         <div>
             <label class="block text-sm mb-1" for="timezone">Timezone</label>
-            <select id="timezone" name="timezone" required
-                class="w-full rounded-md bg-slate-900 border border-slate-700 px-3 py-2">
-                @php
-                    $regionLabels = [
-                        'Africa' => 'Africa',
-                        'America' => 'America',
-                        'Antarctica' => 'Antarctica',
-                        'Arctic' => 'Arctic',
-                        'Asia' => 'Asia',
-                        'Atlantic' => 'Atlantic',
-                        'Australia' => 'Australia',
-                        'Europe' => 'Europe',
-                        'Indian' => 'Indian Ocean',
-                        'Pacific' => 'Pacific',
-                    ];
-                    $tzLabels = [
-                        'Asia/Kolkata' => 'Asia/Kolkata — India Standard Time (Chennai, Mumbai, Delhi · IST, +5:30)',
-                    ];
-                    $grouped = [];
-                    foreach (DateTimeZone::listIdentifiers() as $tz) {
-                        $region = str_contains($tz, '/') ? explode('/', $tz, 2)[0] : 'Other';
-                        $grouped[$region][] = $tz;
-                    }
-                    $selectedTz = old('timezone', 'Asia/Kolkata');
-                @endphp
-                <option value="UTC" @selected($selectedTz === 'UTC')>UTC</option>
-                @foreach ($regionLabels as $region => $label)
-                    @if (!empty($grouped[$region]))
-                        <optgroup label="{{ $label }}">
-                            @foreach ($grouped[$region] as $tz)
-                                <option value="{{ $tz }}" @selected($selectedTz === $tz)>{{ $tzLabels[$tz] ?? $tz }}</option>
-                            @endforeach
-                        </optgroup>
-                    @endif
-                @endforeach
-            </select>
+            @include('partials.timezone-select', [
+                'selected'   => old('timezone'),
+                'autodetect' => true,
+            ])
+            <p class="text-xs text-slate-500 mt-1">Auto-detected from your browser. Change it if you're elsewhere.</p>
             @error('timezone')
                 <p class="text-sm text-rose-400 mt-1">{{ $message }}</p>
             @enderror

@@ -15,7 +15,9 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\ValidationException;
+use Laravel\Fortify\Contracts\RegisterResponse as RegisterResponseContract;
 use Laravel\Fortify\Fortify;
+use Symfony\Component\HttpFoundation\Response;
 
 class FortifyServiceProvider extends ServiceProvider
 {
@@ -24,7 +26,23 @@ class FortifyServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Replace Fortify's default RegisterResponse so a freshly registered
+        // user always lands on the home page. The default uses
+        // redirect()->intended(...), which sends them back to whatever URL
+        // was stashed in the session — including /admin/* URLs that the
+        // guest previously hit and got bounced from. That ends up routing
+        // a brand-new (non-admin) user to the admin login screen, which is
+        // confusing. The user dashboard is the right post-register landing.
+        $this->app->singleton(RegisterResponseContract::class, function () {
+            return new class implements RegisterResponseContract {
+                public function toResponse($request): Response
+                {
+                    return $request->wantsJson()
+                        ? response()->json('', 201)
+                        : redirect()->to('/');
+                }
+            };
+        });
     }
 
     /**
@@ -98,7 +116,7 @@ class FortifyServiceProvider extends ServiceProvider
         // and any admin-triggered resends from /admin/users/{id}.
         VerifyEmail::toMailUsing(function ($notifiable, $url) {
             return (new MailMessage)
-                ->subject('Verify your Track Your Time email')
+                ->subject('Verify your Time Management Pet email')
                 ->view('emails.verify-email', [
                     'url' => $url,
                     'user' => $notifiable,
@@ -112,7 +130,7 @@ class FortifyServiceProvider extends ServiceProvider
             ], false));
 
             return (new MailMessage)
-                ->subject('Reset your Track Your Time password')
+                ->subject('Reset your Time Management Pet password')
                 ->view('emails.reset-password', [
                     'url' => $url,
                     'user' => $notifiable,

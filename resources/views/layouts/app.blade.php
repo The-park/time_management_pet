@@ -4,7 +4,7 @@
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="csrf-token" content="{{ csrf_token() }}">
-        <title>@hasSection('page_title')@yield('page_title') · @endif{{ config('app.name', 'Track Your Time') }}</title>
+        <title>@hasSection('page_title')@yield('page_title') · @endif{{ config('app.name', 'Time Management Pet') }}</title>
         @vite(['resources/css/app.css', 'resources/js/app.js'])
         @livewireStyles
         <script>
@@ -87,7 +87,7 @@
                 <div class="mx-auto max-w-6xl px-6 py-4 flex items-center justify-between">
                     <div class="flex items-center gap-3">
                         <div class="h-3 w-3 rounded-full bg-[var(--chrono-blue)] shadow-[0_0_12px_var(--chrono-blue)]"></div>
-                        <a href="{{ route('dashboard') }}" class="font-display text-lg tracking-[0.2em] hover:text-[var(--chrono-blue)] transition-colors">Track Your Time</a>
+                        <a href="{{ route('dashboard') }}" class="font-display text-lg tracking-[0.2em] hover:text-[var(--chrono-blue)] transition-colors">Time Management Pet</a>
                     </div>
                     <nav class="text-sm uppercase tracking-[0.2em] flex items-center gap-6">
                         <a href="{{ route('dashboard') }}" class="hover:text-[var(--chrono-blue)]">Dashboard</a>
@@ -150,7 +150,7 @@
             <footer class="mt-12 border-t border-slate-800/60">
                 <div class="mx-auto max-w-6xl px-6 py-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-slate-500">
                     <div class="flex items-center gap-2">
-                        <span class="font-display tracking-[0.2em] text-slate-300">Track Your Time</span>
+                        <span class="font-display tracking-[0.2em] text-slate-300">Time Management Pet</span>
                         <span class="text-slate-700">·</span>
                         <span>© {{ date('Y') }}</span>
                     </div>

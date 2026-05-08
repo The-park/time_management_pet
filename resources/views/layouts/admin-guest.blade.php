@@ -3,7 +3,7 @@
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>{{ config('app.name', 'Track Your Time') }} · Admin</title>
+        <title>{{ config('app.name', 'Time Management Pet') }} · Admin</title>
         @vite(['resources/css/app.css', 'resources/js/app.js'])
     </head>
     <body class="min-h-screen bg-slate-950 text-slate-100 antialiased">
@@ -15,7 +15,7 @@
                 <div class="h-2 w-2 rounded-full bg-rose-400 shadow-[0_0_10px_#fb7185]"></div>
                 <div>
                     <div class="font-display text-sm tracking-[0.2em] text-slate-100">Admin Console</div>
-                    <div class="text-[0.6rem] uppercase tracking-wider text-slate-500 mt-0.5">Track Your Time</div>
+                    <div class="text-[0.6rem] uppercase tracking-wider text-slate-500 mt-0.5">Time Management Pet</div>
                 </div>
             </div>
 

@@ -2,7 +2,7 @@
     "$schema": "https://getcomposer.org/schema.json",
     "name": "laravel/laravel",
     "type": "project",
-    "description": "The skeleton application for the Laravel framework.",
+    "description": "Time Management Pet — track time blocks, goals, and daily efficiency.",
     "keywords": [
         "laravel",
         "framework"

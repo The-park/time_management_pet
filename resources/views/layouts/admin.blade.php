@@ -3,7 +3,7 @@
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>@hasSection('page_title')@yield('page_title') · @endif{{ config('app.name', 'Track Your Time') }} · Admin</title>
+        <title>@hasSection('page_title')@yield('page_title') · @endif{{ config('app.name', 'Time Management Pet') }} · Admin</title>
         @vite(['resources/css/app.css', 'resources/js/app.js'])
     </head>
     <body class="bg-slate-950 text-slate-100 min-h-screen antialiased">
@@ -39,7 +39,7 @@
                         <div class="h-2 w-2 rounded-full bg-rose-400 shadow-[0_0_10px_#fb7185] group-hover:scale-110 transition-transform"></div>
                         <div>
                             <div class="font-display text-sm tracking-[0.2em] text-slate-100">Admin</div>
-                            <div class="text-[0.6rem] uppercase tracking-wider text-slate-500 mt-0.5">Track Your Time</div>
+                            <div class="text-[0.6rem] uppercase tracking-wider text-slate-500 mt-0.5">Time Management Pet</div>
                         </div>
                     </a>
                 </div>
@@ -117,7 +117,7 @@
 
                 <footer class="border-t border-slate-800/60 px-6 md:px-10 py-4 text-xs text-slate-500">
                     <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
-                        <span>Admin Console · Track Your Time</span>
+                        <span>Admin Console · Time Management Pet</span>
                         <span>{{ now()->format('M j, Y · g:i A') }}</span>
                     </div>
                 </footer>

@@ -10,12 +10,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="x-apple-disable-message-reformatting">
-    <title>Reset your password — Track Your Time</title>
+    <title>Reset your password — Time Management Pet</title>
 </head>
 <body style="margin:0;padding:0;background-color:#f4f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#0f172a;-webkit-font-smoothing:antialiased;">
 
     <div style="display:none;max-height:0;overflow:hidden;font-size:1px;line-height:1px;color:#f4f5f7;opacity:0;">
-        Reset your Track Your Time password — link expires in 60 minutes.
+        Reset your Time Management Pet password — link expires in 60 minutes.
     </div>
 
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#f4f5f7;padding:32px 16px;">
@@ -30,7 +30,7 @@
                                 <tr>
                                     <td>
                                         <span style="display:inline-block;width:9px;height:9px;border-radius:50%;background-color:#00e0ff;box-shadow:0 0 12px rgba(0,224,255,0.6);vertical-align:middle;margin-right:10px;"></span>
-                                        <span style="display:inline-block;color:#f1f5f9;font-size:13px;letter-spacing:3px;text-transform:uppercase;font-weight:600;vertical-align:middle;">Track Your Time</span>
+                                        <span style="display:inline-block;color:#f1f5f9;font-size:13px;letter-spacing:3px;text-transform:uppercase;font-weight:600;vertical-align:middle;">Time Management Pet</span>
                                     </td>
                                 </tr>
                             </table>
@@ -50,7 +50,7 @@
                                 Hi {{ $user?->name ?? 'there' }},
                             </p>
                             <p style="margin:0 0 28px;font-size:15px;line-height:1.6;color:#334155;">
-                                We received a request to reset the password for your Track Your Time account ({{ $user?->email ?? 'this address' }}). Click the button below to set a new one. The link expires in 60 minutes.
+                                We received a request to reset the password for your Time Management Pet account ({{ $user?->email ?? 'this address' }}). Click the button below to set a new one. The link expires in 60 minutes.
                             </p>
 
                             {{-- CTA button --}}
@@ -93,7 +93,7 @@
                     <tr>
                         <td align="center" style="padding:0 16px;">
                             <p style="margin:0;font-size:11px;line-height:1.6;color:#94a3b8;">
-                                © {{ date('Y') }} Track Your Time · Sent from <a href="{{ config('app.url') }}" style="color:#94a3b8;text-decoration:underline;">{{ str_replace(['https://','http://'], '', config('app.url')) }}</a>
+                                © {{ date('Y') }} Time Management Pet · Sent from <a href="{{ config('app.url') }}" style="color:#94a3b8;text-decoration:underline;">{{ str_replace(['https://','http://'], '', config('app.url')) }}</a>
                             </p>
                         </td>
                     </tr>

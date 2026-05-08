@@ -88,12 +88,8 @@ test('classify endpoint returns label for authenticated user', function () {
     // try to retrain mid-test (which would be slow and noisy).
     (new ActivityClassifierService())->loadOrTrain();
 
-    // Pick a phrase that's clearly in the productive distribution (deep
-    // work + multiple unambiguous productive tokens) to avoid edge-case
-    // misses on minimal inputs. The endpoint just needs to return SOME
-    // valid label — that's what we're actually testing here.
     $this->actingAs($user)
-        ->postJson('/classify', ['text' => 'finished the unit tests and shipped the feature'])
+        ->postJson('/classify', ['text' => 'studied for finals'])
         ->assertOk()
         ->assertJson(['ok' => true, 'label' => ActivityClassifierService::PRODUCTIVE]);
 });

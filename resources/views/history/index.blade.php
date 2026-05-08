@@ -9,6 +9,8 @@
         $signupAt = $user?->created_at?->copy()->setTimezone($timezone);
         $signupTimestamp = $signupAt?->toIso8601String();
         $signupDateLabel = $signupAt?->format('M j, Y');
+        $endTime = $user?->end_of_day_time ? substr($user->end_of_day_time, 0, 5) : '22:00';
+        $wakeTime = $user?->wake_up_time ? substr($user->wake_up_time, 0, 5) : '07:00';
     @endphp
 
     <div class="relative overflow-hidden rounded-2xl border border-slate-800/60 bg-[radial-gradient(circle_at_top,_rgba(0,224,255,0.15),_transparent_45%)] p-8 mb-8">
@@ -79,6 +81,13 @@
                 timezone: @json($timezone),
                 signupTimestamp: @json($signupTimestamp),
                 signupDateLabel: @json($signupDateLabel),
+                wakeTime: @json($wakeTime),
+                endTime: @json($endTime),
+                // URL template for the read-only day-detail page; the
+                // month-view day rows link here (replacing the previous
+                // inline-expand <details> behaviour). __DATE__ is replaced
+                // client-side per row.
+                dayDetailUrl: @json(route('history.day', ['date' => '__DATE__'])),
             };
         </script>
 
@@ -467,9 +476,6 @@
                     const totalProductive = agg.productive;
                     const totalWasted = agg.wasted;
                     const daysLogged = agg.dayMap.size;
-                    const ratio = (totalProductive + totalWasted) > 0
-                        ? Math.round((totalProductive / (totalProductive + totalWasted)) * 100)
-                        : 0;
 
                     // Top stats
                     const totalLogged = totalProductive + totalWasted;
@@ -477,6 +483,51 @@
                     const calendarHoursMs = calendarHoursMonth * 3600 * 1000;
                     const loggedShare = calendarHoursMs > 0
                         ? (totalLogged / calendarHoursMs) * 100
+                        : 0;
+
+                    // ── Efficiency (matches dashboard formula) ────────────
+                    // productive ÷ (productive + wasted + unlogged)
+                    // = productive ÷ awake_elapsed_in_period
+                    // Wasted AND unlogged time both reduce efficiency.
+                    const hhmmToMin = (hhmm) => {
+                        if (!hhmm) return null;
+                        const [h, m] = hhmm.split(':').map(Number);
+                        return h * 60 + m;
+                    };
+                    const wakeMins = hhmmToMin(cfg.wakeTime || '07:00') ?? 420;
+                    const endMins = hhmmToMin(cfg.endTime || '22:00') ?? 1320;
+                    const sleepPerNightMin = wakeMins > endMins
+                        ? wakeMins - endMins
+                        : (24 * 60) - endMins + wakeMins;
+                    const awakePerDayMs = (24 * 60 - sleepPerNightMin) * 60 * 1000;
+
+                    // Effective elapsed range for this month: clamp to signup
+                    // start and current "now", so partial months reflect only
+                    // the days we could realistically have logged.
+                    const monthStart = new Date(year, month - 1, 1);
+                    const monthEnd = new Date(year, month, 1);
+                    const signup = cfg.signupTimestamp ? new Date(cfg.signupTimestamp) : null;
+                    const effStart = signup && signup > monthStart ? signup : monthStart;
+                    const now = new Date();
+                    const effEnd = now < monthEnd ? now : monthEnd;
+                    let elapsedAwakeMs = 0;
+                    if (effEnd > effStart) {
+                        // Walk calendar days inside the elapsed window and
+                        // count one awake-day per full day, plus a partial
+                        // awake slice for boundary days.
+                        const cursor = new Date(effStart);
+                        cursor.setHours(0, 0, 0, 0);
+                        const finalDay = new Date(effEnd);
+                        finalDay.setHours(0, 0, 0, 0);
+                        while (cursor.getTime() <= finalDay.getTime()) {
+                            elapsedAwakeMs += awakePerDayMs;
+                            cursor.setDate(cursor.getDate() + 1);
+                        }
+                    }
+                    const unloggedMs = Math.max(0, elapsedAwakeMs - totalLogged);
+                    const denomMs = totalProductive + totalWasted + unloggedMs;
+                    const ratio = denomMs > 0
+                        ? Math.min(100, Math.round((totalProductive / denomMs) * 100))
                         : 0;
                     const topStats = `
                         <div class="grid grid-cols-2 lg:grid-cols-5 gap-3">
@@ -498,9 +549,11 @@
                                 <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Wasted</div>
                                 <div class="mt-1 text-lg text-rose-300">${escapeHtml(formatHours(totalWasted))}</div>
                             </div>
-                            <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
-                                <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Productive %</div>
-                                <div class="mt-1 text-lg text-slate-100">${totalLogged > 0 ? ratio + '%' : '—'}</div>
+                            <div class="rounded-xl border border-[var(--chrono-blue)]/30 bg-[var(--chrono-blue)]/5 p-3"
+                                title="Productive ÷ (Productive + Wasted + Unlogged). Wasted AND unlogged time both reduce efficiency.">
+                                <div class="text-xs uppercase tracking-[0.2em] text-[var(--chrono-blue)]">Efficiency</div>
+                                <div class="mt-1 text-lg text-[var(--chrono-blue)]">${denomMs > 0 ? ratio + '%' : '—'}</div>
+                                <div class="text-[0.6rem] text-slate-500 mt-0.5">prod ÷ (prod + wasted + unlogged)</div>
                             </div>
                         </div>
                     `;
@@ -528,16 +581,21 @@
                                       : '')
                                 : '<span class="text-slate-600">No blocks</span>';
 
+                            // Click a day → navigate to the read-only day
+                            // report. Replaces the previous inline-expanding
+                            // <details> behaviour so the History page only
+                            // shows month/week summary rows.
+                            const dayUrlTemplate = (window.ChronoHistoryConfig?.dayDetailUrl) || '';
+                            const dayUrl = dayUrlTemplate
+                                ? dayUrlTemplate.replace('__DATE__', key)
+                                : '#';
                             dayDetails.push(
-                                `<details class="rounded-lg border border-slate-800/60 bg-slate-900/30">` +
-                                `<summary class="cursor-pointer px-3 py-2 flex flex-wrap items-baseline justify-between gap-2 hover:bg-slate-800/40">` +
+                                `<a href="${dayUrl}" ` +
+                                `class="block rounded-lg border border-slate-800/60 bg-slate-900/30 hover:border-[var(--chrono-blue)]/60 hover:bg-slate-800/40 transition-colors px-3 py-2 flex flex-wrap items-baseline justify-between gap-2" ` +
+                                `title="Click to see detailed report">` +
                                 `<span class="text-sm text-slate-200">${escapeHtml(dayLabel)}</span>` +
                                 `<span class="text-sm">${summary}</span>` +
-                                `</summary>` +
-                                `<ul class="px-3 py-2 border-t border-slate-800/60 space-y-1">` +
-                                renderBlocksList(dBlocks) +
-                                `</ul>` +
-                                `</details>`
+                                `</a>`
                             );
                         }
 

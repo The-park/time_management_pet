@@ -24,6 +24,7 @@ class AdminAuditLog extends Model
         'action',
         'ip_address',
         'user_agent',
+        'metadata',
         'viewed_at',
     ];
 
@@ -36,6 +37,7 @@ class AdminAuditLog extends Model
     {
         return [
             'viewed_at' => 'datetime',
+            'metadata' => 'array',
         ];
     }
 

@@ -11,9 +11,14 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('users', function (Blueprint $table) {
-            $table->softDeletes();
-        });
+        // The base create_users_table migration already adds softDeletes()
+        // for fresh installs. This migration exists to retrofit deployments
+        // that were created before that change. Idempotent.
+        if (! Schema::hasColumn('users', 'deleted_at')) {
+            Schema::table('users', function (Blueprint $table) {
+                $table->softDeletes();
+            });
+        }
     }
 
     /**
@@ -21,8 +26,10 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('users', function (Blueprint $table) {
-            $table->dropSoftDeletes();
-        });
+        if (Schema::hasColumn('users', 'deleted_at')) {
+            Schema::table('users', function (Blueprint $table) {
+                $table->dropSoftDeletes();
+            });
+        }
     }
 };

@@ -1,7 +1,12 @@
 {
   "permissions": {
     "allow": [
-      "Bash(php artisan *)"
+      "Bash(php artisan *)",
+      "Bash(awk 'NR==2290,NR==2770' resources/views/dashboard.blade.php)",
+      "Bash(grep -n -E 'return\\\\s*;|return$')",
+      "PowerShell(php -l resources\\\\views\\\\dashboard.blade.php 2>&1 | Out-String)",
+      "PowerShell(php artisan view:clear 2>&1 | Out-String)",
+      "PowerShell(php -l resources\\\\views\\\\dashboard.blade.php; git diff --stat resources/views/dashboard.blade.php)"
     ]
   }
 }

@@ -4,11 +4,21 @@
     $tier = $result['tier'];
     $details = $result['details'];
     $remaining = $details['days_remaining'] ?? null;
+    // Full class strings (Tailwind JIT cannot resolve "text-{{ $x }}-300";
+    // every variant must appear literally somewhere it scans).
     $statusBadge = match ($goal->status) {
-        'completed' => ['emerald', 'Completed'],
-        'abandoned' => ['slate', 'Abandoned'],
-        'missed' => ['rose', 'Missed'],
-        default => ['sky', 'Active'],
+        'completed' => ['Completed', 'text-emerald-300'],
+        'abandoned' => ['Abandoned', 'text-slate-300'],
+        'missed' => ['Missed', 'text-rose-300'],
+        default => ['Active', 'text-sky-300'],
+    };
+    $hoverBorder = match ($tier['key']) {
+        'high' => 'hover:border-emerald-500/40',
+        'good' => 'hover:border-sky-500/40',
+        'caution' => 'hover:border-amber-500/40',
+        'warning' => 'hover:border-orange-500/40',
+        'critical' => 'hover:border-rose-500/40',
+        default => 'hover:border-slate-500/40',
     };
     $consistencyPct = (isset($details['days_with_logs'], $details['days_passed']) && $details['days_passed'] > 0)
         ? round(($details['days_with_logs'] / $details['days_passed']) * 100)
@@ -16,13 +26,13 @@
 @endphp
 
 <a href="{{ route('goals.show', $goal) }}"
-    class="chrono-panel block rounded-2xl p-5 hover:border-{{ $tier['color'] }}-500/40 transition-colors">
+    class="chrono-panel block rounded-2xl p-5 {{ $hoverBorder }} transition-colors">
     <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
             <div class="flex items-center gap-2 text-[0.65rem] uppercase tracking-wider text-slate-500">
                 <span>{{ $goal->category }}</span>
                 <span>·</span>
-                <span class="text-{{ $statusBadge[0] }}-300">{{ $statusBadge[1] }}</span>
+                <span class="{{ $statusBadge[1] }}">{{ $statusBadge[0] }}</span>
             </div>
             <h3 class="mt-1 truncate text-base text-slate-100">{{ $goal->title }}</h3>
             <p class="mt-1 text-xs text-slate-400">

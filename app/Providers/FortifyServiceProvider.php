@@ -49,6 +49,14 @@ class FortifyServiceProvider extends ServiceProvider
             return Limit::perMinute(5)->by($request->session()->get('login.id'));
         });
 
+        // Limit how often a user can request a fresh verification email — at
+        // most six per hour to discourage abuse without locking out users who
+        // genuinely need to retry once or twice.
+        RateLimiter::for('verification.send', function (Request $request): Limit {
+            $key = optional($request->user())->id ?: $request->ip();
+            return Limit::perHour(6)->by($key);
+        });
+
         Fortify::createUsersUsing(CreateNewUser::class);
         Fortify::updateUserProfileInformationUsing(UpdateUserProfileInformation::class);
         Fortify::updateUserPasswordsUsing(UpdateUserPassword::class);

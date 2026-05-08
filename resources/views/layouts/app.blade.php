@@ -14,6 +14,72 @@
                 registerUrl: @json(route('register')),
             };
         </script>
+        @auth
+            @php
+                // Inject the user's persisted time blocks as JSON so that
+                // localStorage gets hydrated synchronously, before any
+                // page-specific script reads it. Without this, a fresh
+                // browser / cleared cache / different device would render
+                // an empty dashboard / empty history page even though the
+                // user's data still lives in the database.
+                $serverBlocks = \App\Models\TimeBlock::query()
+                    ->where('user_id', auth()->id())
+                    ->orderBy('start_time')
+                    ->get()
+                    ->map(function ($b) {
+                        return [
+                            'id' => $b->external_id ?: ('srv_'.$b->id),
+                            'date' => $b->start_time->toDateString(),
+                            'start' => $b->start_time->format('H:i'),
+                            'end' => $b->end_time?->format('H:i'),
+                            'durationMs' => (int) $b->duration_seconds * 1000,
+                            'label' => (string) ($b->reason ?? ''),
+                            'category' => $b->category,
+                            'auto_filled' => (bool) $b->auto_filled,
+                            'status' => 'completed',
+                        ];
+                    })
+                    ->values();
+            @endphp
+            <script>
+                // Synchronous hydration: merge the server's time blocks into
+                // localStorage BEFORE any page-specific JS reads from it.
+                // - If localStorage is empty (fresh browser, cleared cache,
+                //   different device, or another logout/login cycle), this
+                //   restores the user's data from the server.
+                // - If localStorage already has the same id, the server's
+                //   record wins (server is the source of truth).
+                // - Local-only blocks (an offline save not yet synced) are
+                //   preserved.
+                (() => {
+                    const KEY = 'chrono.timeBlocks.v1';
+                    const server = @json($serverBlocks);
+                    let local = [];
+                    try {
+                        const raw = localStorage.getItem(KEY);
+                        local = raw ? (JSON.parse(raw) || []) : [];
+                        if (!Array.isArray(local)) local = [];
+                    } catch { local = []; }
+
+                    const serverIds = new Set(server.map(b => b.id));
+                    const localOnly = local.filter(b => b && b.id && !serverIds.has(b.id));
+                    const merged = [...server, ...localOnly];
+
+                    try {
+                        if (merged.length === 0) {
+                            localStorage.removeItem(KEY);
+                        } else {
+                            localStorage.setItem(KEY, JSON.stringify(merged));
+                        }
+                    } catch {}
+
+                    // Tell page-specific scripts the local cache is now in
+                    // sync with the server, so they can safely run their
+                    // own outgoing /time-blocks/sync calls.
+                    window.ChronoBlocksHydrated = true;
+                })();
+            </script>
+        @endauth
     </head>
     <body class="scanlines bg-[var(--chrono-bg)] text-slate-100">
         <div class="min-h-screen relative">
@@ -46,6 +112,26 @@
             </header>
 
             <main class="mx-auto max-w-6xl px-6 py-10">
+                @auth
+                    @if (! auth()->user()->hasVerifiedEmail())
+                        <div class="mb-6 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                            <div class="text-sm text-amber-100">
+                                <span class="font-semibold">Email not verified.</span>
+                                We sent a verification link to <span class="text-amber-50">{{ auth()->user()->email }}</span>.
+                                @if (session('status') === 'verification-link-sent')
+                                    <span class="text-emerald-200">A new link was just sent — check your inbox.</span>
+                                @endif
+                            </div>
+                            <form method="POST" action="{{ route('verification.send') }}" class="shrink-0">
+                                @csrf
+                                <button type="submit"
+                                    class="rounded-lg border border-amber-400/60 bg-amber-500/20 hover:bg-amber-500/30 text-amber-100 text-xs font-semibold uppercase tracking-[0.2em] px-3 py-1.5">
+                                    Resend link
+                                </button>
+                            </form>
+                        </div>
+                    @endif
+                @endauth
                 @if (session('status') || session('toast'))
                     @php($toastMessage = session('toast') ?? match (session('status')) {
                         'profile-updated' => 'Profile saved.',

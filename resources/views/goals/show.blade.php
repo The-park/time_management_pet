@@ -26,26 +26,41 @@
             style="background: radial-gradient(circle, {{ $tier['hex'] }}59, transparent 70%);"></div>
         <div class="relative flex flex-col md:flex-row md:items-start md:justify-between gap-4">
             <div class="min-w-0">
-                <a href="{{ route('goals.index') }}" class="text-xs uppercase tracking-[0.2em] text-slate-400 hover:text-slate-100">← Goals</a>
+                <a href="{{ route('goals.index') }}" class="inline-flex items-center gap-1 text-xs uppercase tracking-[0.2em] text-slate-400 hover:text-slate-100 transition-colors">
+                    <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+                    Goals
+                </a>
                 <h1 class="mt-2 font-display text-2xl md:text-3xl tracking-[0.2em] uppercase">{{ $goal->title }}</h1>
-                <div class="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                    <span class="rounded-full border border-slate-700/60 bg-slate-900/60 px-2 py-0.5 text-slate-300 uppercase tracking-wider">
+                <div class="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+                    {{-- Status pill with colored dot — clearer than a plain word --}}
+                    @php
+                        $statusInfo = match ($goal->status) {
+                            'completed' => ['cls' => 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300', 'dot' => 'bg-emerald-400', 'label' => 'Completed'],
+                            'abandoned' => ['cls' => 'border-slate-500/40 bg-slate-500/10 text-slate-300', 'dot' => 'bg-slate-400', 'label' => 'Abandoned'],
+                            'missed' => ['cls' => 'border-rose-500/40 bg-rose-500/10 text-rose-300', 'dot' => 'bg-rose-400', 'label' => 'Missed'],
+                            default => ['cls' => 'border-sky-500/40 bg-sky-500/10 text-sky-300', 'dot' => 'bg-sky-400', 'label' => 'Active'],
+                        };
+                    @endphp
+                    <span class="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 uppercase tracking-wider {{ $statusInfo['cls'] }}">
+                        <span class="h-1.5 w-1.5 rounded-full {{ $statusInfo['dot'] }}"></span>
+                        {{ $statusInfo['label'] }}
+                    </span>
+                    <span class="inline-flex items-center rounded-full border border-slate-700/60 bg-slate-900/60 px-2 py-0.5 text-slate-300 uppercase tracking-wider">
                         {{ $goal->category }}
                     </span>
-                    <span class="rounded-full border border-slate-700/60 bg-slate-900/60 px-2 py-0.5 text-slate-300">
-                        Target {{ $goal->target_date->format('M j, Y') }}
+                    <span class="inline-flex items-center gap-1.5 rounded-full border border-slate-700/60 bg-slate-900/60 px-2 py-0.5 text-slate-300">
+                        <svg class="h-3 w-3 text-slate-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                        Target {{ $goal->target_date->format('D, M j, Y') }}
                     </span>
                     @if ($goal->extension_count > 0)
-                        <span class="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-amber-300">
+                        <span class="inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-amber-300">
                             Extended {{ $goal->extension_count }}×
                         </span>
                     @endif
-                    @if ($goal->status === 'completed')
-                        <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-emerald-300">
-                            Completed {{ $goal->completed_at?->format('M j, Y') }}
+                    @if ($goal->status === 'completed' && $goal->completed_at)
+                        <span class="inline-flex items-center rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-emerald-300">
+                            Done {{ $goal->completed_at->format('M j, Y') }}
                         </span>
-                    @elseif ($goal->status === 'abandoned')
-                        <span class="rounded-full border border-slate-500/30 bg-slate-500/10 px-2 py-0.5 text-slate-300">Abandoned</span>
                     @endif
                 </div>
                 @if ($goal->description)
@@ -104,6 +119,223 @@
         </div>
         <p class="relative mt-3 text-sm text-slate-300">{{ $narrative }}</p>
     </div>
+
+    {{-- Goal at a glance — lifecycle facts. Created date, age, days
+         active vs remaining, original vs current target (highlights any
+         extension), how many times the goal has been edited, log
+         entries. --}}
+    @php
+        $totalSpan = max(1, (int) $lifecycle['original_target']->diffInDays(\Carbon\CarbonImmutable::parse($goal->start_date)));
+        $hasExtension = $lifecycle['extension_days'] > 0;
+    @endphp
+    <section class="rounded-2xl border border-slate-800/60 bg-slate-900/40 overflow-hidden mb-6">
+        <header class="flex flex-wrap items-baseline justify-between gap-3 px-5 py-3 border-b border-slate-800/60">
+            <div class="flex items-center gap-2">
+                <h2 class="font-display text-xs uppercase tracking-[0.2em] text-slate-300">Goal at a glance</h2>
+                <span class="text-[0.65rem] uppercase tracking-wider text-slate-500">lifecycle</span>
+            </div>
+            <span class="text-xs text-slate-500">
+                Created {{ $lifecycle['created_at']?->format('D, M j, Y · g:i A') ?? '—' }}
+                @if ($lifecycle['created_age_for_humans'])
+                    <span class="text-slate-600"> · {{ $lifecycle['created_age_for_humans'] }}</span>
+                @endif
+            </span>
+        </header>
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 p-5">
+            <div class="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+                <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Days active</div>
+                <div class="mt-1 font-digital text-lg text-slate-100">{{ $lifecycle['days_active'] }}</div>
+                <div class="text-[0.65rem] text-slate-500 mt-0.5">since start</div>
+            </div>
+            <div class="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+                <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Days remaining</div>
+                <div class="mt-1 font-digital text-lg {{ $lifecycle['days_remaining'] === 0 ? 'text-rose-300' : 'text-slate-100' }}">
+                    {{ $lifecycle['days_remaining'] === 0 ? 'today' : $lifecycle['days_remaining'] }}
+                </div>
+                <div class="text-[0.65rem] text-slate-500 mt-0.5">until target</div>
+            </div>
+            <div class="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+                <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Original target</div>
+                <div class="mt-1 text-sm text-slate-200">{{ $lifecycle['original_target']->format('M j, Y') }}</div>
+                <div class="text-[0.65rem] text-slate-500 mt-0.5">{{ $lifecycle['original_target']->format('D') }}</div>
+            </div>
+            <div class="rounded-lg border {{ $hasExtension ? 'border-amber-500/30 bg-amber-500/5' : 'border-slate-800 bg-slate-950/40' }} p-3">
+                <div class="text-[0.6rem] uppercase tracking-wider {{ $hasExtension ? 'text-amber-300' : 'text-slate-500' }}">Current target</div>
+                <div class="mt-1 text-sm {{ $hasExtension ? 'text-amber-200' : 'text-slate-200' }}">{{ $lifecycle['current_target']->format('M j, Y') }}</div>
+                <div class="text-[0.65rem] {{ $hasExtension ? 'text-amber-400/80' : 'text-slate-500' }} mt-0.5">
+                    @if ($hasExtension)
+                        +{{ $lifecycle['extension_days'] }} {{ Str::plural('day', $lifecycle['extension_days']) }} added
+                    @else
+                        unchanged
+                    @endif
+                </div>
+            </div>
+            <div class="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+                <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Extensions</div>
+                <div class="mt-1 font-digital text-lg {{ $lifecycle['extension_count'] > 0 ? 'text-amber-300' : 'text-slate-100' }}">
+                    {{ $lifecycle['extension_count'] }}
+                </div>
+                <div class="text-[0.65rem] text-slate-500 mt-0.5">{{ $lifecycle['change_count'] }} {{ Str::plural('change', $lifecycle['change_count']) }} total</div>
+            </div>
+            <div class="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+                <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Log entries</div>
+                <div class="mt-1 font-digital text-lg text-slate-100">{{ $lifecycle['log_entries'] }}</div>
+                @if ($lifecycle['log_entries'] > 0)
+                    <a href="{{ route('goals.logs', $goal) }}" class="text-[0.65rem] text-[var(--chrono-blue)] hover:underline">
+                        View full log →
+                    </a>
+                @else
+                    <div class="text-[0.65rem] text-slate-500 mt-0.5">no edits yet</div>
+                @endif
+            </div>
+        </div>
+    </section>
+
+    {{-- Time analysis: weeks/hours left, sleep, awake, logged, unlogged --}}
+    @php
+        $ta = $timeAnalysis;
+        $sleepNote = $ta['sleep']['end_of_day'].' → '.$ta['sleep']['wake_time']
+            .' = '.$ta['sleep']['per_night_label'].'/night';
+    @endphp
+    <section class="chrono-panel rounded-2xl p-6 md:p-8 mb-6">
+        <div class="flex items-baseline justify-between gap-3 mb-1">
+            <h2 class="font-display text-sm uppercase tracking-[0.3em] text-slate-300">Time analysis</h2>
+            <span class="text-[0.65rem] uppercase tracking-wider text-slate-500" title="From your Settings">
+                Sleep: {{ $sleepNote }}
+            </span>
+        </div>
+        <p class="text-xs text-slate-500 mb-5">
+            Wall-clock time inside this goal's window, with sleep subtracted using your dashboard
+            <a href="{{ route('settings.show') }}" class="underline hover:text-slate-200">schedule</a>.
+        </p>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {{-- ELAPSED --}}
+            <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-4">
+                <div class="flex items-baseline justify-between gap-2 mb-3">
+                    <h3 class="text-xs uppercase tracking-[0.2em] text-slate-400">Elapsed</h3>
+                    <span class="font-digital text-xl text-slate-100">{{ $ta['elapsed']['total_label'] }}</span>
+                </div>
+                <dl class="space-y-1.5 text-sm">
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-slate-500">Wall-clock total</dt>
+                        <dd class="text-slate-200 font-digital">{{ $ta['elapsed']['total_hours'] }}h</dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-slate-500">Sleep ({{ $ta['elapsed']['nights'] }} {{ Str::plural('night', $ta['elapsed']['nights']) }} × {{ $ta['sleep']['per_night_label'] }})</dt>
+                        <dd class="text-slate-400 font-digital">−{{ $ta['elapsed']['sleep_hours'] }}h</dd>
+                    </div>
+                    <div class="flex justify-between gap-2 border-t border-slate-800/60 pt-1.5">
+                        <dt class="text-slate-300">Awake hours</dt>
+                        <dd class="text-slate-100 font-digital">{{ $ta['elapsed']['awake_hours'] }}h</dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-slate-500">Logged on this goal</dt>
+                        <dd class="text-emerald-300 font-digital">{{ $ta['elapsed']['logged_hours'] }}h</dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-slate-500" title="Awake time elapsed that wasn't credited to this goal — could be other goals or unlogged">
+                            Awake but unlogged on this goal
+                        </dt>
+                        <dd class="text-amber-300 font-digital">{{ $ta['elapsed']['unlogged_awake_hours'] }}h</dd>
+                    </div>
+                </dl>
+            </div>
+
+            {{-- REMAINING --}}
+            <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-4">
+                <div class="flex items-baseline justify-between gap-2 mb-3">
+                    <h3 class="text-xs uppercase tracking-[0.2em] text-slate-400">Remaining until target</h3>
+                    <span class="font-digital text-xl text-slate-100">{{ $ta['remaining']['total_label'] }}</span>
+                </div>
+                <dl class="space-y-1.5 text-sm">
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-slate-500">Calendar</dt>
+                        <dd class="text-slate-200">{{ $ta['remaining']['weeks_label'] }}</dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-slate-500">Wall-clock total</dt>
+                        <dd class="text-slate-200 font-digital">{{ $ta['remaining']['total_hours'] }}h</dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-slate-500">Sleep ({{ $ta['remaining']['nights'] }} {{ Str::plural('night', $ta['remaining']['nights']) }} × {{ $ta['sleep']['per_night_label'] }})</dt>
+                        <dd class="text-slate-400 font-digital">−{{ $ta['remaining']['sleep_hours'] }}h</dd>
+                    </div>
+                    <div class="flex justify-between gap-2 border-t border-slate-800/60 pt-1.5">
+                        <dt class="text-slate-300">Awake hours available</dt>
+                        <dd class="text-[var(--chrono-blue)] font-digital text-base">{{ $ta['remaining']['awake_hours'] }}h</dd>
+                    </div>
+                </dl>
+            </div>
+        </div>
+
+        {{-- Activity breakdown for THIS goal — productive vs wasted vs
+             unlogged-awake, with a segmented bar so the proportions are
+             readable at a glance. --}}
+        @php
+            $ab = $activityBreakdown;
+            $abTotal = max(0.001, $ab['productive_hours'] + $ab['wasted_hours'] + $ab['unlogged_awake_hours']);
+            $abProdPct = (int) round(($ab['productive_hours'] / $abTotal) * 100);
+            $abWastedPct = (int) round(($ab['wasted_hours'] / $abTotal) * 100);
+            $abUnloggedPct = max(0, 100 - $abProdPct - $abWastedPct);
+        @endphp
+        <div class="mt-5 rounded-xl border border-slate-800/60 bg-slate-900/40 p-4">
+            <div class="flex items-baseline justify-between gap-2 mb-3">
+                <h3 class="text-xs uppercase tracking-[0.2em] text-slate-400">Activity breakdown</h3>
+                <span class="text-[0.65rem] uppercase tracking-wider text-slate-500">awake elapsed: {{ $ta['elapsed']['awake_hours'] }}h</span>
+            </div>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div class="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3">
+                    <div class="text-[0.6rem] uppercase tracking-wider text-emerald-300">Productive</div>
+                    <div class="mt-1 font-digital text-lg text-emerald-200">{{ $ab['productive_hours'] }}h</div>
+                    <div class="text-[0.6rem] text-slate-500 mt-0.5">attributed to this goal</div>
+                </div>
+                <div class="rounded-lg border border-rose-500/30 bg-rose-500/5 p-3">
+                    <div class="text-[0.6rem] uppercase tracking-wider text-rose-300">Wasted</div>
+                    <div class="mt-1 font-digital text-lg text-rose-200">{{ $ab['wasted_hours'] }}h</div>
+                    <div class="text-[0.6rem] text-slate-500 mt-0.5">attributed but flagged wasted</div>
+                </div>
+                <div class="rounded-lg border border-yellow-500/30 bg-yellow-500/5 p-3">
+                    <div class="text-[0.6rem] uppercase tracking-wider text-yellow-300">Unlogged (awake)</div>
+                    <div class="mt-1 font-digital text-lg text-yellow-200">{{ $ab['unlogged_awake_hours'] }}h</div>
+                    <div class="text-[0.6rem] text-slate-500 mt-0.5">counts as non-productive</div>
+                </div>
+                <div class="rounded-lg border border-slate-700/60 bg-slate-900/40 p-3">
+                    <div class="text-[0.6rem] uppercase tracking-wider text-slate-400">Non-productive total</div>
+                    <div class="mt-1 font-digital text-lg text-slate-200">{{ $ab['non_productive_hours'] }}h</div>
+                    <div class="text-[0.6rem] text-slate-500 mt-0.5">wasted + unlogged</div>
+                </div>
+            </div>
+
+            {{-- Segmented bar --}}
+            <div class="mt-4">
+                <div class="h-2 rounded-full bg-slate-800/80 overflow-hidden flex">
+                    <div class="h-full bg-emerald-400 transition-[width] duration-500" style="width: {{ $abProdPct }}%"></div>
+                    <div class="h-full bg-rose-400 transition-[width] duration-500" style="width: {{ $abWastedPct }}%"></div>
+                    <div class="h-full bg-yellow-400 transition-[width] duration-500" style="width: {{ $abUnloggedPct }}%"></div>
+                </div>
+                <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[0.6rem] uppercase tracking-wider text-slate-500">
+                    <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-emerald-400"></span> Productive {{ $abProdPct }}%</span>
+                    <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-rose-400"></span> Wasted {{ $abWastedPct }}%</span>
+                    <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-yellow-400"></span> Unlogged {{ $abUnloggedPct }}%</span>
+                </div>
+            </div>
+        </div>
+
+        <p class="mt-4 text-[0.65rem] text-slate-500 leading-relaxed">
+            <strong class="text-slate-400">Sleep formula:</strong>
+            bedtime <span class="text-slate-300">{{ $ta['sleep']['end_of_day'] }}</span>
+            → wake <span class="text-slate-300">{{ $ta['sleep']['wake_time'] }}</span>
+            = <span class="text-slate-300">{{ $ta['sleep']['per_night_label'] }}/night</span>.
+            Nights are counted by how many bedtimes fall inside each window
+            ({{ $ta['elapsed']['nights'] }} elapsed, {{ $ta['remaining']['nights'] }} remaining).
+            <strong class="text-slate-400">Awake</strong> = wall-clock − sleep.
+            <strong class="text-slate-400">Unlogged on this goal</strong> = awake elapsed − hours attributed to this goal.
+            <span class="block mt-1">
+                <strong class="text-slate-400">Wasted + Unlogged = Non-productive</strong> — both reduce efficiency.
+            </span>
+        </p>
+    </section>
 
     @if ($alertLevel)
         <div class="mb-6 rounded-2xl border {{ $alertLevel === 'critical' ? 'border-rose-500/40 bg-rose-900/20' : 'border-amber-500/40 bg-amber-900/20' }} p-4">
@@ -296,7 +528,11 @@
                                 $block = $entry['block'];
                                 $sharePct = round($entry['share'] * 100);
                                 $scorePct = round($entry['score'] * 100);
-                                $shareColor = $sharePct >= 90 ? 'emerald' : ($sharePct >= 50 ? 'sky' : 'amber');
+                                // Static class strings so Tailwind's JIT
+                                // scanner finds them.
+                                $shareColorClass = $sharePct >= 90
+                                    ? 'text-emerald-300'
+                                    : ($sharePct >= 50 ? 'text-sky-300' : 'text-amber-300');
                             @endphp
                             <li class="py-2.5 flex items-center justify-between gap-3">
                                 <div class="min-w-0 flex-1">
@@ -313,7 +549,7 @@
                                 </div>
                                 <div class="flex flex-col items-end gap-0.5 text-[0.65rem] uppercase tracking-wider">
                                     <span class="text-slate-400">Match {{ $scorePct }}%</span>
-                                    <span class="text-{{ $shareColor }}-300">Share {{ $sharePct }}%</span>
+                                    <span class="{{ $shareColorClass }}">Share {{ $sharePct }}%</span>
                                 </div>
                             </li>
                         @endforeach

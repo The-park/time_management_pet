@@ -7,6 +7,7 @@ use App\Http\Controllers\Admin\AdminDomainController;
 use App\Http\Controllers\Admin\AdminUserController;
 use App\Http\Controllers\Admin\AdministratorController;
 use App\Http\Controllers\GoalController;
+use App\Http\Controllers\HistoryController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\TimeBlockSyncController;
@@ -35,6 +36,10 @@ Route::prefix('admin')->name('admin.')->group(function () {
         Route::get('users', [AdminUserController::class, 'index'])->name('users.index');
         Route::post('users/bulk', [AdminUserController::class, 'bulk'])->name('users.bulk');
         Route::get('users/{id}', [AdminUserController::class, 'show'])->whereNumber('id')->name('users.show');
+        Route::get('users/{id}/day/{date}', [AdminUserController::class, 'day'])
+            ->whereNumber('id')
+            ->where('date', '\d{4}-\d{2}-\d{2}')
+            ->name('users.day');
         Route::get('users/{id}/edit', [AdminUserController::class, 'edit'])->whereNumber('id')->name('users.edit');
         Route::put('users/{id}', [AdminUserController::class, 'update'])->whereNumber('id')->name('users.update');
         Route::post('users/{id}/suspend', [AdminUserController::class, 'suspend'])->whereNumber('id')->name('users.suspend');
@@ -63,11 +68,15 @@ Route::prefix('admin')->name('admin.')->group(function () {
     });
 });
 
-Route::middleware(['auth'])->get('/history', function () {
-    return view('history.index');
-})->name('history.index');
+Route::middleware(['auth'])->group(function () {
+    Route::get('/history', [HistoryController::class, 'index'])->name('history.index');
+    Route::get('/history/day/{date}', [HistoryController::class, 'day'])
+        ->where('date', '\d{4}-\d{2}-\d{2}')
+        ->name('history.day');
+});
 
 Route::middleware(['auth'])->group(function () {
+    Route::get('/time-blocks/snapshot', [TimeBlockSyncController::class, 'snapshot'])->name('time-blocks.snapshot');
     Route::post('/time-blocks/sync', [TimeBlockSyncController::class, 'sync'])->name('time-blocks.sync');
 
     Route::get('/goals', [GoalController::class, 'index'])->name('goals.index');

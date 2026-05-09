@@ -1293,23 +1293,48 @@
 
                 const categorizeLabel = (label) => {
                     if (!label) return 'productive';
+                    // Delegate to analyzeLabel which has the comprehensive
+                    // pattern logic (failed-intent + extended-unprod, fake-
+                    // productive guards, productive-tail short-circuit, etc.)
+                    // and map its 5-state result to the binary
+                    // productive/wasted that block storage expects.
+                    //
+                    // BUG FIX: previously this function used a simple
+                    // keyword-scoring loop that didn't recognize phrases
+                    // like "wanted to study but played game for hours so
+                    // whole day" — the input hint correctly showed WASTED
+                    // (via analyzeLabel) but the saved block defaulted to
+                    // PRODUCTIVE because this function missed the failed-
+                    // intent pattern. Delegating fixes the mismatch.
+                    //
+                    // NOTE: analyzeLabel is defined later in this script,
+                    // but categorizeLabel is only INVOKED at runtime (from
+                    // event handlers, save flows, IIFEs that run after
+                    // both definitions), so the closure reference is safe.
+                    try {
+                        const a = analyzeLabel(label);
+                        if (a && a.category === 'wasted') return 'wasted';
+                    } catch (e) {
+                        // Fall through to legacy fallback if analyzeLabel
+                        // somehow isn't reachable yet (paranoid safety).
+                    }
+
+                    // Legacy fallback — keyword-only scoring. Kept as a
+                    // safety net for the unusual case where analyzeLabel
+                    // returns 'unknown' / 'productive' / 'mixed' /
+                    // 'ambiguous'. The 'mixed' state triggers split-block
+                    // UI upstream and 'ambiguous' triggers the
+                    // clarification modal, so by the time we save, the
+                    // user has already chosen. Default the residual to
+                    // productive.
                     const text = String(label).toLowerCase();
                     let score = 0;
-
-                    // Phrase pass — works on raw text since multi-word phrases
-                    // already include their own internal word boundaries.
                     for (const phrase of WASTED_PHRASES) {
                         if (text.includes(phrase)) {
                             score += 3;
                             if (score >= WASTED_SCORE_THRESHOLD) return 'wasted';
                         }
                     }
-
-                    // Token pass — splits on every non-alphanumeric boundary, then
-                    // each token contributes at most one match per keyword. The
-                    // strongest keyword match for a token wins, so a token like
-                    // 'sotimegotwasted' scores once for "wasted" rather than three
-                    // times for "wasted"/"waste"/"wasting".
                     const tokens = text.split(/[^a-z0-9]+/).filter((t) => t.length > 0);
                     for (const token of tokens) {
                         let best = 0;
@@ -1321,7 +1346,6 @@
                         score += best;
                         if (score >= WASTED_SCORE_THRESHOLD) return 'wasted';
                     }
-
                     return 'productive';
                 };
 
@@ -1450,6 +1474,158 @@
                 //     warnings:         [...messages...],
                 //     suggestion:       string | null,
                 //   }
+                // ── Backend-mirror ambiguity detection ───────────────────
+                // Mirrors app/Services/ActivityClassifierService.php so the
+                // real-time hint under the Reason input matches what the
+                // server's /classify endpoint would return. Without this
+                // the screenshot phrase "wanted to study but played game
+                // for hours so whole day got" registered the word "study"
+                // and rendered "PRODUCTIVE 85%" — the user was not asked
+                // to clarify even though signals genuinely conflicted.
+                const detectClearVerdict = (text) => {
+                    const t = String(text).toLowerCase();
+                    // Anti-productive guard — phrases that LOOK productive
+                    // (have a productive verb) but are really procrastination.
+                    // When matched, skip productive checks entirely and let
+                    // the unproductive checks below classify.
+                    const fakeProductive = /\b(wrote\s+(zero|no)\s+\w+|did\s+(nothing|no\s+work|zero|no\s+actual)|opened\s+\w+\s+did\s+(nothing|no)|stared\s+at\s+(the|my|a|todo|cursor|page|screen|laptop|book|textbook)|color\s*-?\s*coded|\w+(ed|ing)?\s+(\w+\s+){0,5}instead\s+of\s+(\w+(ing|ed)?|the|studying|working|gym|writing|coding|reading|exercise|exercising)|made\s+(a\s+)?(to[\s\-]*do\s+list|list|todo|plan|playlist|schedule|setup|study\s+setup|aesthetic|vision\s+board|spreadsheet|budget)\s+(\w+\s+){0,3}(and\s+)?(didnt|did\s+not|never|kept|ignored)|(made|bought|got|downloaded)\s+(a\s+|new\s+|the\s+)?\w+\s+(\w+\s+){0,3}(and\s+|but\s+)(didnt|did\s+not|never)|but\s+ordered\s+(takeout|food|uber\s+eats|doordash))\b/;
+
+                    // Split-effort guard — productive verb + "and" +
+                    // unproductive activity routes to ambiguous via hedge,
+                    // not productive verdict.
+                    const splitGuard = /\b(studied|coded|worked|read|wrote|practiced|exercised|ran|trained|focused|journaled|cooked|baked|did|completed|finished|reviewed|drafted|got|attended|joined|cleaned|prepped|revised|stretched)\s+(\w+\s+){0,5}and\s+(\w+\s+){0,3}(scrolled|gamed|watched|browsed|napped|binged|doomscrolled|texted|procrastinated|read\s+(tweets?|drama|memes?|comments?)|on\s+(tiktok|reddit|instagram|twitter|facebook|youtube|netflix)|watched\s+(tv|netflix|shows|videos|reels|shorts|memes|tiktok|youtube)|gamed|checked\s+(twitter|reddit|instagram|tiktok|github|email|phone)|scrolled\s+(tiktok|reels|reddit|instagram|twitter)|then\s+(scrolled|watched|gamed|nothing|napped|phone))\b/;
+
+                    if (!fakeProductive.test(t) && !splitGuard.test(t)) {
+                        // Productive verdict: completion verb + article + noun
+                        if (/\b(finished|completed|shipped|delivered|wrote|published|submitted|filed|drafted)\s+(the|my|a|an|all|all the|that|this|for|every|\d+)\s+(\w+\s+){0,3}\w+/.test(t)
+                         || /\b(finished it|got it done|nailed it|crushed it|killed it)\b/.test(t)
+                         // "ran/practiced/etc. for N (hours|minutes|km|miles)" without "then unproductive" tail
+                         || (/\b(ran|practiced|exercised|coded|studied|read|wrote|debugged|reviewed|drafted|trained|swam|biked|cycled|hiked|did|completed|finished)\s+(\w+\s+){0,4}for\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|an|a)\s+(h|hr|hrs|hour|hours|min|minute|minutes|mins|km|miles|kilometers|reps|sets|pages|chapters)\b/.test(t)
+                              && !/\b(then|but|and)\s+(\w+\s+){0,3}(phone|tiktok|reels|reddit|instagram|twitter|youtube|netflix|tv|scrolled|gaming|gamed|napped|nap|nothing|memes|sofa|couch|bed|sleep|movies?|videos?|streams?|shorts?|game|break|discord|chat)\b/.test(t))
+                         // "ran 5km" / "did 60 minutes at the gym"
+                         || (/\b(ran|practiced|exercised|coded|studied|read|wrote|did|completed|finished|swam|biked|cycled|hiked|trained|cooked)\s+(\w+\s+){0,3}\d+\s*(k|km|m|mi|miles|kilometers|hours|minutes|min|mins|reps|sets|pages|chapters)\b/.test(t)
+                              && !/\b(then|but|and)\s+(\w+\s+){0,3}(phone|tiktok|reels|reddit|instagram|twitter|youtube|netflix|tv|scrolled|gaming|gamed|napped|nap|nothing|memes|sofa|couch|bed|sleep|movies?|videos?|streams?|shorts?|game|break|discord|chat)\b/.test(t))
+                         // Productive tail after "then"/"but" — strict: only on high-confidence completion verbs
+                         || /\b(then|but)\s+(\w+\s+){0,3}(coded|studied|wrote|written|built|debugged|shipped|finished|practiced|read|reviewed|drafted|completed|ran|biked|cycled)\s+(\w+\s+){0,5}for\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|an|a)\s+(h|hr|hrs|hour|hours|min|minute|minutes|mins|km|miles|pages)\b/.test(t)
+                         || /\b(then|but)\s+(actually\s+)?(finished|completed|shipped|delivered|got it done|nailed it|crushed it)\b/.test(t)
+                         // submitted/filed/sent + noun
+                         || /\b(submitted|filed|sent|emailed|booked|renewed|paid|invoiced|saved|invested|interviewed|hosted|attended|led|presented|published|launched|released|merged|deployed|installed|repaired|painted|trained|squatted|deadlifted|benched)\s+\w+/.test(t)
+                         // double-negative productive: "no twitter today wrote the entire essay"
+                         || /\b(no|zero|never)\s+(phone|scrolling|distractions?|tiktok|reels|youtube|netflix|twitter|instagram|reddit)\s+(all\s+day|today)\b/.test(t)) {
+                            return 'productive';
+                        }
+                    }
+
+                    // Decisive wasted verdicts
+                    if (/\b(whole day got wasted|day got wasted|wasted day|complete waste|got wasted|nothing got done|did nothing all|basically a wasted day|did absolutely nothing)\b/.test(t)) {
+                        return 'wasted';
+                    }
+                    // Extended-duration entertainment: matches the screenshot
+                    // phrase "played game for hours", "scrolled tiktok all
+                    // afternoon", "binged netflix the entire evening".
+                    const entVerb = /\b(played|playing|gaming|gamed|scrolled|scrolling|watched|watching|binged|binging|streamed|streaming|doomscrolled|doomscrolling|browsed|browsing|stayed\s+up|laid|lying|napped|napping|hopping|lurking|lurked|spiraled|refreshed|refreshing|stalked|stalking)\b/;
+                    const entNoun = /\b(pubg|cod|fortnite|valorant|netflix|youtube|tiktok|instagram|reddit|twitch|reels|shorts|csgo|minecraft|roblox|fifa|gta|league|dota|hearthstone|genshin|memes|anime|tv|videos|games?|phone|facebook|twitter|snapchat|discord|telegram|threads|whatsapp|spotify|imdb|amazon|aliexpress|shein|ebay|pinterest|linkedin|tumblr|9gag|imgur|quora|hulu|prime|disney|hbo|crunchyroll|funimation|apex|free\s+fire|clash\s+royale|candy\s+crush|subway\s+surfers|pokemon\s+go|mobile\s+legends|honkai|brawl\s+stars|rocket\s+league|overwatch|wow|ff14|runescape|tarkov|destiny|warframe|kdrama|webtoon|stockx)\b/;
+                    // numeric duration (with word-form numbers too)
+                    const numDur = /\b(for|all)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty)\s*(h|hr|hrs|hour|hours|min|minute|minutes|mins)\b/;
+                    // Phrase duration — INCLUDES "for hours" without number
+                    const phrDur = /\b(the\s+(whole|entire|rest\s+of\s+the)\s+(morning|afternoon|evening|day|night|week|weekend|saturday|sunday)|all\s+(morning|afternoon|evening|day|night|week|weekend|saturday|sunday)|til\s+(\d+\s*(am|pm)|sunrise|midnight|dawn|noon|late)|until\s+(\d+\s*(am|pm)|sunrise|midnight|dawn|noon|late)|the\s+whole\s+time|for\s+(hours|ages|forever|the\s+whole|the\s+entire|an\s+hour|two\s+hours|three\s+hours|four\s+hours|five\s+hours|six\s+hours|seven\s+hours|eight\s+hours)|all\s+day|all\s+night)\b/;
+                    if ((entVerb.test(t) || entNoun.test(t)) && (numDur.test(t) || phrDur.test(t))) {
+                        return 'wasted';
+                    }
+                    // Bare "Nh of platform" prefix
+                    if (/\b(\d+(\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty)\s*(h|hr|hrs|hour|hours|min|minute|minutes)\s+(of\s+)?(scrolling|scroll|gaming|grinding|browsing|lurking|tv|netflix|youtube|yt|tiktok|reels|reddit|twitter|instagram|memes|videos|shorts|doomscroll(ing)?)\b/.test(t)) {
+                        return 'wasted';
+                    }
+                    // Self-evaluative wasted-day descriptors
+                    if (/\b(absolute|big|huge|complete|total|literal|pure|sheer|absolutely|completely|totally)\s+(useless|zero|waste|wasted|nothing|bust|write[\s\-]?off|trash|disaster|unproductive|fail)\s+(day)?\b/.test(t)
+                     || /\bday\s+(was|got|fully|completely)\s+(a|an)?\s*(complete|total|absolute|big|just\s+a|really)?\s*(bust|waste|wasted|disaster|trash|write[\s\-]?off|nothing|fail|gone|down\s+the\s+drain|thrown\s+away|flushed|ruined|in\s+pajamas|just\s+a\s+(phone|scroll))\b/.test(t)) {
+                        return 'wasted';
+                    }
+                    // Failed-intent + extended unprod action — matches the
+                    // user's screenshot phrase: "wanted to study but played
+                    // game for hours so whole day got"
+                    if (/\b(wanted|tried|planned|meant|intended|hoped|aimed|going|gonna|supposed|thought\s+i\s+would|decided|told\s+myself|said\s+i\s+would|set\s+out)\s+to\s+\w+/.test(t)
+                     && /\b(but|then|instead|ended\s+up|wound\s+up|kept|couldn'?t|didn'?t|so)\s+(\w+\s+){0,8}(played|scrolled|watched|binged|gamed|doomscrolled|streamed|napped|laid|lying)\s+(\w+\s+){0,5}(for\s+(hours|ages|the|\d+|one|two|three|four|five|six|seven|eight|nine|ten)|all\s+(day|night|morning|afternoon|evening|weekend)|til\s+\d|until\s+\d|the\s+(whole|entire))\b/.test(t)) {
+                        return 'wasted';
+                    }
+                    // "X instead of Y" substitution procrastination
+                    if (/\b\w+(ed|ing)?\s+(\w+\s+){0,5}instead\s+of\s+(\w+(ing|ed)?|the|studying|working|gym|writing|coding|reading|exercise|exercising)\b/.test(t)
+                     && !/\b(finished|completed|shipped|delivered|wrote|published|submitted)\b/.test(t)) {
+                        return 'wasted';
+                    }
+                    // "failed to X" — explicit failure
+                    if (/\bfailed\s+to\s+(\w+\s+){0,3}(finish|complete|start|do|read|write|study|practice|review|wake\s+up|ship|prep|attend|focus)\b/.test(t)
+                     || /\bfailed\s+(\w+\s+){0,2}(all|every|some|any)\s+(\w+\s+){0,2}(goals?|tasks?|todos?|targets?|milestones?|deadlines?|plans?)\b/.test(t)) {
+                        return 'wasted';
+                    }
+                    return null;
+                };
+
+                const detectAmbiguityReason = (text) => {
+                    const t = String(text).toLowerCase().trim();
+                    if (!t) return null;
+
+                    const intent = /\b(wanted|tried|planned|meant|intended|hoped|aimed|going|gonna|supposed|thought i would|decided|told myself|said i would|set out|aiming|aimed)\s+(to\s+)?\w+/;
+                    const contrast = /\b(but|however|instead|then|ended up|wound up|kept|couldn'?t|couldnt|didn'?t|didnt)\b/;
+                    const clearProd = /\b(finished|completed|shipped|delivered|nailed|crushed|got it done|done with|finished it|powered through and|pushed through and|completed every|completed all|knocked out|wrapped up|finalized|submitted|did the entire|did all|hit my|went and|got everything done)\b/;
+                    const clearUnp = /\b(wasted|complete waste|got wasted|whole day wasted|nothing got done|did nothing|all\s+(day|night|afternoon|evening|morning))\b/;
+                    // Action-half decisive unproductive — extended-duration
+                    // entertainment ("doomscrolled twitter for two hours"
+                    // / "played pubg for 5 hrs"). When the conflict pattern
+                    // fires AND this matches, defer to detectClearVerdict.
+                    const unprodAction = /\b(scrolled|scrolling|doomscrolled|doomscrolling|watched|watching|binged|binging|gamed|gaming|played|playing|napped|napping|laid|lying)\s+(\w+\s+){0,5}(for\s+(hours|ages|the\s+whole|the\s+entire|\d+|one|two|three|four|five|six|seven|eight|nine|ten)|all\s+(day|night|afternoon|evening|morning|weekend)|til\s+\d|until\s+\d|the\s+(whole|entire)\s+(morning|afternoon|evening|day|night|week|weekend))\b/;
+                    const unprodPlatform = /\b(tiktok|reels|instagram|twitter|netflix|youtube|reddit|twitch|cod|pubg|fortnite|valorant|league|dota|csgo|minecraft|roblox|fifa)\b/;
+                    const hasExtendedUnprodAction = unprodAction.test(t)
+                        || (unprodPlatform.test(t) && /\bfor\s+(hours|ages|\d|one|two|three|four|five|six|seven|eight|nine|ten|the\s+(whole|entire))\b/.test(t));
+
+                    if (intent.test(t) && contrast.test(t)
+                        && !clearProd.test(t) && !clearUnp.test(t)
+                        && !hasExtendedUnprodAction) {
+                        return 'You stated an intent that was contradicted by your action without a clear outcome — productive or wasted?';
+                    }
+
+                    const startedR = /\b(started|began|got into|opened|sat down to|was)\s+\w+/;
+                    const shifted = /\b(then|but|switched to|jumped to|drifted to|ended up|moved to|got on|got pulled into)\b/;
+                    if (startedR.test(t) && shifted.test(t)
+                        && !clearProd.test(t) && !clearUnp.test(t)
+                        && !/\bthen\s+\w+\s+(for|the)\s+\w+\s+hour/.test(t)
+                        && !/\bthen\s+(coded|studied|finished|wrote|built|shipped)\b/.test(t)) {
+                        return 'Your activity shifted mid-flow without a clear outcome — was the day productive or wasted?';
+                    }
+
+                    const halfThoughts = ['whole day got', 'ended up', 'kind of just',
+                        'spent the day', 'the morning was', 'the afternoon was', 'mostly',
+                        'sort of', 'basically just', 'i guess i', 'the afternoon went',
+                        'today i kind of', 'not really sure what', 'just sort of',
+                        "didn't really", 'didnt really', 'ended up just'];
+                    if (halfThoughts.includes(t)) {
+                        return 'The phrase ends mid-thought — please describe how it actually went.';
+                    }
+                    const tokens2 = t.split(/\s+/);
+                    const orphans = ['got', 'ended', 'kind', 'sort', 'mostly', 'maybe', 'somewhat', 'kinda'];
+                    if (tokens2.length <= 12 && orphans.includes(tokens2[tokens2.length - 1])) {
+                        return 'The phrase trails off without a verdict — please clarify.';
+                    }
+
+                    if (/\bnot sure if\b/.test(t)
+                     || /\bkind of productive but\b/.test(t)
+                     || /\bhalfway productive\b/.test(t)
+                     || /\bcould have been (worse|better)\b/.test(t)
+                     || /\bhard to (say|tell|gauge|read|score)\b/.test(t)
+                     || /\bbit of \w+ and bit of\b/.test(t)
+                     || /\bsome \w+ some \w+\b/.test(t)
+                     || /\bhalf \w+ half \w+\b/.test(t)
+                     || /\b(mid|medium|moderate|borderline|fuzzy|quasi|loose|soft|fairly|moderately|slightly)\s+(range|level|kind|sort|productive|day)\b/.test(t)
+                     || /\b(decent|meh|ok|okay|fine|alright|so so)[\s\-]?ish\b/.test(t)
+                     || /\b(might|maybe) have (done|been)\b/.test(t)
+                     || /\b(neither|not) (here|exactly|quite) (nor|productive|either)\b/.test(t)
+                     || /\b(mostly|kinda|sort of) (ok|okay|fine|alright|productive|useful)\b/.test(t)) {
+                        return 'Your description is hedged or undecided — please pick a label.';
+                    }
+
+                    return null;
+                };
+
                 const analyzeLabel = (label) => {
                     const text = String(label || '').trim();
                     const result = {
@@ -1467,6 +1643,33 @@
                     if (!text) {
                         result.warnings.push('empty');
                         result.suggestion = 'Add a brief description so the block can be tracked.';
+                        return result;
+                    }
+
+                    // Run ambiguity rules BEFORE keyword scoring. Without
+                    // this, e.g. "wanted to study but played game for
+                    // hours so whole day got" hits the "study" token and
+                    // gets scored productive 85% instead of being flagged
+                    // for the user to clarify.
+                    const verdict = detectClearVerdict(text);
+                    if (verdict === 'productive') {
+                        result.category = 'productive';
+                        result.confidence = 0.92;
+                        result.productiveTokens = ['verdict-finish'];
+                        return result;
+                    }
+                    if (verdict === 'wasted') {
+                        result.category = 'wasted';
+                        result.confidence = 0.92;
+                        result.wastedTokens = ['verdict-waste'];
+                        return result;
+                    }
+                    const ambigReason = detectAmbiguityReason(text);
+                    if (ambigReason) {
+                        result.category = 'ambiguous';
+                        result.confidence = 0.4;
+                        result.warnings.push('intent-action-conflict');
+                        result.suggestion = ambigReason;
                         return result;
                     }
 

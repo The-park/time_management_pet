@@ -48,12 +48,7 @@ class TimeBlockSyncController extends Controller
                 'durationMs' => (int) $b->duration_seconds * 1000,
                 'label' => (string) ($b->reason ?? ''),
                 'category' => $b->category,
-                // Defensive: only read the column when it exists. On a
-                // freshly-deployed server before `php artisan migrate`
-                // runs, the column would be missing and accessing it
-                // throws. Default to false so the dashboard's auto-
-                // classify migration is permitted to run on those rows.
-                'categoryManual' => $hasManual ? (bool) $b->category_manual : false,
+                'categoryManual' => (bool) $b->category_manual,
                 'auto_filled' => (bool) $b->auto_filled,
                 'status' => 'completed',
             ];
@@ -121,6 +116,7 @@ class TimeBlockSyncController extends Controller
                 'duration_seconds' => $duration,
                 'reason' => (string) ($b['label'] ?? ''),
                 'category' => $b['category'] ?? null,
+                'category_manual' => ! empty($b['categoryManual']),
                 'auto_filled' => ! empty($b['auto_filled']),
             ];
             if ($hasManual) {

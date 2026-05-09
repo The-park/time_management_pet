@@ -96,11 +96,13 @@
                             <a href="{{ route('history.index') }}" class="hover:text-[var(--chrono-blue)]">History</a>
                             <a href="{{ route('profile.show') }}" class="hover:text-[var(--chrono-blue)]">Profile</a>
                             <a href="{{ route('settings.show') }}" class="hover:text-[var(--chrono-blue)]">Settings</a>
+                            <a href="{{ route('contact.show') }}" class="hover:text-[var(--chrono-blue)]">Contact</a>
                             <form method="POST" action="{{ route('logout') }}">
                                 @csrf
                                 <button type="submit" class="hover:text-[var(--chrono-red)]">Log out</button>
                             </form>
                         @else
+                            <a href="{{ route('contact.show') }}" class="hover:text-[var(--chrono-blue)]">Contact</a>
                             <a href="{{ route('login') }}" class="hover:text-[var(--chrono-blue)]">Sign in</a>
                             <a href="{{ route('register') }}"
                                 class="rounded-lg bg-[var(--chrono-blue)] text-slate-950 font-semibold px-3 py-1.5 normal-case tracking-normal hover:opacity-90">
@@ -163,6 +165,7 @@
                         @else
                             <a href="{{ route('login') }}" class="hover:text-slate-200">Sign in</a>
                         @endauth
+                        <a href="{{ route('contact.show') }}" class="hover:text-slate-200">Contact</a>
                     </div>
                 </div>
             </footer>

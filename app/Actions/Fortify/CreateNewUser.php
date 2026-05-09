@@ -3,7 +3,9 @@
 namespace App\Actions\Fortify;
 
 use App\Models\User;
+use App\Rules\Captcha;
 use App\Rules\NotDisposableEmail;
+use App\Services\CaptchaService;
 use DateTimeZone;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
@@ -27,6 +29,7 @@ class CreateNewUser implements CreatesNewUsers
             'timezone' => ['required', 'string', Rule::in(DateTimeZone::listIdentifiers())],
             'end_of_day_time' => ['required', 'date_format:H:i', 'after_or_equal:18:00', 'before_or_equal:23:59'],
             'wake_up_time' => ['required', 'date_format:H:i', 'after_or_equal:04:00', 'before_or_equal:11:00'],
+            'captcha_answer' => ['required', new Captcha(app(CaptchaService::class), request())],
         ])->validate();
 
         return User::create([

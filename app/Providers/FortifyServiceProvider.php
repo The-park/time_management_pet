@@ -6,6 +6,7 @@ use App\Actions\Fortify\CreateNewUser;
 use App\Actions\Fortify\UpdateUserPassword;
 use App\Actions\Fortify\UpdateUserProfileInformation;
 use App\Models\User;
+use App\Services\CaptchaService;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -78,6 +79,13 @@ class FortifyServiceProvider extends ServiceProvider
             return Limit::perHour(6)->by($key);
         });
 
+        // Contact-form throttle: cap at 5 submissions per hour per IP so a
+        // single bot or angry user can't flood the inbox even if they
+        // somehow defeat the CAPTCHA.
+        RateLimiter::for('contact-form', function (Request $request): Limit {
+            return Limit::perHour(5)->by($request->ip());
+        });
+
         Fortify::createUsersUsing(CreateNewUser::class);
         Fortify::updateUserProfileInformationUsing(UpdateUserProfileInformation::class);
         Fortify::updateUserPasswordsUsing(UpdateUserPassword::class);
@@ -88,6 +96,21 @@ class FortifyServiceProvider extends ServiceProvider
         // had no effect on logins until now. SoftDeletes already handles deleted
         // users (the global scope hides them from email lookups).
         Fortify::authenticateUsing(function (Request $request) {
+            // CAPTCHA gate first so a failed challenge doesn't even count
+            // against the credential rate-limiter. The honeypot + math
+            // challenge live in the same partial used by /register and
+            // /contact, so a single source of truth here.
+            $captcha = app(CaptchaService::class);
+            if (! $captcha->verify(
+                $request->input('captcha_token'),
+                $request->input('captcha_answer'),
+                $request->input('captcha_hp'),
+            )) {
+                throw ValidationException::withMessages([
+                    'captcha_answer' => 'The CAPTCHA answer is incorrect. Please try the new one below.',
+                ]);
+            }
+
             $user = User::where('email', $request->input('email'))->first();
 
             if (! $user || ! Hash::check((string) $request->input('password'), (string) $user->password)) {

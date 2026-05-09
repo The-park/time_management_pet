@@ -7,6 +7,7 @@ use App\Http\Controllers\Admin\AdminDomainController;
 use App\Http\Controllers\Admin\AdminUserController;
 use App\Http\Controllers\Admin\AdministratorController;
 use App\Http\Controllers\ActivityClassifierController;
+use App\Http\Controllers\ContactController;
 use App\Http\Controllers\GoalController;
 use App\Http\Controllers\HistoryController;
 use App\Http\Controllers\ProfileController;
@@ -25,6 +26,12 @@ Route::get('/', function () {
 Route::get('/dashboard', function () {
     return redirect('/');
 });
+
+// Contact / bug-report. Public route — guests can file bug reports too.
+Route::get('/contact', [ContactController::class, 'show'])->name('contact.show');
+Route::post('/contact', [ContactController::class, 'store'])
+    ->middleware('throttle:contact-form')
+    ->name('contact.store');
 
 Route::prefix('admin')->name('admin.')->group(function () {
     Route::get('login', [AdminAuthController::class, 'showLoginForm'])->name('login');

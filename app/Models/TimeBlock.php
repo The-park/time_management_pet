@@ -23,6 +23,7 @@ class TimeBlock extends Model
         'duration_seconds',
         'reason',
         'category',
+        'category_manual',
         'auto_filled',
     ];
 
@@ -39,6 +40,7 @@ class TimeBlock extends Model
             'end_time' => 'datetime',
             'duration_seconds' => 'integer',
             'auto_filled' => 'boolean',
+            'category_manual' => 'boolean',
             'reason' => 'encrypted',
         ];
     }

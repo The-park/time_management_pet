@@ -35,6 +35,11 @@
                             'durationMs' => (int) $b->duration_seconds * 1000,
                             'label' => (string) ($b->reason ?? ''),
                             'category' => $b->category,
+                            // Preserves the user's manual chip toggle across
+                            // page refreshes — without this, the dashboard's
+                            // auto-classify migration loop would re-run on
+                            // every load and overwrite the user's choice.
+                            'categoryManual' => (bool) $b->category_manual,
                             'auto_filled' => (bool) $b->auto_filled,
                             'status' => 'completed',
                         ];

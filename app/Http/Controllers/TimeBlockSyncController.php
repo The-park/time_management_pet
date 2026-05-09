@@ -55,6 +55,7 @@ class TimeBlockSyncController extends Controller
                 'durationMs' => (int) $b->duration_seconds * 1000,
                 'label' => (string) ($b->reason ?? ''),
                 'category' => $b->category,
+                'categoryManual' => (bool) $b->category_manual,
                 'auto_filled' => (bool) $b->auto_filled,
                 'status' => 'completed',
             ];
@@ -103,6 +104,7 @@ class TimeBlockSyncController extends Controller
                 'duration_seconds' => $duration,
                 'reason' => (string) ($b['label'] ?? ''),
                 'category' => $b['category'] ?? null,
+                'category_manual' => ! empty($b['categoryManual']),
                 'auto_filled' => ! empty($b['auto_filled']),
             ];
         }

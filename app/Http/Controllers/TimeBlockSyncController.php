@@ -77,7 +77,6 @@ class TimeBlockSyncController extends Controller
             'blocks.*.durationMs' => ['required', 'numeric'],
             'blocks.*.label' => ['nullable', 'string', 'max:500'],
             'blocks.*.category' => ['nullable', 'string', 'in:productive,wasted,neutral'],
-            'blocks.*.categoryManual' => ['nullable', 'boolean'],
             'blocks.*.auto_filled' => ['nullable', 'boolean'],
         ]);
 

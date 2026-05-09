@@ -18,7 +18,8 @@
 
         <div>
             <label class="block text-sm mb-1" for="password">Password</label>
-            <input id="password" name="password" type="password" required
+            <input id="password" name="password" type="password" required data-pw-strength
+                autocomplete="new-password"
                 class="w-full rounded-md bg-slate-900 border border-slate-700 px-3 py-2">
             @error('password')
                 <p class="text-sm text-rose-400 mt-1">{{ $message }}</p>
@@ -28,6 +29,7 @@
         <div>
             <label class="block text-sm mb-1" for="password_confirmation">Confirm password</label>
             <input id="password_confirmation" name="password_confirmation" type="password" required
+                autocomplete="new-password"
                 class="w-full rounded-md bg-slate-900 border border-slate-700 px-3 py-2">
         </div>
 

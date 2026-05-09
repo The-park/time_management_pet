@@ -26,7 +26,19 @@ class ActivityClassifierController extends Controller
      * Classify a single activity description.
      *
      * Request body: { "text": "studied chapter 5 of the security book" }
-     * Response:     { "ok": true, "text": "...", "label": "productive" }
+     * Response:     {
+     *   "ok": true,
+     *   "text": "...",
+     *   "label": "productive" | "unproductive" | "ambiguous",
+     *   "is_ambiguous": bool,
+     *   "reason": "conflict" | "truncation" | "hedge" | "lexicon-short" | "naive-bayes",
+     *   "detail": string|null,            // human-readable explanation when ambiguous
+     *   "candidates": [string, ...]       // labels the user might pick if ambiguous
+     * }
+     *
+     * When `is_ambiguous` is true, the UI should ask the user to pick a
+     * concrete label rather than auto-applying one — the model is
+     * explicitly saying it cannot decide without their input.
      */
     public function classify(Request $request): JsonResponse
     {
@@ -34,12 +46,16 @@ class ActivityClassifierController extends Controller
             'text' => ['required', 'string', 'max:2000'],
         ]);
 
-        $label = $this->classifier->predict($data['text']);
+        $detail = $this->classifier->classifyDetailed($data['text']);
 
         return response()->json([
-            'ok'    => true,
-            'text'  => $data['text'],
-            'label' => $label,
+            'ok'           => true,
+            'text'         => $data['text'],
+            'label'        => $detail['label'],
+            'is_ambiguous' => $detail['label'] === ActivityClassifierService::AMBIGUOUS,
+            'reason'       => $detail['reason'],
+            'detail'       => $detail['detail'] ?? null,
+            'candidates'   => $detail['candidates'],
         ]);
     }
 
@@ -57,7 +73,9 @@ class ActivityClassifierController extends Controller
             'expected' => [
                 'required',
                 'string',
-                'in:'.ActivityClassifierService::PRODUCTIVE.','.ActivityClassifierService::UNPRODUCTIVE,
+                'in:'.ActivityClassifierService::PRODUCTIVE
+                    .','.ActivityClassifierService::UNPRODUCTIVE
+                    .','.ActivityClassifierService::AMBIGUOUS,
             ],
         ]);
 

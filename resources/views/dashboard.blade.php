@@ -627,6 +627,29 @@
             </div>
         </section>
 
+        {{-- Long-range stats (month + year) are hidden by default and
+             surfaced only when the user explicitly opens them. The button
+             below toggles both sections together so the dashboard stays
+             focused on the current week unless the user asks for more. --}}
+        <div class="flex items-center justify-between gap-3" data-longrange-toggle-row>
+            <div class="text-[0.6rem] uppercase tracking-[0.25em] text-slate-500">Longer-range stats</div>
+            <button type="button"
+                data-longrange-toggle
+                aria-expanded="false"
+                aria-controls="longrange_panel"
+                class="group inline-flex items-center gap-2 rounded-full border border-slate-700/70 bg-slate-900/40 px-3 py-1.5 text-[0.65rem] uppercase tracking-[0.2em] text-slate-300 hover:border-[var(--chrono-blue)]/60 hover:text-[var(--chrono-blue)] transition">
+                <span data-longrange-toggle-label>Show month &amp; year</span>
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                    class="h-3.5 w-3.5 transition-transform duration-200"
+                    data-longrange-toggle-chevron>
+                    <polyline points="6 9 12 15 18 9"/>
+                </svg>
+            </button>
+        </div>
+
+        <div id="longrange_panel" data-longrange-panel class="hidden space-y-6 md:space-y-8">
+
         @php $monthStats = $serverPeriodStats['month'] ?? null; @endphp
         <section class="chrono-panel rounded-2xl p-6 md:p-8" data-period-section="month">
             <div class="flex items-baseline justify-between gap-4">
@@ -854,6 +877,8 @@
             </div>
         </section>
 
+        </div> {{-- /#longrange_panel --}}
+
         <section id="custom-countdown" class="chrono-panel rounded-2xl p-6 md:p-8">
             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
                 <div class="flex-1">
@@ -965,9 +990,9 @@
         </div>
 
         <section class="chrono-panel rounded-2xl p-6 md:p-8">
-            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div class="flex items-center justify-between gap-4">
                 <h2 class="font-display text-sm uppercase tracking-[0.3em] text-slate-300">Today's time blocks</h2>
-                <button class="rounded-lg border border-slate-600 px-4 py-2 text-sm">Add new block</button>
+                <span class="text-[0.65rem] uppercase tracking-[0.2em] text-slate-500" data-blocks-count></span>
             </div>
 
             <div data-edit-banner
@@ -1130,18 +1155,29 @@
                 </div>
             </div>
 
-            <div class="mt-6 overflow-x-auto">
-                <table class="min-w-full text-sm">
-                    <thead class="text-slate-400">
-                        <tr>
-                            <th class="text-left py-2">Start</th>
-                            <th class="text-left py-2">End</th>
-                            <th class="text-left py-2">Duration</th>
-                            <th class="text-left py-2">Reason / Activity</th>
-                            <th class="text-left py-2">Actions</th>
+            {{-- Polished table. table-fixed + explicit column widths keep the
+                 time / duration cells stable no matter how long the activity
+                 text is — long reasons wrap inline inside their cell instead
+                 of squeezing the others. --}}
+            <div class="mt-6 overflow-x-auto rounded-xl border border-slate-800/70">
+                <table class="w-full table-fixed text-sm">
+                    <colgroup>
+                        <col class="w-[112px]">
+                        <col class="w-[112px]">
+                        <col class="w-[88px]">
+                        <col>
+                        <col class="w-[140px]">
+                    </colgroup>
+                    <thead class="bg-slate-900/60">
+                        <tr class="text-[0.6rem] uppercase tracking-[0.2em] text-slate-400">
+                            <th class="text-left px-4 py-2.5 font-medium">Start</th>
+                            <th class="text-left px-4 py-2.5 font-medium">End</th>
+                            <th class="text-left px-4 py-2.5 font-medium">Duration</th>
+                            <th class="text-left px-4 py-2.5 font-medium">Reason / Activity</th>
+                            <th class="text-right px-4 py-2.5 font-medium">Actions</th>
                         </tr>
                     </thead>
-                    <tbody data-blocks-tbody></tbody>
+                    <tbody data-blocks-tbody class="divide-y divide-slate-800/60"></tbody>
                 </table>
             </div>
         </section>
@@ -1225,6 +1261,7 @@
             (() => {
                 const BLOCKS_KEY = 'chrono.timeBlocks.v1';
                 const tbody = document.querySelector('[data-blocks-tbody]');
+                const blocksCount = document.querySelector('[data-blocks-count]');
                 if (!tbody) return;
 
                 const pad = (n) => String(n).padStart(2, '0');
@@ -1293,23 +1330,48 @@
 
                 const categorizeLabel = (label) => {
                     if (!label) return 'productive';
+                    // Delegate to analyzeLabel which has the comprehensive
+                    // pattern logic (failed-intent + extended-unprod, fake-
+                    // productive guards, productive-tail short-circuit, etc.)
+                    // and map its 5-state result to the binary
+                    // productive/wasted that block storage expects.
+                    //
+                    // BUG FIX: previously this function used a simple
+                    // keyword-scoring loop that didn't recognize phrases
+                    // like "wanted to study but played game for hours so
+                    // whole day" — the input hint correctly showed WASTED
+                    // (via analyzeLabel) but the saved block defaulted to
+                    // PRODUCTIVE because this function missed the failed-
+                    // intent pattern. Delegating fixes the mismatch.
+                    //
+                    // NOTE: analyzeLabel is defined later in this script,
+                    // but categorizeLabel is only INVOKED at runtime (from
+                    // event handlers, save flows, IIFEs that run after
+                    // both definitions), so the closure reference is safe.
+                    try {
+                        const a = analyzeLabel(label);
+                        if (a && a.category === 'wasted') return 'wasted';
+                    } catch (e) {
+                        // Fall through to legacy fallback if analyzeLabel
+                        // somehow isn't reachable yet (paranoid safety).
+                    }
+
+                    // Legacy fallback — keyword-only scoring. Kept as a
+                    // safety net for the unusual case where analyzeLabel
+                    // returns 'unknown' / 'productive' / 'mixed' /
+                    // 'ambiguous'. The 'mixed' state triggers split-block
+                    // UI upstream and 'ambiguous' triggers the
+                    // clarification modal, so by the time we save, the
+                    // user has already chosen. Default the residual to
+                    // productive.
                     const text = String(label).toLowerCase();
                     let score = 0;
-
-                    // Phrase pass — works on raw text since multi-word phrases
-                    // already include their own internal word boundaries.
                     for (const phrase of WASTED_PHRASES) {
                         if (text.includes(phrase)) {
                             score += 3;
                             if (score >= WASTED_SCORE_THRESHOLD) return 'wasted';
                         }
                     }
-
-                    // Token pass — splits on every non-alphanumeric boundary, then
-                    // each token contributes at most one match per keyword. The
-                    // strongest keyword match for a token wins, so a token like
-                    // 'sotimegotwasted' scores once for "wasted" rather than three
-                    // times for "wasted"/"waste"/"wasting".
                     const tokens = text.split(/[^a-z0-9]+/).filter((t) => t.length > 0);
                     for (const token of tokens) {
                         let best = 0;
@@ -1321,7 +1383,6 @@
                         score += best;
                         if (score >= WASTED_SCORE_THRESHOLD) return 'wasted';
                     }
-
                     return 'productive';
                 };
 
@@ -1412,13 +1473,21 @@
                 // "sjdfhsjhsjdhsjdk" is mostly consonants. We don't reject
                 // gibberish — we just lower confidence so the UI can warn.
                 const isLikelyGibberishToken = (token) => {
-                    if (!token || token.length < 4) return false;       // short words are usually fine
-                    if (!/[a-z]/.test(token)) return false;             // ids/numbers are not "gibberish"
+                    if (!token) return false;
+                    if (!/[a-z]/.test(token)) return false;
+                    if (/(.)\1{3,}/.test(token)) return true;
+                    if (/^(\w{2,4})\1{1,}$/.test(token) && token.length >= 4) return true;
+                    // Number + unit ("200m", "5km", "30s") — measurements
+                    if (/^\d+[a-z]{1,3}$/.test(token)) return false;
                     const vowels = (token.match(/[aeiouy]/g) || []).length;
-                    const ratio = vowels / token.length;
-                    // English words usually have 30-50% vowels. <10% with
-                    // length >= 6 looks like keyboard-mash.
-                    return ratio < 0.10 && token.length >= 6;
+                    const ratio = token.length > 0 ? vowels / token.length : 0;
+                    // No-vowel tokens — require length ≥ 4 to skip common
+                    // 3-letter abbreviations (sdk, jwt, rfc, sql, css, etc.)
+                    if (token.length >= 4 && vowels === 0) return true;
+                    if (token.length >= 6 && ratio < 0.20) return true;
+                    // Keyboard-row mash patterns at length ≥ 3 (jkl, hjk)
+                    if (token.length >= 3 && /^(qwer|asdf|zxcv|jkl|hjk|fgh|tyui|uiop|sdfg|dfgh|ghjk|cvbn|bnm|wert|erty|rtyu|fghj|hjkl|ytre|trewq|ewq|poiu|lkjhg|mnbvc|wsx|edc|rfv|tgb|yhn|ujm|qaz)/i.test(token)) return true;
+                    return false;
                 };
 
                 // Score one token against a keyword list using the existing
@@ -1450,6 +1519,158 @@
                 //     warnings:         [...messages...],
                 //     suggestion:       string | null,
                 //   }
+                // ── Backend-mirror ambiguity detection ───────────────────
+                // Mirrors app/Services/ActivityClassifierService.php so the
+                // real-time hint under the Reason input matches what the
+                // server's /classify endpoint would return. Without this
+                // the screenshot phrase "wanted to study but played game
+                // for hours so whole day got" registered the word "study"
+                // and rendered "PRODUCTIVE 85%" — the user was not asked
+                // to clarify even though signals genuinely conflicted.
+                const detectClearVerdict = (text) => {
+                    const t = String(text).toLowerCase();
+                    // Anti-productive guard — phrases that LOOK productive
+                    // (have a productive verb) but are really procrastination.
+                    // When matched, skip productive checks entirely and let
+                    // the unproductive checks below classify.
+                    const fakeProductive = /\b(wrote\s+(zero|no)\s+\w+|did\s+(nothing|no\s+work|zero|no\s+actual)|opened\s+\w+\s+did\s+(nothing|no)|stared\s+at\s+(the|my|a|todo|cursor|page|screen|laptop|book|textbook)|color\s*-?\s*coded|\w+(ed|ing)?\s+(\w+\s+){0,5}instead\s+of\s+(\w+(ing|ed)?|the|studying|working|gym|writing|coding|reading|exercise|exercising)|made\s+(a\s+)?(to[\s\-]*do\s+list|list|todo|plan|playlist|schedule|setup|study\s+setup|aesthetic|vision\s+board|spreadsheet|budget)\s+(\w+\s+){0,3}(and\s+)?(didnt|did\s+not|never|kept|ignored)|(made|bought|got|downloaded)\s+(a\s+|new\s+|the\s+)?\w+\s+(\w+\s+){0,3}(and\s+|but\s+)(didnt|did\s+not|never)|but\s+ordered\s+(takeout|food|uber\s+eats|doordash))\b/;
+
+                    // Split-effort guard — productive verb + "and" +
+                    // unproductive activity routes to ambiguous via hedge,
+                    // not productive verdict.
+                    const splitGuard = /\b(studied|coded|worked|read|wrote|practiced|exercised|ran|trained|focused|journaled|cooked|baked|did|completed|finished|reviewed|drafted|got|attended|joined|cleaned|prepped|revised|stretched)\s+(\w+\s+){0,5}and\s+(\w+\s+){0,3}(scrolled|gamed|watched|browsed|napped|binged|doomscrolled|texted|procrastinated|read\s+(tweets?|drama|memes?|comments?)|on\s+(tiktok|reddit|instagram|twitter|facebook|youtube|netflix)|watched\s+(tv|netflix|shows|videos|reels|shorts|memes|tiktok|youtube)|gamed|checked\s+(twitter|reddit|instagram|tiktok|github|email|phone)|scrolled\s+(tiktok|reels|reddit|instagram|twitter)|then\s+(scrolled|watched|gamed|nothing|napped|phone))\b/;
+
+                    if (!fakeProductive.test(t) && !splitGuard.test(t)) {
+                        // Productive verdict: completion verb + article + noun
+                        if (/\b(finished|completed|shipped|delivered|wrote|published|submitted|filed|drafted)\s+(the|my|a|an|all|all the|that|this|for|every|\d+)\s+(\w+\s+){0,3}\w+/.test(t)
+                         || /\b(finished it|got it done|nailed it|crushed it|killed it)\b/.test(t)
+                         // "ran/practiced/etc. for N (hours|minutes|km|miles)" without "then unproductive" tail
+                         || (/\b(ran|practiced|exercised|coded|studied|read|wrote|debugged|reviewed|drafted|trained|swam|biked|cycled|hiked|did|completed|finished)\s+(\w+\s+){0,4}for\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|an|a)\s+(h|hr|hrs|hour|hours|min|minute|minutes|mins|km|miles|kilometers|reps|sets|pages|chapters)\b/.test(t)
+                              && !/\b(then|but|and)\s+(\w+\s+){0,3}(phone|tiktok|reels|reddit|instagram|twitter|youtube|netflix|tv|scrolled|gaming|gamed|napped|nap|nothing|memes|sofa|couch|bed|sleep|movies?|videos?|streams?|shorts?|game|break|discord|chat)\b/.test(t))
+                         // "ran 5km" / "did 60 minutes at the gym"
+                         || (/\b(ran|practiced|exercised|coded|studied|read|wrote|did|completed|finished|swam|biked|cycled|hiked|trained|cooked)\s+(\w+\s+){0,3}\d+\s*(k|km|m|mi|miles|kilometers|hours|minutes|min|mins|reps|sets|pages|chapters)\b/.test(t)
+                              && !/\b(then|but|and)\s+(\w+\s+){0,3}(phone|tiktok|reels|reddit|instagram|twitter|youtube|netflix|tv|scrolled|gaming|gamed|napped|nap|nothing|memes|sofa|couch|bed|sleep|movies?|videos?|streams?|shorts?|game|break|discord|chat)\b/.test(t))
+                         // Productive tail after "then"/"but" — strict: only on high-confidence completion verbs
+                         || /\b(then|but)\s+(\w+\s+){0,3}(coded|studied|wrote|written|built|debugged|shipped|finished|practiced|read|reviewed|drafted|completed|ran|biked|cycled)\s+(\w+\s+){0,5}for\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|an|a)\s+(h|hr|hrs|hour|hours|min|minute|minutes|mins|km|miles|pages)\b/.test(t)
+                         || /\b(then|but)\s+(actually\s+)?(finished|completed|shipped|delivered|got it done|nailed it|crushed it)\b/.test(t)
+                         // submitted/filed/sent + noun
+                         || /\b(submitted|filed|sent|emailed|booked|renewed|paid|invoiced|saved|invested|interviewed|hosted|attended|led|presented|published|launched|released|merged|deployed|installed|repaired|painted|trained|squatted|deadlifted|benched)\s+\w+/.test(t)
+                         // double-negative productive: "no twitter today wrote the entire essay"
+                         || /\b(no|zero|never)\s+(phone|scrolling|distractions?|tiktok|reels|youtube|netflix|twitter|instagram|reddit)\s+(all\s+day|today)\b/.test(t)) {
+                            return 'productive';
+                        }
+                    }
+
+                    // Decisive wasted verdicts
+                    if (/\b(whole day got wasted|day got wasted|wasted day|complete waste|got wasted|nothing got done|did nothing all|basically a wasted day|did absolutely nothing)\b/.test(t)) {
+                        return 'wasted';
+                    }
+                    // Extended-duration entertainment: matches the screenshot
+                    // phrase "played game for hours", "scrolled tiktok all
+                    // afternoon", "binged netflix the entire evening".
+                    const entVerb = /\b(played|playing|gaming|gamed|scrolled|scrolling|watched|watching|binged|binging|streamed|streaming|doomscrolled|doomscrolling|browsed|browsing|stayed\s+up|laid|lying|napped|napping|hopping|lurking|lurked|spiraled|refreshed|refreshing|stalked|stalking)\b/;
+                    const entNoun = /\b(pubg|cod|fortnite|valorant|netflix|youtube|tiktok|instagram|reddit|twitch|reels|shorts|csgo|minecraft|roblox|fifa|gta|league|dota|hearthstone|genshin|memes|anime|tv|videos|games?|phone|facebook|twitter|snapchat|discord|telegram|threads|whatsapp|spotify|imdb|amazon|aliexpress|shein|ebay|pinterest|linkedin|tumblr|9gag|imgur|quora|hulu|prime|disney|hbo|crunchyroll|funimation|apex|free\s+fire|clash\s+royale|candy\s+crush|subway\s+surfers|pokemon\s+go|mobile\s+legends|honkai|brawl\s+stars|rocket\s+league|overwatch|wow|ff14|runescape|tarkov|destiny|warframe|kdrama|webtoon|stockx)\b/;
+                    // numeric duration (with word-form numbers too)
+                    const numDur = /\b(for|all)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty)\s*(h|hr|hrs|hour|hours|min|minute|minutes|mins)\b/;
+                    // Phrase duration — INCLUDES "for hours" without number
+                    const phrDur = /\b(the\s+(whole|entire|rest\s+of\s+the)\s+(morning|afternoon|evening|day|night|week|weekend|saturday|sunday)|all\s+(morning|afternoon|evening|day|night|week|weekend|saturday|sunday)|til\s+(\d+\s*(am|pm)|sunrise|midnight|dawn|noon|late)|until\s+(\d+\s*(am|pm)|sunrise|midnight|dawn|noon|late)|the\s+whole\s+time|for\s+(hours|ages|forever|the\s+whole|the\s+entire|an\s+hour|two\s+hours|three\s+hours|four\s+hours|five\s+hours|six\s+hours|seven\s+hours|eight\s+hours)|all\s+day|all\s+night)\b/;
+                    if ((entVerb.test(t) || entNoun.test(t)) && (numDur.test(t) || phrDur.test(t))) {
+                        return 'wasted';
+                    }
+                    // Bare "Nh of platform" prefix
+                    if (/\b(\d+(\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty)\s*(h|hr|hrs|hour|hours|min|minute|minutes)\s+(of\s+)?(scrolling|scroll|gaming|grinding|browsing|lurking|tv|netflix|youtube|yt|tiktok|reels|reddit|twitter|instagram|memes|videos|shorts|doomscroll(ing)?)\b/.test(t)) {
+                        return 'wasted';
+                    }
+                    // Self-evaluative wasted-day descriptors
+                    if (/\b(absolute|big|huge|complete|total|literal|pure|sheer|absolutely|completely|totally)\s+(useless|zero|waste|wasted|nothing|bust|write[\s\-]?off|trash|disaster|unproductive|fail)\s+(day)?\b/.test(t)
+                     || /\bday\s+(was|got|fully|completely)\s+(a|an)?\s*(complete|total|absolute|big|just\s+a|really)?\s*(bust|waste|wasted|disaster|trash|write[\s\-]?off|nothing|fail|gone|down\s+the\s+drain|thrown\s+away|flushed|ruined|in\s+pajamas|just\s+a\s+(phone|scroll))\b/.test(t)) {
+                        return 'wasted';
+                    }
+                    // Failed-intent + extended unprod action — matches the
+                    // user's screenshot phrase: "wanted to study but played
+                    // game for hours so whole day got"
+                    if (/\b(wanted|tried|planned|meant|intended|hoped|aimed|going|gonna|supposed|thought\s+i\s+would|decided|told\s+myself|said\s+i\s+would|set\s+out)\s+to\s+\w+/.test(t)
+                     && /\b(but|then|instead|ended\s+up|wound\s+up|kept|couldn'?t|didn'?t|so)\s+(\w+\s+){0,8}(played|scrolled|watched|binged|gamed|doomscrolled|streamed|napped|laid|lying)\s+(\w+\s+){0,5}(for\s+(hours|ages|the|\d+|one|two|three|four|five|six|seven|eight|nine|ten)|all\s+(day|night|morning|afternoon|evening|weekend)|til\s+\d|until\s+\d|the\s+(whole|entire))\b/.test(t)) {
+                        return 'wasted';
+                    }
+                    // "X instead of Y" substitution procrastination
+                    if (/\b\w+(ed|ing)?\s+(\w+\s+){0,5}instead\s+of\s+(\w+(ing|ed)?|the|studying|working|gym|writing|coding|reading|exercise|exercising)\b/.test(t)
+                     && !/\b(finished|completed|shipped|delivered|wrote|published|submitted)\b/.test(t)) {
+                        return 'wasted';
+                    }
+                    // "failed to X" — explicit failure
+                    if (/\bfailed\s+to\s+(\w+\s+){0,3}(finish|complete|start|do|read|write|study|practice|review|wake\s+up|ship|prep|attend|focus)\b/.test(t)
+                     || /\bfailed\s+(\w+\s+){0,2}(all|every|some|any)\s+(\w+\s+){0,2}(goals?|tasks?|todos?|targets?|milestones?|deadlines?|plans?)\b/.test(t)) {
+                        return 'wasted';
+                    }
+                    return null;
+                };
+
+                const detectAmbiguityReason = (text) => {
+                    const t = String(text).toLowerCase().trim();
+                    if (!t) return null;
+
+                    const intent = /\b(wanted|tried|planned|meant|intended|hoped|aimed|going|gonna|supposed|thought i would|decided|told myself|said i would|set out|aiming|aimed)\s+(to\s+)?\w+/;
+                    const contrast = /\b(but|however|instead|then|ended up|wound up|kept|couldn'?t|couldnt|didn'?t|didnt)\b/;
+                    const clearProd = /\b(finished|completed|shipped|delivered|nailed|crushed|got it done|done with|finished it|powered through and|pushed through and|completed every|completed all|knocked out|wrapped up|finalized|submitted|did the entire|did all|hit my|went and|got everything done)\b/;
+                    const clearUnp = /\b(wasted|complete waste|got wasted|whole day wasted|nothing got done|did nothing|all\s+(day|night|afternoon|evening|morning))\b/;
+                    // Action-half decisive unproductive — extended-duration
+                    // entertainment ("doomscrolled twitter for two hours"
+                    // / "played pubg for 5 hrs"). When the conflict pattern
+                    // fires AND this matches, defer to detectClearVerdict.
+                    const unprodAction = /\b(scrolled|scrolling|doomscrolled|doomscrolling|watched|watching|binged|binging|gamed|gaming|played|playing|napped|napping|laid|lying)\s+(\w+\s+){0,5}(for\s+(hours|ages|the\s+whole|the\s+entire|\d+|one|two|three|four|five|six|seven|eight|nine|ten)|all\s+(day|night|afternoon|evening|morning|weekend)|til\s+\d|until\s+\d|the\s+(whole|entire)\s+(morning|afternoon|evening|day|night|week|weekend))\b/;
+                    const unprodPlatform = /\b(tiktok|reels|instagram|twitter|netflix|youtube|reddit|twitch|cod|pubg|fortnite|valorant|league|dota|csgo|minecraft|roblox|fifa)\b/;
+                    const hasExtendedUnprodAction = unprodAction.test(t)
+                        || (unprodPlatform.test(t) && /\bfor\s+(hours|ages|\d|one|two|three|four|five|six|seven|eight|nine|ten|the\s+(whole|entire))\b/.test(t));
+
+                    if (intent.test(t) && contrast.test(t)
+                        && !clearProd.test(t) && !clearUnp.test(t)
+                        && !hasExtendedUnprodAction) {
+                        return 'You stated an intent that was contradicted by your action without a clear outcome — productive or wasted?';
+                    }
+
+                    const startedR = /\b(started|began|got into|opened|sat down to|was)\s+\w+/;
+                    const shifted = /\b(then|but|switched to|jumped to|drifted to|ended up|moved to|got on|got pulled into)\b/;
+                    if (startedR.test(t) && shifted.test(t)
+                        && !clearProd.test(t) && !clearUnp.test(t)
+                        && !/\bthen\s+\w+\s+(for|the)\s+\w+\s+hour/.test(t)
+                        && !/\bthen\s+(coded|studied|finished|wrote|built|shipped)\b/.test(t)) {
+                        return 'Your activity shifted mid-flow without a clear outcome — was the day productive or wasted?';
+                    }
+
+                    const halfThoughts = ['whole day got', 'ended up', 'kind of just',
+                        'spent the day', 'the morning was', 'the afternoon was', 'mostly',
+                        'sort of', 'basically just', 'i guess i', 'the afternoon went',
+                        'today i kind of', 'not really sure what', 'just sort of',
+                        "didn't really", 'didnt really', 'ended up just'];
+                    if (halfThoughts.includes(t)) {
+                        return 'The phrase ends mid-thought — please describe how it actually went.';
+                    }
+                    const tokens2 = t.split(/\s+/);
+                    const orphans = ['got', 'ended', 'kind', 'sort', 'mostly', 'maybe', 'somewhat', 'kinda'];
+                    if (tokens2.length <= 12 && orphans.includes(tokens2[tokens2.length - 1])) {
+                        return 'The phrase trails off without a verdict — please clarify.';
+                    }
+
+                    if (/\bnot sure if\b/.test(t)
+                     || /\bkind of productive but\b/.test(t)
+                     || /\bhalfway productive\b/.test(t)
+                     || /\bcould have been (worse|better)\b/.test(t)
+                     || /\bhard to (say|tell|gauge|read|score)\b/.test(t)
+                     || /\bbit of \w+ and bit of\b/.test(t)
+                     || /\bsome \w+ some \w+\b/.test(t)
+                     || /\bhalf \w+ half \w+\b/.test(t)
+                     || /\b(mid|medium|moderate|borderline|fuzzy|quasi|loose|soft|fairly|moderately|slightly)\s+(range|level|kind|sort|productive|day)\b/.test(t)
+                     || /\b(decent|meh|ok|okay|fine|alright|so so)[\s\-]?ish\b/.test(t)
+                     || /\b(might|maybe) have (done|been)\b/.test(t)
+                     || /\b(neither|not) (here|exactly|quite) (nor|productive|either)\b/.test(t)
+                     || /\b(mostly|kinda|sort of) (ok|okay|fine|alright|productive|useful)\b/.test(t)) {
+                        return 'Your description is hedged or undecided — please pick a label.';
+                    }
+
+                    return null;
+                };
+
                 const analyzeLabel = (label) => {
                     const text = String(label || '').trim();
                     const result = {
@@ -1470,16 +1691,63 @@
                         return result;
                     }
 
+                    // Run ambiguity rules BEFORE keyword scoring. Without
+                    // this, e.g. "wanted to study but played game for
+                    // hours so whole day got" hits the "study" token and
+                    // gets scored productive 85% instead of being flagged
+                    // for the user to clarify.
+                    const verdict = detectClearVerdict(text);
+                    if (verdict === 'productive') {
+                        result.category = 'productive';
+                        result.confidence = 0.92;
+                        result.productiveTokens = ['verdict-finish'];
+                        return result;
+                    }
+                    if (verdict === 'wasted') {
+                        result.category = 'wasted';
+                        result.confidence = 0.92;
+                        result.wastedTokens = ['verdict-waste'];
+                        return result;
+                    }
+                    const ambigReason = detectAmbiguityReason(text);
+                    if (ambigReason) {
+                        result.category = 'ambiguous';
+                        result.confidence = 0.4;
+                        result.warnings.push('intent-action-conflict');
+                        result.suggestion = ambigReason;
+                        return result;
+                    }
+
                     const lower = text.toLowerCase();
                     const tokens = lower.split(/[^a-z0-9]+/).filter(Boolean);
 
                     // Gibberish detection: most tokens look like keyboard mash
                     const totalTokens = tokens.length;
                     const gibberishHits = tokens.filter(isLikelyGibberishToken).length;
-                    const looksLikeGibberish =
-                        totalTokens > 0
-                        && gibberishHits / totalTokens >= 0.6
-                        && totalTokens <= 4;
+                    let looksLikeGibberish = totalTokens > 0 && gibberishHits / totalTokens >= 0.5;
+                    // Heavy repeated-character runs ("ssssss")
+                    if ((lower.match(/(.)\1{4,}/g) || []).length >= 1) looksLikeGibberish = true;
+                    // Symbol/numeric-only phrase ("@@@@@" / "123 456 789")
+                    if (!/[a-z]/.test(lower) && totalTokens > 0) looksLikeGibberish = true;
+                    // Whole phrase very short ("x", "ww") — but allow real
+                    // 3-char activity words ("gym", "ran", "nap") through.
+                    const stripped = lower.replace(/\s/g, '');
+                    if (stripped.length <= 2 && totalTokens <= 1) looksLikeGibberish = true;
+                    // Short-token repetition: "asd asd asd" / "yo yo yo yo" /
+                    // "abc abc abc abc abc" — same ≤4-char token 3+ times
+                    const tokenCounts = {};
+                    tokens.forEach((t) => { tokenCounts[t] = (tokenCounts[t] || 0) + 1; });
+                    Object.keys(tokenCounts).forEach((tk) => {
+                        if (tk.length <= 4 && tokenCounts[tk] >= 3) looksLikeGibberish = true;
+                    });
+                    // Phrase-level vowel ratio: real text is ~38% vowels.
+                    // Keyboard mash drops to <20%. Length ≥ 8 to skip short
+                    // legitimate words.
+                    const alphaOnly = lower.replace(/[^a-z]/g, '');
+                    if (alphaOnly.length >= 8) {
+                        const vc = (alphaOnly.match(/[aeiouy]/g) || []).length;
+                        if ((vc / alphaOnly.length) < 0.20) looksLikeGibberish = true;
+                    }
 
                     // Wasted scoring (mirrors categorizeLabel logic)
                     let wastedScore = 0;
@@ -1530,9 +1798,66 @@
                     }
 
                     // ── Decide category ──────────────────────────────────
+                    // Mixed-gibberish presence: ≥2 gibberish tokens, OR a
+                    // heavy repeated run, OR a short ≤4-char token
+                    // repeated 3+ times ("ert ert ert"), alongside real
+                    // content → AMBIGUOUS.
+                    // Restrict short-token repetition to tokens that aren't
+                    // common English stopwords. Without this, sentences with
+                    // "the the the" naturally repeated trigger the rule.
+                    const stopwordSet = new Set([
+                        'the','a','an','of','and','or','but','so','for','no','not',
+                        'all','any','can','did','do','get','got','has','had','have',
+                        'you','your','my','me','i','was','were','be','been','am',
+                        'is','are','with','on','in','at','to','from','by','just',
+                        'up','down','out','over','this','that','these','those',
+                        'then','when','where','what','why','how','very','much',
+                        'more','less','also','again','today','tonight','yesterday',
+                        'tomorrow','it','its','will','would','could','should','may',
+                        'might','if','as','than','too','only','one','two','three',
+                        'zero','some','many','few',
+                    ]);
+                    let mixedShortRepeat = false;
+                    Object.keys(tokenCounts).forEach((tk) => {
+                        if (tk.length <= 4 && tokenCounts[tk] >= 3 && !stopwordSet.has(tk)) {
+                            mixedShortRepeat = true;
+                        }
+                    });
+                    const hasAnyGibberish = gibberishHits >= 2
+                        || (lower.match(/(.)\1{4,}/g) || []).length >= 1
+                        || (!/[a-z]/.test(lower) && totalTokens > 0)
+                        || mixedShortRepeat;
+                    const hasRealContent = productiveScore > 0
+                        || wastedScore > 0
+                        || result.hasDurations
+                        || /\b(for|all)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|an?)\s*(h|hr|hrs|hour|hours|min|minute|minutes|mins)\b/i.test(text)
+                        || /\b(studied|coded|wrote|read|practiced|finished|completed|shipped|gym|workout|essay|chapter|project|assignment|homework|labs?|dissertation|thesis|deep\s+work|leetcode|tiktok|reels|youtube|netflix|reddit|instagram|scrolled|watched|binged|gamed|napped)\b/i.test(text);
+
+                    if (hasAnyGibberish && hasRealContent) {
+                        result.category = 'ambiguous';
+                        result.confidence = 0.4;
+                        result.warnings.push('mixed-gibberish');
+                        result.suggestion = "Your entry mixes gibberish with real activity — please clean up the description or pick a category.";
+                        return result;
+                    }
+
+                    // Mixed-explicit-durations: phrase has BOTH a productive
+                    // duration AND an unproductive duration → AMBIGUOUS so
+                    // the user picks which dominated.
+                    const hasProdDur = /\b(studied|studying|study|coded|coding|wrote|writing|read|reading|practiced|exercised|ran|running|trained|focused|journaled|did|finished|completed|reviewed|drafted|cooked|cleaned|prepped|attended|gym|workout|leetcode|essay|report|project|assignment|labs?|homework|chapter|notes|flashcards)\s+(\w+\s+){0,5}for\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|an?)\s*(h|hr|hrs|hour|hours|min|minute|minutes)\b/i.test(text);
+                    const hasUnprodDur = /\b(scrolled|scrolling|tiktok|reels|youtube|netflix|reddit|instagram|twitter|facebook|watched|watching|binged|binging|doomscrolled|gamed|gaming|napped|napping|valorant|fortnite|minecraft|roblox|fifa|apex|dota|league|csgo|pubg|cod)\s+(\w+\s+){0,5}for\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|an?)\s*(h|hr|hrs|hour|hours|min|minute|minutes)\b/i.test(text);
+                    if (hasProdDur && hasUnprodDur) {
+                        result.category = 'ambiguous';
+                        result.confidence = 0.45;
+                        result.warnings.push('mixed-durations');
+                        result.suggestion = "Both productive and unproductive activities with explicit durations — please pick which dominated, or split into separate blocks.";
+                        return result;
+                    }
+
                     if (looksLikeGibberish) {
-                        result.category = 'unknown';
-                        result.confidence = 0.15;
+                        // Pure gibberish → wasted (per user UX choice).
+                        result.category = 'wasted';
+                        result.confidence = 0.55;
                         result.warnings.push('gibberish');
                         result.suggestion = "That doesn't look like a real activity. Add a few clear words about what you did.";
                         return result;
@@ -1728,6 +2053,13 @@
                 // the classifier on every block whose category was *not* manually overridden
                 // (categoryManual !== true). This way improvements to the algorithm propagate
                 // to existing blocks, while user clicks on the chip stick.
+                //
+                // Ambiguity-aware: if analyzeLabel decides the label is
+                // 'ambiguous' (mixed gibberish + content, mixed durations, etc.)
+                // we MUST NOT silently fall back to productive — that loses the
+                // signal entirely and the user never gets prompted to clarify.
+                // Instead we set ambiguityPending so the queue below can open
+                // the resolution modal for each affected block in turn.
                 (() => {
                     const blocks = loadBlocks();
                     let dirty = false;
@@ -1738,10 +2070,23 @@
                             dirty = true;
                         }
                         if (block.categoryManual !== true) {
-                            const next = categorizeLabel(block.label);
-                            if (block.category !== next) {
-                                block.category = next;
-                                dirty = true;
+                            let analysis = null;
+                            try { analysis = analyzeLabel(block.label || ''); } catch (e) {}
+                            if (analysis && analysis.category === 'ambiguous') {
+                                if (!block.ambiguityPending) {
+                                    block.ambiguityPending = true;
+                                    dirty = true;
+                                }
+                            } else {
+                                if (block.ambiguityPending) {
+                                    delete block.ambiguityPending;
+                                    dirty = true;
+                                }
+                                const next = categorizeLabel(block.label);
+                                if (block.category !== next) {
+                                    block.category = next;
+                                    dirty = true;
+                                }
                             }
                         } else if (!block.category) {
                             block.category = 'productive';
@@ -1905,10 +2250,8 @@
                 const render = () => {
                     // Strict calendar-day scope: only blocks whose date stamp matches the
                     // browser's current local date. A block logged at 11:30 PM is dated to
-                    // that calendar day and disappears from this table once the clock crosses
-                    // midnight; a block created at 12:30 AM is tagged to the new day. The
-                    // 10 PM sleep / 6 AM wake schedule does not affect this — calendar day
-                    // is the boundary.
+                    // that calendar day and disappears once the clock crosses midnight;
+                    // a block created at 12:30 AM is tagged to the new day.
                     const todayKey = localDateString();
                     const blocks = loadBlocks()
                         .filter((b) => b.date === todayKey)
@@ -1920,63 +2263,104 @@
                             return (a.id || '').localeCompare(b.id || '');
                         });
                     tbody.innerHTML = '';
+                    if (blocksCount) {
+                        blocksCount.textContent = blocks.length === 0
+                            ? ''
+                            : `${blocks.length} ${blocks.length === 1 ? 'block' : 'blocks'}`;
+                    }
 
                     if (blocks.length === 0) {
                         const tr = document.createElement('tr');
-                        tr.innerHTML = '<td class="py-3 text-slate-500" colspan="5">No blocks logged for today yet — start a countdown or log one manually.</td>';
+                        tr.innerHTML = `
+                            <td colspan="5" class="px-4 py-8 text-center text-sm text-slate-500">
+                                No blocks logged for today yet — start a countdown or log one manually.
+                            </td>
+                        `;
                         tbody.appendChild(tr);
                         return;
                     }
 
+                    // Per-row left-edge accent uses a thin coloured stripe in the
+                    // first cell rather than a row border (table-fixed cells don't
+                    // honour border-left consistently across browsers).
+                    const accentClassFor = (status, cat) => {
+                        if (status === 'active') return 'before:bg-[var(--chrono-blue)]';
+                        if (status === 'paused') return 'before:bg-amber-400';
+                        if (cat === 'wasted')    return 'before:bg-rose-400/70';
+                        if (cat === 'neutral')   return 'before:bg-slate-500/70';
+                        return 'before:bg-emerald-400/70';
+                    };
+
                     for (const block of blocks) {
                         const tr = document.createElement('tr');
-                        tr.className = 'border-t border-slate-800/60';
                         tr.dataset.blockId = block.id;
 
-                        let badge = '';
+                        const cat = block.category === 'wasted' ? 'wasted'
+                                  : block.category === 'neutral' ? 'neutral'
+                                  : 'productive';
+
+                        tr.className = [
+                            'group hover:bg-slate-900/40 transition-colors align-top',
+                        ].join(' ');
+
+                        let statusBadge = '';
                         if (block.status === 'active') {
-                            badge = '<span class="text-xs uppercase tracking-wider text-[var(--chrono-blue)] mr-2">Running</span>';
+                            statusBadge = '<span class="ml-1 inline-flex items-center gap-1 rounded-full bg-[var(--chrono-blue)]/15 border border-[var(--chrono-blue)]/40 px-2 py-0.5 text-[0.55rem] uppercase tracking-[0.15em] text-[var(--chrono-blue)] align-middle"><span class="h-1.5 w-1.5 rounded-full bg-[var(--chrono-blue)] animate-pulse"></span>Running</span>';
                         } else if (block.status === 'paused') {
-                            badge = '<span class="text-xs uppercase tracking-wider text-amber-300 mr-2">Paused</span>';
+                            statusBadge = '<span class="ml-1 inline-flex items-center rounded-full bg-amber-400/10 border border-amber-400/40 px-2 py-0.5 text-[0.55rem] uppercase tracking-[0.15em] text-amber-300 align-middle">Paused</span>';
                         }
 
                         const endText = block.status === 'paused'
-                            ? '<span class="text-slate-500">— paused —</span>'
+                            ? '<span class="text-slate-500 italic">paused</span>'
                             : escapeHtml(formatTime12(block.end));
 
                         const labelText = block.label
                             || (block.source === 'countdown' ? 'Custom countdown' : 'Time block');
 
-                        // Three categories now: productive (emerald), wasted (rose),
-                        // neutral (slate — neither good nor bad, e.g. eating, transit,
-                        // chores). Clicking the chip cycles through them in order.
-                        const cat = block.category === 'wasted' ? 'wasted'
-                                  : block.category === 'neutral' ? 'neutral'
-                                  : 'productive';
+                        // Three categories: productive (emerald), wasted (rose),
+                        // neutral (slate). Clicking the chip cycles through them.
                         const chipStyles = {
-                            productive: { cls: 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/25', label: 'Productive' },
-                            wasted:     { cls: 'bg-rose-500/20 text-rose-200 border border-rose-500/50 hover:bg-rose-500/30', label: 'Wasted' },
-                            neutral:    { cls: 'bg-slate-500/15 text-slate-300 border border-slate-500/40 hover:bg-slate-500/25', label: 'Neutral' },
+                            productive: { cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/25', label: 'Productive' },
+                            wasted:     { cls: 'bg-rose-500/15 text-rose-200 border-rose-500/50 hover:bg-rose-500/25', label: 'Wasted' },
+                            neutral:    { cls: 'bg-slate-500/15 text-slate-300 border-slate-500/40 hover:bg-slate-500/25', label: 'Neutral' },
                         };
                         const chip = chipStyles[cat];
                         const categoryChip = `<button type="button" data-block-category` +
-                            ` class="ml-2 inline-flex items-center rounded-full px-2 py-0.5 text-[0.65rem] uppercase tracking-wider transition-colors ${chip.cls}"` +
+                            ` class="inline-flex items-center rounded-full border px-2 py-0.5 text-[0.6rem] uppercase tracking-[0.15em] transition-colors ${chip.cls}"` +
                             ` title="Click to cycle: productive → wasted → neutral">${chip.label}</button>`;
                         const goalChip = goalChipFor(block);
 
                         const editButton = block.status === 'completed'
-                            ? '<button class="text-[var(--chrono-blue)]" data-block-edit>Edit</button>'
+                            ? '<button class="rounded-md border border-slate-700 hover:border-[var(--chrono-blue)]/60 hover:text-[var(--chrono-blue)] text-xs px-2 py-1 text-slate-300 transition-colors" data-block-edit>Edit</button>'
                             : '';
 
+                        // Time cells: font-digital + nowrap so "12:45 PM" never
+                        // splits onto two lines. Reason cell allows word-wrap +
+                        // breaks so a long unspaced run (e.g. "ssssssssss…")
+                        // still stays inside its column.
+                        const accent = accentClassFor(block.status, cat);
                         tr.innerHTML = `
-                            <td class="py-3">${escapeHtml(formatTime12(block.start))}</td>
-                            <td class="py-3">${endText}</td>
-                            <td class="py-3">${escapeHtml(msToDurationLabel(block.durationMs))}</td>
-                            <td class="py-3">${badge}${escapeHtml(labelText)}${categoryChip}${goalChip}</td>
-                            <td class="py-3">
-                                <div class="flex gap-2">
+                            <td class="relative px-4 py-3 font-digital text-slate-100 whitespace-nowrap before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[3px] before:rounded-full ${accent}">
+                                ${escapeHtml(formatTime12(block.start))}
+                            </td>
+                            <td class="px-4 py-3 font-digital text-slate-100 whitespace-nowrap">
+                                ${endText}
+                            </td>
+                            <td class="px-4 py-3 whitespace-nowrap">
+                                <span class="inline-flex items-center rounded-md bg-slate-800/60 px-2 py-0.5 text-xs text-slate-200">
+                                    ${escapeHtml(msToDurationLabel(block.durationMs))}
+                                </span>
+                            </td>
+                            <td class="px-4 py-3 text-slate-100">
+                                <p class="break-words whitespace-pre-wrap leading-relaxed">${escapeHtml(labelText)}${statusBadge}</p>
+                                <div class="mt-2 flex flex-wrap items-center gap-1.5">
+                                    ${categoryChip}${goalChip}
+                                </div>
+                            </td>
+                            <td class="px-4 py-3">
+                                <div class="flex justify-end gap-2">
                                     ${editButton}
-                                    <button class="text-[var(--chrono-red)]" data-block-delete>Delete</button>
+                                    <button class="rounded-md border border-rose-500/30 hover:border-rose-400 hover:bg-rose-500/10 text-xs px-2 py-1 text-rose-300 transition-colors" data-block-delete>Delete</button>
                                 </div>
                             </td>
                         `;
@@ -2363,10 +2747,47 @@
                     ambPending = null;
                 };
 
+                // Suppress retroactive re-prompts for the rest of the page
+                // session if the user dismissed the modal — otherwise we'd
+                // re-open it on every render. The pending flag stays in
+                // localStorage so a future page load can re-prompt.
+                let ambiguityQueueSuppressed = false;
+                const drainAmbiguityQueue = () => {
+                    if (ambiguityQueueSuppressed) return;
+                    if (ambPending) return;
+                    const blocks = loadBlocks();
+                    const target = blocks.find((b) =>
+                        b.ambiguityPending === true && b.categoryManual !== true
+                    );
+                    if (!target) return;
+                    let analysis = null;
+                    try { analysis = analyzeLabel(target.label || ''); } catch (e) {}
+                    if (!analysis || analysis.category !== 'ambiguous') {
+                        // Stale flag — clear it and recurse.
+                        update(target.id, { ambiguityPending: false });
+                        drainAmbiguityQueue();
+                        return;
+                    }
+                    openAmbiguityModal({
+                        existingBlockId: target.id,
+                        start: target.start,
+                        end: target.end,
+                        durationMs: target.durationMs,
+                        label: target.label,
+                        analysis,
+                    });
+                };
+
                 const openAmbiguityModal = (pending) => {
                     if (!ambModal) {
                         // No modal in DOM (shouldn't happen). Fall back to the
                         // standard save path so we don't lose the user's work.
+                        // For retroactive (existingBlockId) cases, leave the
+                        // original block alone — bailing out is safer than
+                        // duplicating it via addWithSplit.
+                        if (pending.existingBlockId) {
+                            return;
+                        }
                         addWithSplit({
                             source: 'manual',
                             start: pending.start, end: pending.end,
@@ -2424,8 +2845,17 @@
 
                 ambWastedMin?.addEventListener('input', updateAmbSum);
                 ambProductiveMin?.addEventListener('input', updateAmbSum);
-                ambCancelBtn?.addEventListener('click', closeAmbModal);
-                ambModal?.addEventListener('click', (e) => { if (e.target === ambModal) closeAmbModal(); });
+                const closeAmbModalAndSuppress = () => {
+                    // User dismissed without resolving. Stop the retroactive
+                    // queue from re-opening on this page load — they can
+                    // re-trigger by refreshing or by editing the block.
+                    if (ambPending && ambPending.existingBlockId) {
+                        ambiguityQueueSuppressed = true;
+                    }
+                    closeAmbModal();
+                };
+                ambCancelBtn?.addEventListener('click', closeAmbModalAndSuppress);
+                ambModal?.addEventListener('click', (e) => { if (e.target === ambModal) closeAmbModalAndSuppress(); });
 
                 ambSplitBtn?.addEventListener('click', () => {
                     if (!ambPending) return;
@@ -2441,6 +2871,13 @@
                     if (p > 0) parts.push(`${p}m ${pLab}`);
                     const synthLabel = parts.join(' and ');
 
+                    // Retroactive case: an existing ambiguous block triggered
+                    // this modal. Remove it before adding the split blocks so
+                    // we don't duplicate.
+                    if (ambPending.existingBlockId) {
+                        remove(ambPending.existingBlockId);
+                    }
+
                     addWithSplit({
                         source: 'manual',
                         start: ambPending.start,
@@ -2452,32 +2889,52 @@
                     });
                     closeAmbModal();
                     setFormMode('add');
+                    drainAmbiguityQueue();
                 });
 
                 ambModal?.querySelectorAll('[data-amb-pick]').forEach((btn) => {
                     btn.addEventListener('click', () => {
                         if (!ambPending) return;
-                        const cat = btn.dataset.ambPick;       // 'productive' | 'wasted'
-                        // Save as a single block with the original label, but
-                        // force the category and mark it as a manual choice
-                        // so the migration loop won't reclassify it.
-                        const block = add({
-                            source: 'manual',
-                            start: ambPending.start,
-                            end: ambPending.end,
-                            durationMs: ambPending.durationMs,
-                            label: ambPending.label,
-                            status: 'completed',
-                            category: cat,
-                            categoryManual: true,
-                        });
+                        const cat = btn.dataset.ambPick;       // 'productive' | 'wasted' | 'neutral'
+
+                        if (ambPending.existingBlockId) {
+                            // Retroactive case: existing block already in the
+                            // store — just stamp the chosen category, mark it
+                            // manual, and clear the pending flag.
+                            update(ambPending.existingBlockId, {
+                                category: cat,
+                                categoryManual: true,
+                                ambiguityPending: false,
+                            });
+                        } else {
+                            // First-time save: create the block with the
+                            // chosen category locked in so the migration
+                            // loop won't reclassify it.
+                            add({
+                                source: 'manual',
+                                start: ambPending.start,
+                                end: ambPending.end,
+                                durationMs: ambPending.durationMs,
+                                label: ambPending.label,
+                                status: 'completed',
+                                category: cat,
+                                categoryManual: true,
+                            });
+                        }
                         closeAmbModal();
                         setFormMode('add');
+                        drainAmbiguityQueue();
                     });
                 });
 
                 if (saveBtn) saveBtn.addEventListener('click', handleSave);
                 if (cancelBtn) cancelBtn.addEventListener('click', handleCancel);
+
+                // Retroactive ambiguity prompt: any block stamped with
+                // ambiguityPending by the migration IIFE above gets a modal
+                // on next render so the user can finally split or pick a
+                // category. Defer one tick so the initial render runs first.
+                setTimeout(drainAmbiguityQueue, 0);
 
                 tbody.addEventListener('click', (e) => {
                     const categoryBtn = e.target.closest('[data-block-category]');
@@ -4229,6 +4686,41 @@
                     month: document.querySelector('[data-period-section="month"]'),
                     year: document.querySelector('[data-period-section="year"]'),
                 };
+
+                // ── Long-range panel toggle ──────────────────────────────
+                // Month + year sections are wrapped in #longrange_panel and
+                // hidden by default so the dashboard stays focused on the
+                // current week. The user's choice persists across reloads.
+                const LONGRANGE_KEY = 'chrono.longrangePanelOpen.v1';
+                const longrangePanel = document.getElementById('longrange_panel');
+                const longrangeBtn = document.querySelector('[data-longrange-toggle]');
+                const longrangeLabel = document.querySelector('[data-longrange-toggle-label]');
+                const longrangeChevron = document.querySelector('[data-longrange-toggle-chevron]');
+                const setLongrangeOpen = (open) => {
+                    if (!longrangePanel || !longrangeBtn) return;
+                    longrangePanel.classList.toggle('hidden', !open);
+                    longrangeBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+                    if (longrangeLabel) {
+                        longrangeLabel.textContent = open
+                            ? 'Hide month & year'
+                            : 'Show month & year';
+                    }
+                    if (longrangeChevron) {
+                        longrangeChevron.style.transform = open ? 'rotate(180deg)' : 'rotate(0deg)';
+                    }
+                    try { localStorage.setItem(LONGRANGE_KEY, open ? '1' : '0'); }
+                    catch { /* storage may be disabled */ }
+                };
+                if (longrangeBtn) {
+                    let initial = false;
+                    try { initial = localStorage.getItem(LONGRANGE_KEY) === '1'; }
+                    catch { /* default to hidden */ }
+                    setLongrangeOpen(initial);
+                    longrangeBtn.addEventListener('click', () => {
+                        const isOpen = longrangeBtn.getAttribute('aria-expanded') === 'true';
+                        setLongrangeOpen(!isOpen);
+                    });
+                }
 
                 const calcCalendarMonths = (start, end) => {
                     let months = (end.getFullYear() - start.getFullYear()) * 12

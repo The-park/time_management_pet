@@ -41,38 +41,6 @@
             </div>
         </section>
 
-        <section class="rounded-2xl border border-dashed border-slate-700/40 bg-slate-900/20 p-4 md:p-5">
-            <details>
-                <summary class="cursor-pointer text-xs uppercase tracking-[0.2em] text-slate-400 hover:text-slate-200">
-                    Test data tools
-                </summary>
-                <div class="mt-3 space-y-3">
-                    <p class="text-xs text-slate-500">
-                        These buttons synthesize realistic blocks across past dates so you can exercise the history views.
-                        Generated blocks have IDs prefixed <code class="text-slate-300">test_</code> so they can be cleared without touching real entries.
-                    </p>
-                    <div class="flex flex-wrap items-center gap-2">
-                        <button type="button" data-testdata-generate="120"
-                            class="rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100 px-3 py-2 text-sm">
-                            Generate 120 days
-                        </button>
-                        <button type="button" data-testdata-generate="400"
-                            class="rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100 px-3 py-2 text-sm">
-                            Generate 400 days (year-spanning)
-                        </button>
-                        <button type="button" data-testdata-clear-test
-                            class="rounded-lg border border-slate-600 hover:border-slate-400 text-slate-200 px-3 py-2 text-sm">
-                            Remove sample data only
-                        </button>
-                        <button type="button" data-testdata-clear-all
-                            class="rounded-lg border border-rose-700/60 hover:border-rose-500 text-rose-300 px-3 py-2 text-sm">
-                            Clear ALL blocks
-                        </button>
-                    </div>
-                    <p class="text-xs text-slate-400" data-testdata-status></p>
-                </div>
-            </details>
-        </section>
     </div>
 
     @push('scripts')
@@ -99,7 +67,6 @@
                 const contentEl = document.querySelector('[data-history-content]');
                 const titleEl = document.querySelector('[data-history-title]');
                 const backBtn = document.querySelector('[data-history-back]');
-                const statusEl = document.querySelector('[data-testdata-status]');
                 if (!contentEl) return;
 
                 const pad = (n) => String(n).padStart(2, '0');
@@ -680,99 +647,6 @@
                 });
 
                 window.addEventListener('chrono:blocks:changed', render);
-
-                // ──────────────────────── Test data tools ────────────────────────
-
-                const PRODUCTIVE_LABELS = [
-                    'Standup meeting', 'Code review', 'Feature implementation',
-                    'Bug fixing', 'Documentation', 'Email triage',
-                    'Pair programming', 'Design review', 'Lunch break',
-                    'Coffee break', 'Reading docs', 'Studying',
-                    'Architecture discussion', 'PR review', 'Testing',
-                    'Deep work', 'Focused coding', 'Refactoring',
-                    '1:1 meeting', 'Planning', 'Retrospective',
-                ];
-                const WASTED_LABELS = [
-                    'Scrolling youtube', 'Reddit browsing', 'Social media catch-up',
-                    'Procrastinating on twitter', 'Idle browsing',
-                    'Wasted on instagram', 'Doomscrolling tiktok',
-                    'Mindless reddit', 'Unproductive scrolling',
-                ];
-
-                const rand = (min, max) => min + Math.floor(Math.random() * (max - min + 1));
-                const minToHHMM = (m) => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
-
-                const generateSampleData = (daysBack) => {
-                    const existing = loadBlocks();
-                    const generated = [];
-                    const now = new Date();
-                    for (let i = daysBack; i >= 1; i--) {
-                        const d = new Date(now);
-                        d.setDate(d.getDate() - i);
-                        const dateStr = localDateString(d);
-                        const isWeekend = d.getDay() === 0 || d.getDay() === 6;
-                        let cursor = (isWeekend ? 10 : 9) * 60;
-                        const endLimit = 18 * 60;
-                        const numBlocks = isWeekend ? rand(2, 5) : rand(4, 8);
-                        for (let j = 0; j < numBlocks && cursor + 30 <= endLimit; j++) {
-                            const duration = [30, 45, 60, 90, 120][rand(0, 4)];
-                            const blockEnd = Math.min(cursor + duration, endLimit);
-                            const wastedRoll = isWeekend ? 0.35 : 0.15;
-                            const isWasted = Math.random() < wastedRoll;
-                            const labels = isWasted ? WASTED_LABELS : PRODUCTIVE_LABELS;
-                            const label = labels[rand(0, labels.length - 1)];
-                            generated.push({
-                                id: `test_${dateStr}_${j}_${Math.random().toString(36).slice(2, 8)}`,
-                                source: 'manual',
-                                date: dateStr,
-                                start: minToHHMM(cursor),
-                                end: minToHHMM(blockEnd),
-                                durationMs: (blockEnd - cursor) * 60000,
-                                label,
-                                status: 'completed',
-                                category: isWasted ? 'wasted' : 'productive',
-                            });
-                            cursor = blockEnd + rand(0, 4) * 15;
-                        }
-                    }
-                    saveBlocks([...existing, ...generated]);
-                    window.dispatchEvent(new CustomEvent('chrono:blocks:changed'));
-                    return generated.length;
-                };
-
-                const setStatus = (msg) => {
-                    if (!statusEl) return;
-                    statusEl.textContent = msg;
-                };
-
-                document.querySelectorAll('[data-testdata-generate]').forEach((btn) => {
-                    btn.addEventListener('click', () => {
-                        if (!window.ChronoAuthRequire?.('generate sample data')) return;
-                        const days = Number(btn.dataset.testdataGenerate) || 120;
-                        if (!confirm(`Generate ~${days} days of synthetic time blocks? Existing blocks won't be touched.`)) return;
-                        const n = generateSampleData(days);
-                        setStatus(`Generated ${n} sample blocks across ${days} days.`);
-                    });
-                });
-
-                document.querySelector('[data-testdata-clear-test]')?.addEventListener('click', () => {
-                    if (!window.ChronoAuthRequire?.('clear sample data')) return;
-                    if (!confirm('Remove only sample (test_*) blocks? Real blocks stay.')) return;
-                    const before = loadBlocks();
-                    const after = before.filter((b) => !String(b.id || '').startsWith('test_'));
-                    saveBlocks(after);
-                    window.dispatchEvent(new CustomEvent('chrono:blocks:changed'));
-                    setStatus(`Removed ${before.length - after.length} sample blocks.`);
-                });
-
-                document.querySelector('[data-testdata-clear-all]')?.addEventListener('click', () => {
-                    if (!window.ChronoAuthRequire?.('clear all blocks')) return;
-                    if (!confirm('Permanently delete ALL time blocks (real and sample)? This cannot be undone.')) return;
-                    const n = loadBlocks().length;
-                    saveBlocks([]);
-                    window.dispatchEvent(new CustomEvent('chrono:blocks:changed'));
-                    setStatus(`Cleared ${n} blocks.`);
-                });
 
                 render();
             })();

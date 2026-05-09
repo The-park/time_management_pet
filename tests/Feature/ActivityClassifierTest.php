@@ -218,6 +218,99 @@ test('classify endpoint surfaces ambiguity reason and candidates', function () {
         ->assertJsonStructure(['detail', 'candidates']);
 });
 
+test('classifier flags gibberish input as unproductive', function () {
+    $this->svc->train();
+
+    // The user's exact reference case (the screenshot phrase that
+    // wrongly logged as PRODUCTIVE before the fix).
+    expect($this->svc->predict("sssssssssssssssssssss dss fdsdrs asd asd awdaesd"))
+        ->toBe(ActivityClassifierService::UNPRODUCTIVE);
+
+    // Repeated short tokens
+    expect($this->svc->predict('asd asd asd asd asd'))
+        ->toBe(ActivityClassifierService::UNPRODUCTIVE);
+    expect($this->svc->predict('abc abc abc abc abc'))
+        ->toBe(ActivityClassifierService::UNPRODUCTIVE);
+
+    // Repeated-substring tokens
+    expect($this->svc->predict('qweqweqwe asdasdasd'))
+        ->toBe(ActivityClassifierService::UNPRODUCTIVE);
+
+    // Long repeated character runs
+    expect($this->svc->predict('aaaaaaaaaaaa bbbbbb'))
+        ->toBe(ActivityClassifierService::UNPRODUCTIVE);
+
+    // Symbol-only / numeric-only
+    expect($this->svc->predict('@@@@@'))
+        ->toBe(ActivityClassifierService::UNPRODUCTIVE);
+    expect($this->svc->predict('123 456 789'))
+        ->toBe(ActivityClassifierService::UNPRODUCTIVE);
+});
+
+test('classifier preserves real short activity words (gym/ran/nap)', function () {
+    // Regression guard against an earlier over-fix where the gibberish
+    // gate's "≤3 chars + ≤1 token" rule wrongly caught real 3-char
+    // activity words.
+    $this->svc->train();
+
+    expect($this->svc->predict('gym'))
+        ->toBe(ActivityClassifierService::PRODUCTIVE);
+    expect($this->svc->predict('studied'))
+        ->toBe(ActivityClassifierService::PRODUCTIVE);
+    expect($this->svc->predict('tiktok'))
+        ->toBe(ActivityClassifierService::UNPRODUCTIVE);
+});
+
+test('classifier flags mixed gibberish + real content as ambiguous', function () {
+    $this->svc->train();
+
+    // The user's reference phrase — gibberish prefix + productive content
+    expect($this->svc->predict('ert eeeeeeeee dfdf sd and started studying for 5 hrs and did labs for 3 hrs'))
+        ->toBe(ActivityClassifierService::AMBIGUOUS);
+
+    // Two keyboard-mash tokens + productive content
+    expect($this->svc->predict('asdf jkl and finished my essay for 3 hours'))
+        ->toBe(ActivityClassifierService::AMBIGUOUS);
+
+    // Heavy-repeated-char prefix + productive content
+    expect($this->svc->predict('aaaaaa bbbbb but actually coded for 5 hours'))
+        ->toBe(ActivityClassifierService::AMBIGUOUS);
+});
+
+test('classifier flags mixed productive + unproductive durations as ambiguous', function () {
+    $this->svc->train();
+
+    expect($this->svc->predict('studied for 2 hours and scrolled tiktok for 3 hours'))
+        ->toBe(ActivityClassifierService::AMBIGUOUS);
+    expect($this->svc->predict('did 1 hour of leetcode then 2 hours of reels'))
+        ->toBe(ActivityClassifierService::AMBIGUOUS);
+});
+
+test('classifier preserves productive phrases with abbreviations and number-units', function () {
+    // Regression: 3-letter abbreviations (jwt, sdk, css, ddd) and
+    // number-unit tokens (200m, 5km) were wrongly flagged as gibberish,
+    // making productive phrases trip the mixed-gibberish ambiguous path.
+    $this->svc->train();
+
+    expect($this->svc->predict('finished implementing the user authentication module with jwt tokens'))
+        ->toBe(ActivityClassifierService::PRODUCTIVE);
+    expect($this->svc->predict('studied chapter 7 of ddd by eric evans on aggregates'))
+        ->toBe(ActivityClassifierService::PRODUCTIVE);
+    expect($this->svc->predict('ran sprints at the track 8 reps of 200m'))
+        ->toBe(ActivityClassifierService::PRODUCTIVE);
+});
+
+test('classifyDetailed returns gibberish reason with detail message', function () {
+    $this->svc->train();
+
+    $result = $this->svc->classifyDetailed('sssssss dss fdsdrs asd');
+
+    expect($result['label'])->toBe(ActivityClassifierService::UNPRODUCTIVE);
+    expect($result['reason'])->toBe('gibberish');
+    expect($result['detail'])->toBeString()
+        ->and($result['detail'])->toContain('real activity');
+});
+
 test('feedback endpoint accepts ambiguous as a valid label', function () {
     $user = User::factory()->create();
     (new ActivityClassifierService())->loadOrTrain();

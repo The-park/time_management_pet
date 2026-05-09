@@ -384,6 +384,45 @@ class ActivityClassifierService
     {
         $normalised = $this->normalise($text);
 
+        // Mixed-gibberish gate — runs FIRST. The phrase has ANY gibberish
+        // token AND clearly-real activity content (e.g. "asdf jkl and
+        // finished my essay for 3 hours" — 2 gibberish tokens out of 9).
+        // Even at low gibberish density, the presence of any non-word
+        // mixed with real content is a signal the user should clarify.
+        if ($this->hasGibberishPresence($normalised) && $this->hasRealActivityContent($normalised)) {
+            return [
+                'label'      => self::AMBIGUOUS,
+                'reason'     => 'mixed-gibberish',
+                'detail'     => 'Your entry mixes gibberish with real activity content — please clean up the description or pick a category.',
+                'candidates' => [self::PRODUCTIVE, self::UNPRODUCTIVE],
+            ];
+        }
+
+        // Mixed-explicit-durations gate: phrase has BOTH a productive
+        // duration ("studied for 2 hours") AND an unproductive duration
+        // ("scrolled tiktok for 3 hours"). Routes to ambiguous so the
+        // user can pick which dominated, rather than silently picking
+        // one via verdict-pattern ordering.
+        if ($this->hasMixedExplicitDurations($normalised)) {
+            return [
+                'label'      => self::AMBIGUOUS,
+                'reason'     => 'mixed-durations',
+                'detail'     => 'Your entry describes both productive and unproductive activities with explicit durations — please pick which dominated, or split into separate blocks.',
+                'candidates' => [self::PRODUCTIVE, self::UNPRODUCTIVE],
+            ];
+        }
+
+        // Pure gibberish gate — fires only when there's no real content.
+        // Per product decision, pure gibberish saves as UNPRODUCTIVE.
+        if ($this->looksLikeGibberish($normalised)) {
+            return [
+                'label'      => self::UNPRODUCTIVE,
+                'reason'     => 'gibberish',
+                'detail'     => "That doesn't look like a real activity. Please describe what you actually did.",
+                'candidates' => [self::UNPRODUCTIVE],
+            ];
+        }
+
         // 0. Strong-verdict short-circuit. When the text contains an
         // unambiguous closing word like "finished the assignment" or
         // "whole day got wasted", trust that signal — even if there's a
@@ -484,6 +523,215 @@ class ActivityClassifierService
      * "wanted to scroll but finished the assignment" are forced to
      * ambiguous because the conflict pattern is so dominant in training.
      */
+    /**
+     * Returns true if ANY token in the phrase looks like gibberish.
+     * Used together with hasRealActivityContent to detect mixed input
+     * — even a single keyboard-mash token alongside real content should
+     * route to AMBIGUOUS so the user clarifies. (Distinct from
+     * looksLikeGibberish which requires majority gibberish.)
+     */
+    private function hasAnyGibberishToken(string $text): bool
+    {
+        $tokens = preg_split('/[^a-z0-9]+/i', strtolower($text)) ?: [];
+        $tokens = array_values(array_filter($tokens, fn ($t) => $t !== ''));
+        foreach ($tokens as $t) {
+            if ($this->isLikelyGibberishToken($t)) return true;
+        }
+        // Heavy repeated-character runs anywhere ("eeeeeeeee" mid-phrase)
+        if (preg_match('/(.)\1{4,}/', strtolower($text))) return true;
+        return false;
+    }
+
+    /**
+     * Detects phrases with BOTH a productive duration AND an unproductive
+     * duration ("studied for 2 hours and scrolled tiktok for 3 hours").
+     * Used to short-circuit verdict patterns and route to AMBIGUOUS so
+     * the user can pick or split the block.
+     */
+    private function hasMixedExplicitDurations(string $text): bool
+    {
+        // Pattern A: "<productive verb> ... for N (hours|min)"
+        $pA = preg_match(
+            '/\b(studied|studying|study|coded|coding|wrote|writing|read|reading|practiced|practicing|exercised|exercising|ran|running|trained|training|focused|journaled|did|finished|completed|reviewed|drafted|cooked|cleaned|prepped|attended|joined|gym|workout|leetcode|essay|report|project|assignment|labs?|homework|paper|chapter|notes|flashcards)\s+(\w+\s+){0,5}for\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|an?)\s*(h|hr|hrs|hour|hours|min|minute|minutes)\b/i',
+            $text
+        );
+        // Pattern B: "did N hour(s) of <productive>" / "spent N hour on <productive>"
+        $pB = preg_match(
+            '/\b(did|spent|put\s+in|got\s+in|completed)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|an?)\s*(h|hr|hrs|hour|hours|min|minute|minutes)\s+(of|on)\s+(\w+\s+){0,2}(study|coding|reading|writing|leetcode|dsa|gym|workout|exercise|yoga|meditation|deep\s+work|focused\s+work|practice|review|revision|essay|report|project|homework)/i',
+            $text
+        );
+        $hasProductiveDuration = $pA || $pB;
+
+        // Pattern A': unproductive verb + for N (hours|min)
+        $uA = preg_match(
+            '/\b(scrolled|scrolling|tiktok|reels|youtube|netflix|reddit|instagram|twitter|facebook|watched|watching|binged|binging|doomscrolled|doomscrolling|gamed|gaming|napped|napping|valorant|fortnite|minecraft|roblox|fifa|apex|dota|league|csgo|pubg|cod)\s+(\w+\s+){0,5}for\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|an?)\s*(h|hr|hrs|hour|hours|min|minute|minutes)\b/i',
+            $text
+        );
+        // Pattern B': "N hour(s) of <unproductive>" — "2 hours of reels", "1 hr of tiktok"
+        $uB = preg_match(
+            '/\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|an?)\s*(h|hr|hrs|hour|hours|min|minute|minutes)\s+(of|on)\s+(\w+\s+){0,2}(reels|tiktok|youtube|netflix|reddit|instagram|twitter|facebook|scrolling|gaming|browsing|memes|videos|shorts|nap|napping|tv|valorant|fortnite|minecraft|roblox|pubg|cod|csgo|dota|league|apex|fifa|warframe|destiny)\b/i',
+            $text
+        );
+        $hasUnproductiveDuration = $uA || $uB;
+
+        return $hasProductiveDuration && $hasUnproductiveDuration;
+    }
+
+    /**
+     * "Real activity content" detector. Used together with looksLikeGibberish
+     * to decide whether a phrase is PURE gibberish (→ unproductive) or
+     * MIXED gibberish + real content (→ ambiguous, user clarifies).
+     *
+     * Returns true if the phrase contains any of:
+     *   - explicit duration markers ("for 5 hrs", "all day")
+     *   - common productive activity verbs/nouns
+     *   - common unproductive platform/activity tokens
+     */
+    private function hasRealActivityContent(string $text): bool
+    {
+        $t = strtolower($text);
+
+        // Duration markers — strong signal that something concrete is described
+        if (preg_match('/\b(for|all)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|an?)\s*(h|hr|hrs|hour|hours|min|minute|minutes|mins)\b/i', $t)) return true;
+        if (preg_match('/\b(an\s+hour|two\s+hours|three\s+hours|four\s+hours|five\s+hours|six\s+hours|seven\s+hours|eight\s+hours|all\s+(day|night|morning|afternoon|evening|weekend))\b/i', $t)) return true;
+
+        // Productive activity verbs/nouns
+        if (preg_match('/\b(studied|studying|study|coded|coding|wrote|writing|read|reading|practiced|practicing|finished|completed|shipped|delivered|attended|ran|exercise|exercised|gym|workout|labs?|essay|chapter|project|assignment|homework|paper|thesis|dissertation|deep\s+work|focused\s+(work|session|study)|learning|learned|reviewed|revised|drafted|cooked|cleaned|prepped|organized|fixed|debugged|deployed|tutored|mentored|presented|interview|exam|test|quiz|flashcards|leetcode|dsa|meditation|yoga|stretching|breathing)\b/i', $t)) return true;
+
+        // Unproductive activity verbs/nouns
+        if (preg_match('/\b(scrolled|scrolling|tiktok|reels|youtube|netflix|reddit|instagram|twitter|facebook|watched|watching|binged|binging|doomscrolled|doomscrolling|gamed|gaming|napped|napping|nap|hungover|wasted|procrastinated|procrastinating|valorant|fortnite|minecraft|roblox|fifa|apex|dota|league|csgo|pubg|cod)\b/i', $t)) return true;
+
+        return false;
+    }
+
+    /**
+     * Gibberish detector — mirrors the dashboard JS isLikelyGibberishToken
+     * + looksLikeGibberish logic. A phrase is gibberish if at least 50%
+     * of its tokens are non-words (heavy repeated runs, no-vowel short
+     * tokens, keyboard-row mash, very low vowel ratio), or if the phrase
+     * contains a long repeated-character run, or is symbol/numeric-only.
+     */
+    private function looksLikeGibberish(string $text): bool
+    {
+        $text = trim($text);
+        if ($text === '') return false;
+
+        $tokens = preg_split('/[^a-z0-9]+/i', strtolower($text)) ?: [];
+        $tokens = array_values(array_filter($tokens, fn ($t) => $t !== ''));
+        $total  = count($tokens);
+        if ($total === 0) return true; // pure symbols / whitespace
+
+        // Symbol/numeric-only phrase
+        if (! preg_match('/[a-z]/', $text)) return true;
+
+        // Whole phrase very short ("x", "ww") — but exclude legitimate
+        // 3-char words like "gym", "ran", "nap" that are real activities.
+        $stripped = preg_replace('/\s/', '', $text);
+        if (strlen($stripped) <= 2 && $total <= 1) return true;
+
+        // Heavy repeated-character runs ("ssssss" / "aaaaaaaa")
+        if (preg_match('/(.)\1{4,}/', strtolower($text))) return true;
+
+        // Short-token repetition: "asd asd asd asd asd", "yo yo yo yo",
+        // "abc abc abc abc abc". A token of ≤4 chars repeated 3+ times
+        // is almost always meaningless.
+        $tokenCounts = array_count_values($tokens);
+        foreach ($tokenCounts as $tk => $count) {
+            if (strlen($tk) <= 4 && $count >= 3) return true;
+        }
+
+        // Phrase-level vowel ratio: real text is ~38% vowels. Keyboard
+        // mash drops to 10-20%. Length ≥ 8 to avoid false-positives on
+        // short legitimate words.
+        $alphaOnly = preg_replace('/[^a-z]/', '', strtolower($text));
+        $alphaLen  = strlen($alphaOnly);
+        if ($alphaLen >= 8) {
+            $vowelCount = preg_match_all('/[aeiouy]/', $alphaOnly);
+            if (($vowelCount / $alphaLen) < 0.20) return true;
+        }
+
+        $hits = 0;
+        foreach ($tokens as $t) {
+            if ($this->isLikelyGibberishToken($t)) $hits++;
+        }
+        return ($hits / $total) >= 0.5;
+    }
+
+    private function isLikelyGibberishToken(string $token): bool
+    {
+        if ($token === '') return false;
+        if (! preg_match('/[a-z]/', $token)) return false;
+        // Number + unit suffix ("200m", "5km", "30s", "10kg") — these are
+        // measurements, not gibberish. Skip the no-vowel check on them.
+        $isNumberUnit = (bool) preg_match('/^\d+[a-z]{1,3}$/', $token);
+        // Repeated character run
+        if (preg_match('/(.)\1{3,}/', $token)) return true;
+        // Repeated-substring token: "qweqweqwe", "asdasdasd", "abcabc"
+        if (preg_match('/^(\w{2,4})\1{1,}$/', $token) && strlen($token) >= 4) return true;
+        $vowels = preg_match_all('/[aeiouy]/', $token);
+        $len    = strlen($token);
+        if ($len === 0) return false;
+        if ($isNumberUnit) return false;
+        // No-vowel tokens — require length ≥ 4 to skip common 3-letter
+        // abbreviations like "sdk", "jwt", "rfc", "sql", "css", "ddd",
+        // "aws", "v16" that would otherwise trip false positives.
+        if ($len >= 4 && $vowels === 0) return true;
+        // Mid-length tokens with very low vowel ratio
+        if ($len >= 6 && ($vowels / $len) < 0.20) return true;
+        // Keyboard-row mash patterns (forward + reverse) — include 3-char
+        // patterns ("jkl", "hjk") since those are clear keyboard mash.
+        if ($len >= 3 && preg_match('/^(qwer|asdf|zxcv|jkl|hjk|fgh|tyui|uiop|sdfg|dfgh|ghjk|cvbn|bnm|wert|erty|rtyu|fghj|hjkl|ytre|trewq|ewq|poiu|lkjhg|mnbvc|kuy|sdfg|dsf|wsx|edc|rfv|tgb|yhn|ujm|qaz|wsx)/i', $token)) return true;
+        return false;
+    }
+
+    /**
+     * Looser gibberish-presence check used together with hasRealActivityContent
+     * to detect MIXED input. Fires when:
+     *   - ≥ 2 gibberish tokens, OR
+     *   - heavy repeated-character run anywhere in the phrase
+     *
+     * Distinct from looksLikeGibberish which requires majority gibberish
+     * for the "save as wasted" pure-gibberish path.
+     */
+    private function hasGibberishPresence(string $text): bool
+    {
+        if (preg_match('/(.)\1{4,}/', strtolower($text))) return true;
+        $tokens = preg_split('/[^a-z0-9]+/i', strtolower($text)) ?: [];
+        $tokens = array_values(array_filter($tokens, fn ($t) => $t !== ''));
+
+        // Short-token repetition: same ≤4-char token appearing 3+ times.
+        // Restricted to tokens that ALSO look gibberish-shaped, so common
+        // English words ("the the the", "no no no") repeated naturally
+        // don't trigger.
+        $tokenCounts = array_count_values($tokens);
+        static $stopwords = [
+            'the','a','an','of','and','or','but','so','for','no','not',
+            'all','any','can','did','do','get','got','has','had','have',
+            'you','your','my','me','i','was','were','be','been','am',
+            'is','are','with','on','in','at','to','from','by','just',
+            'up','down','out','over','this','that','these','those',
+            'then','when','where','what','why','how','very','much',
+            'more','less','also','again','today','tonight','yesterday',
+            'tomorrow','it','its','will','would','could','should','may',
+            'might','if','as','than','too','very','only','one','two',
+            'three','zero','some','many','much','few',
+        ];
+        foreach ($tokenCounts as $tk => $count) {
+            if (strlen($tk) <= 4 && $count >= 3 && ! in_array($tk, $stopwords, true)) {
+                return true;
+            }
+        }
+
+        $hits = 0;
+        foreach ($tokens as $t) {
+            if ($this->isLikelyGibberishToken($t)) {
+                $hits++;
+                if ($hits >= 2) return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * Productive-tail exception: returns true if the LATER half of the
      * sentence (after a contrast/then connector) contains a decisive
@@ -1535,10 +1783,17 @@ class ActivityClassifierService
         ];
         static $unproductive = [
             'tiktok','reels','instagram','twitter','facebook','snapchat',
-            'discord','doomscrolling','doomscroll','scroll','scrolled',
+            'discord','doomscrolling','doomscroll','doomscrolled','scroll','scrolled',
             'scrolling','binge','binged','binging','lazy','wasted',
             'procrastinated','procrastinating','hungover','netflix',
             'youtube','twitch','cod','pubg','unproductive','reddit',
+            'gaming','gamed','game','browsing','browsed','lurking',
+            'lurked','memes','tweets','spotify','telegram','threads',
+            'tumblr','imdb','goodreads','aliexpress','shein','ebay',
+            'pinterest','tinder','hulu','prime','disney','hbo',
+            'crunchyroll','funimation','valorant','fortnite','minecraft',
+            'roblox','fifa','apex','dota','league','csgo','overwatch',
+            'genshin','warframe','destiny','runescape','wow',
         ];
         static $negators = ['no','not','never','didnt','skipped','skip','missed','avoided','instead','failed'];
 

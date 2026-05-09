@@ -46,7 +46,7 @@
             <div class="text-[0.65rem] uppercase tracking-[0.2em] text-slate-500">Change password (optional)</div>
             <div>
                 <label class="block text-xs uppercase tracking-[0.2em] text-slate-400 mb-1.5" for="password">New password</label>
-                <input id="password" name="password" type="password" autocomplete="new-password"
+                <input id="password" name="password" type="password" autocomplete="new-password" data-pw-strength
                     class="w-full rounded-lg bg-slate-950/60 border border-slate-800 px-3 py-2 text-slate-100 focus:border-rose-500/40 focus:outline-none focus:ring-1 focus:ring-rose-500/20">
                 @error('password')<p class="mt-1 text-xs text-rose-300">{{ $message }}</p>@enderror
                 <p class="mt-1 text-[0.65rem] text-slate-500">Min 10 chars, letters + digits. Leave blank to keep current.</p>

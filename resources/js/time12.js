@@ -132,7 +132,12 @@ const bindInput = (display) => {
         const members = document.querySelectorAll(`[data-time12-group="${groupName}"]`);
         const allValid = Array.from(members).every((el) => el.dataset.time12Valid === 'true');
         document.querySelectorAll(`[data-time12-gate="${groupName}"]`).forEach((btn) => {
-            btn.disabled = !allValid;
+            // Co-operate with the password-strength gate: when its script
+            // is active on this form, it sets data-pw-ready="0|1". Both
+            // conditions must hold to enable the submit button.
+            const pwGate = btn.dataset.pwReady;
+            const pwReady = pwGate === undefined ? true : pwGate === '1';
+            btn.disabled = !(allValid && pwReady);
         });
     };
 

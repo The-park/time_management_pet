@@ -627,6 +627,29 @@
             </div>
         </section>
 
+        {{-- Long-range stats (month + year) are hidden by default and
+             surfaced only when the user explicitly opens them. The button
+             below toggles both sections together so the dashboard stays
+             focused on the current week unless the user asks for more. --}}
+        <div class="flex items-center justify-between gap-3" data-longrange-toggle-row>
+            <div class="text-[0.6rem] uppercase tracking-[0.25em] text-slate-500">Longer-range stats</div>
+            <button type="button"
+                data-longrange-toggle
+                aria-expanded="false"
+                aria-controls="longrange_panel"
+                class="group inline-flex items-center gap-2 rounded-full border border-slate-700/70 bg-slate-900/40 px-3 py-1.5 text-[0.65rem] uppercase tracking-[0.2em] text-slate-300 hover:border-[var(--chrono-blue)]/60 hover:text-[var(--chrono-blue)] transition">
+                <span data-longrange-toggle-label>Show month &amp; year</span>
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                    class="h-3.5 w-3.5 transition-transform duration-200"
+                    data-longrange-toggle-chevron>
+                    <polyline points="6 9 12 15 18 9"/>
+                </svg>
+            </button>
+        </div>
+
+        <div id="longrange_panel" data-longrange-panel class="hidden space-y-6 md:space-y-8">
+
         @php $monthStats = $serverPeriodStats['month'] ?? null; @endphp
         <section class="chrono-panel rounded-2xl p-6 md:p-8" data-period-section="month">
             <div class="flex items-baseline justify-between gap-4">
@@ -853,6 +876,8 @@
                 </div>
             </div>
         </section>
+
+        </div> {{-- /#longrange_panel --}}
 
         <section id="custom-countdown" class="chrono-panel rounded-2xl p-6 md:p-8">
             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
@@ -1436,13 +1461,21 @@
                 // "sjdfhsjhsjdhsjdk" is mostly consonants. We don't reject
                 // gibberish — we just lower confidence so the UI can warn.
                 const isLikelyGibberishToken = (token) => {
-                    if (!token || token.length < 4) return false;       // short words are usually fine
-                    if (!/[a-z]/.test(token)) return false;             // ids/numbers are not "gibberish"
+                    if (!token) return false;
+                    if (!/[a-z]/.test(token)) return false;
+                    if (/(.)\1{3,}/.test(token)) return true;
+                    if (/^(\w{2,4})\1{1,}$/.test(token) && token.length >= 4) return true;
+                    // Number + unit ("200m", "5km", "30s") — measurements
+                    if (/^\d+[a-z]{1,3}$/.test(token)) return false;
                     const vowels = (token.match(/[aeiouy]/g) || []).length;
-                    const ratio = vowels / token.length;
-                    // English words usually have 30-50% vowels. <10% with
-                    // length >= 6 looks like keyboard-mash.
-                    return ratio < 0.10 && token.length >= 6;
+                    const ratio = token.length > 0 ? vowels / token.length : 0;
+                    // No-vowel tokens — require length ≥ 4 to skip common
+                    // 3-letter abbreviations (sdk, jwt, rfc, sql, css, etc.)
+                    if (token.length >= 4 && vowels === 0) return true;
+                    if (token.length >= 6 && ratio < 0.20) return true;
+                    // Keyboard-row mash patterns at length ≥ 3 (jkl, hjk)
+                    if (token.length >= 3 && /^(qwer|asdf|zxcv|jkl|hjk|fgh|tyui|uiop|sdfg|dfgh|ghjk|cvbn|bnm|wert|erty|rtyu|fghj|hjkl|ytre|trewq|ewq|poiu|lkjhg|mnbvc|wsx|edc|rfv|tgb|yhn|ujm|qaz)/i.test(token)) return true;
+                    return false;
                 };
 
                 // Score one token against a keyword list using the existing
@@ -1679,10 +1712,30 @@
                     // Gibberish detection: most tokens look like keyboard mash
                     const totalTokens = tokens.length;
                     const gibberishHits = tokens.filter(isLikelyGibberishToken).length;
-                    const looksLikeGibberish =
-                        totalTokens > 0
-                        && gibberishHits / totalTokens >= 0.6
-                        && totalTokens <= 4;
+                    let looksLikeGibberish = totalTokens > 0 && gibberishHits / totalTokens >= 0.5;
+                    // Heavy repeated-character runs ("ssssss")
+                    if ((lower.match(/(.)\1{4,}/g) || []).length >= 1) looksLikeGibberish = true;
+                    // Symbol/numeric-only phrase ("@@@@@" / "123 456 789")
+                    if (!/[a-z]/.test(lower) && totalTokens > 0) looksLikeGibberish = true;
+                    // Whole phrase very short ("x", "ww") — but allow real
+                    // 3-char activity words ("gym", "ran", "nap") through.
+                    const stripped = lower.replace(/\s/g, '');
+                    if (stripped.length <= 2 && totalTokens <= 1) looksLikeGibberish = true;
+                    // Short-token repetition: "asd asd asd" / "yo yo yo yo" /
+                    // "abc abc abc abc abc" — same ≤4-char token 3+ times
+                    const tokenCounts = {};
+                    tokens.forEach((t) => { tokenCounts[t] = (tokenCounts[t] || 0) + 1; });
+                    Object.keys(tokenCounts).forEach((tk) => {
+                        if (tk.length <= 4 && tokenCounts[tk] >= 3) looksLikeGibberish = true;
+                    });
+                    // Phrase-level vowel ratio: real text is ~38% vowels.
+                    // Keyboard mash drops to <20%. Length ≥ 8 to skip short
+                    // legitimate words.
+                    const alphaOnly = lower.replace(/[^a-z]/g, '');
+                    if (alphaOnly.length >= 8) {
+                        const vc = (alphaOnly.match(/[aeiouy]/g) || []).length;
+                        if ((vc / alphaOnly.length) < 0.20) looksLikeGibberish = true;
+                    }
 
                     // Wasted scoring (mirrors categorizeLabel logic)
                     let wastedScore = 0;
@@ -1733,9 +1786,66 @@
                     }
 
                     // ── Decide category ──────────────────────────────────
+                    // Mixed-gibberish presence: ≥2 gibberish tokens, OR a
+                    // heavy repeated run, OR a short ≤4-char token
+                    // repeated 3+ times ("ert ert ert"), alongside real
+                    // content → AMBIGUOUS.
+                    // Restrict short-token repetition to tokens that aren't
+                    // common English stopwords. Without this, sentences with
+                    // "the the the" naturally repeated trigger the rule.
+                    const stopwordSet = new Set([
+                        'the','a','an','of','and','or','but','so','for','no','not',
+                        'all','any','can','did','do','get','got','has','had','have',
+                        'you','your','my','me','i','was','were','be','been','am',
+                        'is','are','with','on','in','at','to','from','by','just',
+                        'up','down','out','over','this','that','these','those',
+                        'then','when','where','what','why','how','very','much',
+                        'more','less','also','again','today','tonight','yesterday',
+                        'tomorrow','it','its','will','would','could','should','may',
+                        'might','if','as','than','too','only','one','two','three',
+                        'zero','some','many','few',
+                    ]);
+                    let mixedShortRepeat = false;
+                    Object.keys(tokenCounts).forEach((tk) => {
+                        if (tk.length <= 4 && tokenCounts[tk] >= 3 && !stopwordSet.has(tk)) {
+                            mixedShortRepeat = true;
+                        }
+                    });
+                    const hasAnyGibberish = gibberishHits >= 2
+                        || (lower.match(/(.)\1{4,}/g) || []).length >= 1
+                        || (!/[a-z]/.test(lower) && totalTokens > 0)
+                        || mixedShortRepeat;
+                    const hasRealContent = productiveScore > 0
+                        || wastedScore > 0
+                        || result.hasDurations
+                        || /\b(for|all)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|an?)\s*(h|hr|hrs|hour|hours|min|minute|minutes|mins)\b/i.test(text)
+                        || /\b(studied|coded|wrote|read|practiced|finished|completed|shipped|gym|workout|essay|chapter|project|assignment|homework|labs?|dissertation|thesis|deep\s+work|leetcode|tiktok|reels|youtube|netflix|reddit|instagram|scrolled|watched|binged|gamed|napped)\b/i.test(text);
+
+                    if (hasAnyGibberish && hasRealContent) {
+                        result.category = 'ambiguous';
+                        result.confidence = 0.4;
+                        result.warnings.push('mixed-gibberish');
+                        result.suggestion = "Your entry mixes gibberish with real activity — please clean up the description or pick a category.";
+                        return result;
+                    }
+
+                    // Mixed-explicit-durations: phrase has BOTH a productive
+                    // duration AND an unproductive duration → AMBIGUOUS so
+                    // the user picks which dominated.
+                    const hasProdDur = /\b(studied|studying|study|coded|coding|wrote|writing|read|reading|practiced|exercised|ran|running|trained|focused|journaled|did|finished|completed|reviewed|drafted|cooked|cleaned|prepped|attended|gym|workout|leetcode|essay|report|project|assignment|labs?|homework|chapter|notes|flashcards)\s+(\w+\s+){0,5}for\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|an?)\s*(h|hr|hrs|hour|hours|min|minute|minutes)\b/i.test(text);
+                    const hasUnprodDur = /\b(scrolled|scrolling|tiktok|reels|youtube|netflix|reddit|instagram|twitter|facebook|watched|watching|binged|binging|doomscrolled|gamed|gaming|napped|napping|valorant|fortnite|minecraft|roblox|fifa|apex|dota|league|csgo|pubg|cod)\s+(\w+\s+){0,5}for\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|an?)\s*(h|hr|hrs|hour|hours|min|minute|minutes)\b/i.test(text);
+                    if (hasProdDur && hasUnprodDur) {
+                        result.category = 'ambiguous';
+                        result.confidence = 0.45;
+                        result.warnings.push('mixed-durations');
+                        result.suggestion = "Both productive and unproductive activities with explicit durations — please pick which dominated, or split into separate blocks.";
+                        return result;
+                    }
+
                     if (looksLikeGibberish) {
-                        result.category = 'unknown';
-                        result.confidence = 0.15;
+                        // Pure gibberish → wasted (per user UX choice).
+                        result.category = 'wasted';
+                        result.confidence = 0.55;
                         result.warnings.push('gibberish');
                         result.suggestion = "That doesn't look like a real activity. Add a few clear words about what you did.";
                         return result;
@@ -1931,6 +2041,13 @@
                 // the classifier on every block whose category was *not* manually overridden
                 // (categoryManual !== true). This way improvements to the algorithm propagate
                 // to existing blocks, while user clicks on the chip stick.
+                //
+                // Ambiguity-aware: if analyzeLabel decides the label is
+                // 'ambiguous' (mixed gibberish + content, mixed durations, etc.)
+                // we MUST NOT silently fall back to productive — that loses the
+                // signal entirely and the user never gets prompted to clarify.
+                // Instead we set ambiguityPending so the queue below can open
+                // the resolution modal for each affected block in turn.
                 (() => {
                     const blocks = loadBlocks();
                     let dirty = false;
@@ -1941,10 +2058,23 @@
                             dirty = true;
                         }
                         if (block.categoryManual !== true) {
-                            const next = categorizeLabel(block.label);
-                            if (block.category !== next) {
-                                block.category = next;
-                                dirty = true;
+                            let analysis = null;
+                            try { analysis = analyzeLabel(block.label || ''); } catch (e) {}
+                            if (analysis && analysis.category === 'ambiguous') {
+                                if (!block.ambiguityPending) {
+                                    block.ambiguityPending = true;
+                                    dirty = true;
+                                }
+                            } else {
+                                if (block.ambiguityPending) {
+                                    delete block.ambiguityPending;
+                                    dirty = true;
+                                }
+                                const next = categorizeLabel(block.label);
+                                if (block.category !== next) {
+                                    block.category = next;
+                                    dirty = true;
+                                }
                             }
                         } else if (!block.category) {
                             block.category = 'productive';
@@ -2566,10 +2696,47 @@
                     ambPending = null;
                 };
 
+                // Suppress retroactive re-prompts for the rest of the page
+                // session if the user dismissed the modal — otherwise we'd
+                // re-open it on every render. The pending flag stays in
+                // localStorage so a future page load can re-prompt.
+                let ambiguityQueueSuppressed = false;
+                const drainAmbiguityQueue = () => {
+                    if (ambiguityQueueSuppressed) return;
+                    if (ambPending) return;
+                    const blocks = loadBlocks();
+                    const target = blocks.find((b) =>
+                        b.ambiguityPending === true && b.categoryManual !== true
+                    );
+                    if (!target) return;
+                    let analysis = null;
+                    try { analysis = analyzeLabel(target.label || ''); } catch (e) {}
+                    if (!analysis || analysis.category !== 'ambiguous') {
+                        // Stale flag — clear it and recurse.
+                        update(target.id, { ambiguityPending: false });
+                        drainAmbiguityQueue();
+                        return;
+                    }
+                    openAmbiguityModal({
+                        existingBlockId: target.id,
+                        start: target.start,
+                        end: target.end,
+                        durationMs: target.durationMs,
+                        label: target.label,
+                        analysis,
+                    });
+                };
+
                 const openAmbiguityModal = (pending) => {
                     if (!ambModal) {
                         // No modal in DOM (shouldn't happen). Fall back to the
                         // standard save path so we don't lose the user's work.
+                        // For retroactive (existingBlockId) cases, leave the
+                        // original block alone — bailing out is safer than
+                        // duplicating it via addWithSplit.
+                        if (pending.existingBlockId) {
+                            return;
+                        }
                         addWithSplit({
                             source: 'manual',
                             start: pending.start, end: pending.end,
@@ -2627,8 +2794,17 @@
 
                 ambWastedMin?.addEventListener('input', updateAmbSum);
                 ambProductiveMin?.addEventListener('input', updateAmbSum);
-                ambCancelBtn?.addEventListener('click', closeAmbModal);
-                ambModal?.addEventListener('click', (e) => { if (e.target === ambModal) closeAmbModal(); });
+                const closeAmbModalAndSuppress = () => {
+                    // User dismissed without resolving. Stop the retroactive
+                    // queue from re-opening on this page load — they can
+                    // re-trigger by refreshing or by editing the block.
+                    if (ambPending && ambPending.existingBlockId) {
+                        ambiguityQueueSuppressed = true;
+                    }
+                    closeAmbModal();
+                };
+                ambCancelBtn?.addEventListener('click', closeAmbModalAndSuppress);
+                ambModal?.addEventListener('click', (e) => { if (e.target === ambModal) closeAmbModalAndSuppress(); });
 
                 ambSplitBtn?.addEventListener('click', () => {
                     if (!ambPending) return;
@@ -2644,6 +2820,13 @@
                     if (p > 0) parts.push(`${p}m ${pLab}`);
                     const synthLabel = parts.join(' and ');
 
+                    // Retroactive case: an existing ambiguous block triggered
+                    // this modal. Remove it before adding the split blocks so
+                    // we don't duplicate.
+                    if (ambPending.existingBlockId) {
+                        remove(ambPending.existingBlockId);
+                    }
+
                     addWithSplit({
                         source: 'manual',
                         start: ambPending.start,
@@ -2655,32 +2838,52 @@
                     });
                     closeAmbModal();
                     setFormMode('add');
+                    drainAmbiguityQueue();
                 });
 
                 ambModal?.querySelectorAll('[data-amb-pick]').forEach((btn) => {
                     btn.addEventListener('click', () => {
                         if (!ambPending) return;
-                        const cat = btn.dataset.ambPick;       // 'productive' | 'wasted'
-                        // Save as a single block with the original label, but
-                        // force the category and mark it as a manual choice
-                        // so the migration loop won't reclassify it.
-                        const block = add({
-                            source: 'manual',
-                            start: ambPending.start,
-                            end: ambPending.end,
-                            durationMs: ambPending.durationMs,
-                            label: ambPending.label,
-                            status: 'completed',
-                            category: cat,
-                            categoryManual: true,
-                        });
+                        const cat = btn.dataset.ambPick;       // 'productive' | 'wasted' | 'neutral'
+
+                        if (ambPending.existingBlockId) {
+                            // Retroactive case: existing block already in the
+                            // store — just stamp the chosen category, mark it
+                            // manual, and clear the pending flag.
+                            update(ambPending.existingBlockId, {
+                                category: cat,
+                                categoryManual: true,
+                                ambiguityPending: false,
+                            });
+                        } else {
+                            // First-time save: create the block with the
+                            // chosen category locked in so the migration
+                            // loop won't reclassify it.
+                            add({
+                                source: 'manual',
+                                start: ambPending.start,
+                                end: ambPending.end,
+                                durationMs: ambPending.durationMs,
+                                label: ambPending.label,
+                                status: 'completed',
+                                category: cat,
+                                categoryManual: true,
+                            });
+                        }
                         closeAmbModal();
                         setFormMode('add');
+                        drainAmbiguityQueue();
                     });
                 });
 
                 if (saveBtn) saveBtn.addEventListener('click', handleSave);
                 if (cancelBtn) cancelBtn.addEventListener('click', handleCancel);
+
+                // Retroactive ambiguity prompt: any block stamped with
+                // ambiguityPending by the migration IIFE above gets a modal
+                // on next render so the user can finally split or pick a
+                // category. Defer one tick so the initial render runs first.
+                setTimeout(drainAmbiguityQueue, 0);
 
                 tbody.addEventListener('click', (e) => {
                     const categoryBtn = e.target.closest('[data-block-category]');
@@ -4432,6 +4635,41 @@
                     month: document.querySelector('[data-period-section="month"]'),
                     year: document.querySelector('[data-period-section="year"]'),
                 };
+
+                // ── Long-range panel toggle ──────────────────────────────
+                // Month + year sections are wrapped in #longrange_panel and
+                // hidden by default so the dashboard stays focused on the
+                // current week. The user's choice persists across reloads.
+                const LONGRANGE_KEY = 'chrono.longrangePanelOpen.v1';
+                const longrangePanel = document.getElementById('longrange_panel');
+                const longrangeBtn = document.querySelector('[data-longrange-toggle]');
+                const longrangeLabel = document.querySelector('[data-longrange-toggle-label]');
+                const longrangeChevron = document.querySelector('[data-longrange-toggle-chevron]');
+                const setLongrangeOpen = (open) => {
+                    if (!longrangePanel || !longrangeBtn) return;
+                    longrangePanel.classList.toggle('hidden', !open);
+                    longrangeBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+                    if (longrangeLabel) {
+                        longrangeLabel.textContent = open
+                            ? 'Hide month & year'
+                            : 'Show month & year';
+                    }
+                    if (longrangeChevron) {
+                        longrangeChevron.style.transform = open ? 'rotate(180deg)' : 'rotate(0deg)';
+                    }
+                    try { localStorage.setItem(LONGRANGE_KEY, open ? '1' : '0'); }
+                    catch { /* storage may be disabled */ }
+                };
+                if (longrangeBtn) {
+                    let initial = false;
+                    try { initial = localStorage.getItem(LONGRANGE_KEY) === '1'; }
+                    catch { /* default to hidden */ }
+                    setLongrangeOpen(initial);
+                    longrangeBtn.addEventListener('click', () => {
+                        const isOpen = longrangeBtn.getAttribute('aria-expanded') === 'true';
+                        setLongrangeOpen(!isOpen);
+                    });
+                }
 
                 const calcCalendarMonths = (start, end) => {
                     let months = (end.getFullYear() - start.getFullYear()) * 12

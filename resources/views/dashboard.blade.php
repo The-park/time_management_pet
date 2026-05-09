@@ -990,9 +990,9 @@
         </div>
 
         <section class="chrono-panel rounded-2xl p-6 md:p-8">
-            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div class="flex items-center justify-between gap-4">
                 <h2 class="font-display text-sm uppercase tracking-[0.3em] text-slate-300">Today's time blocks</h2>
-                <button class="rounded-lg border border-slate-600 px-4 py-2 text-sm">Add new block</button>
+                <span class="text-[0.65rem] uppercase tracking-[0.2em] text-slate-500" data-blocks-count></span>
             </div>
 
             <div data-edit-banner
@@ -1155,18 +1155,29 @@
                 </div>
             </div>
 
-            <div class="mt-6 overflow-x-auto">
-                <table class="min-w-full text-sm">
-                    <thead class="text-slate-400">
-                        <tr>
-                            <th class="text-left py-2">Start</th>
-                            <th class="text-left py-2">End</th>
-                            <th class="text-left py-2">Duration</th>
-                            <th class="text-left py-2">Reason / Activity</th>
-                            <th class="text-left py-2">Actions</th>
+            {{-- Polished table. table-fixed + explicit column widths keep the
+                 time / duration cells stable no matter how long the activity
+                 text is — long reasons wrap inline inside their cell instead
+                 of squeezing the others. --}}
+            <div class="mt-6 overflow-x-auto rounded-xl border border-slate-800/70">
+                <table class="w-full table-fixed text-sm">
+                    <colgroup>
+                        <col class="w-[112px]">
+                        <col class="w-[112px]">
+                        <col class="w-[88px]">
+                        <col>
+                        <col class="w-[140px]">
+                    </colgroup>
+                    <thead class="bg-slate-900/60">
+                        <tr class="text-[0.6rem] uppercase tracking-[0.2em] text-slate-400">
+                            <th class="text-left px-4 py-2.5 font-medium">Start</th>
+                            <th class="text-left px-4 py-2.5 font-medium">End</th>
+                            <th class="text-left px-4 py-2.5 font-medium">Duration</th>
+                            <th class="text-left px-4 py-2.5 font-medium">Reason / Activity</th>
+                            <th class="text-right px-4 py-2.5 font-medium">Actions</th>
                         </tr>
                     </thead>
-                    <tbody data-blocks-tbody></tbody>
+                    <tbody data-blocks-tbody class="divide-y divide-slate-800/60"></tbody>
                 </table>
             </div>
         </section>
@@ -1250,6 +1261,7 @@
             (() => {
                 const BLOCKS_KEY = 'chrono.timeBlocks.v1';
                 const tbody = document.querySelector('[data-blocks-tbody]');
+                const blocksCount = document.querySelector('[data-blocks-count]');
                 if (!tbody) return;
 
                 const pad = (n) => String(n).padStart(2, '0');
@@ -2238,10 +2250,8 @@
                 const render = () => {
                     // Strict calendar-day scope: only blocks whose date stamp matches the
                     // browser's current local date. A block logged at 11:30 PM is dated to
-                    // that calendar day and disappears from this table once the clock crosses
-                    // midnight; a block created at 12:30 AM is tagged to the new day. The
-                    // 10 PM sleep / 6 AM wake schedule does not affect this — calendar day
-                    // is the boundary.
+                    // that calendar day and disappears once the clock crosses midnight;
+                    // a block created at 12:30 AM is tagged to the new day.
                     const todayKey = localDateString();
                     const blocks = loadBlocks()
                         .filter((b) => b.date === todayKey)
@@ -2253,63 +2263,104 @@
                             return (a.id || '').localeCompare(b.id || '');
                         });
                     tbody.innerHTML = '';
+                    if (blocksCount) {
+                        blocksCount.textContent = blocks.length === 0
+                            ? ''
+                            : `${blocks.length} ${blocks.length === 1 ? 'block' : 'blocks'}`;
+                    }
 
                     if (blocks.length === 0) {
                         const tr = document.createElement('tr');
-                        tr.innerHTML = '<td class="py-3 text-slate-500" colspan="5">No blocks logged for today yet — start a countdown or log one manually.</td>';
+                        tr.innerHTML = `
+                            <td colspan="5" class="px-4 py-8 text-center text-sm text-slate-500">
+                                No blocks logged for today yet — start a countdown or log one manually.
+                            </td>
+                        `;
                         tbody.appendChild(tr);
                         return;
                     }
 
+                    // Per-row left-edge accent uses a thin coloured stripe in the
+                    // first cell rather than a row border (table-fixed cells don't
+                    // honour border-left consistently across browsers).
+                    const accentClassFor = (status, cat) => {
+                        if (status === 'active') return 'before:bg-[var(--chrono-blue)]';
+                        if (status === 'paused') return 'before:bg-amber-400';
+                        if (cat === 'wasted')    return 'before:bg-rose-400/70';
+                        if (cat === 'neutral')   return 'before:bg-slate-500/70';
+                        return 'before:bg-emerald-400/70';
+                    };
+
                     for (const block of blocks) {
                         const tr = document.createElement('tr');
-                        tr.className = 'border-t border-slate-800/60';
                         tr.dataset.blockId = block.id;
 
-                        let badge = '';
+                        const cat = block.category === 'wasted' ? 'wasted'
+                                  : block.category === 'neutral' ? 'neutral'
+                                  : 'productive';
+
+                        tr.className = [
+                            'group hover:bg-slate-900/40 transition-colors align-top',
+                        ].join(' ');
+
+                        let statusBadge = '';
                         if (block.status === 'active') {
-                            badge = '<span class="text-xs uppercase tracking-wider text-[var(--chrono-blue)] mr-2">Running</span>';
+                            statusBadge = '<span class="ml-1 inline-flex items-center gap-1 rounded-full bg-[var(--chrono-blue)]/15 border border-[var(--chrono-blue)]/40 px-2 py-0.5 text-[0.55rem] uppercase tracking-[0.15em] text-[var(--chrono-blue)] align-middle"><span class="h-1.5 w-1.5 rounded-full bg-[var(--chrono-blue)] animate-pulse"></span>Running</span>';
                         } else if (block.status === 'paused') {
-                            badge = '<span class="text-xs uppercase tracking-wider text-amber-300 mr-2">Paused</span>';
+                            statusBadge = '<span class="ml-1 inline-flex items-center rounded-full bg-amber-400/10 border border-amber-400/40 px-2 py-0.5 text-[0.55rem] uppercase tracking-[0.15em] text-amber-300 align-middle">Paused</span>';
                         }
 
                         const endText = block.status === 'paused'
-                            ? '<span class="text-slate-500">— paused —</span>'
+                            ? '<span class="text-slate-500 italic">paused</span>'
                             : escapeHtml(formatTime12(block.end));
 
                         const labelText = block.label
                             || (block.source === 'countdown' ? 'Custom countdown' : 'Time block');
 
-                        // Three categories now: productive (emerald), wasted (rose),
-                        // neutral (slate — neither good nor bad, e.g. eating, transit,
-                        // chores). Clicking the chip cycles through them in order.
-                        const cat = block.category === 'wasted' ? 'wasted'
-                                  : block.category === 'neutral' ? 'neutral'
-                                  : 'productive';
+                        // Three categories: productive (emerald), wasted (rose),
+                        // neutral (slate). Clicking the chip cycles through them.
                         const chipStyles = {
-                            productive: { cls: 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/25', label: 'Productive' },
-                            wasted:     { cls: 'bg-rose-500/20 text-rose-200 border border-rose-500/50 hover:bg-rose-500/30', label: 'Wasted' },
-                            neutral:    { cls: 'bg-slate-500/15 text-slate-300 border border-slate-500/40 hover:bg-slate-500/25', label: 'Neutral' },
+                            productive: { cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/25', label: 'Productive' },
+                            wasted:     { cls: 'bg-rose-500/15 text-rose-200 border-rose-500/50 hover:bg-rose-500/25', label: 'Wasted' },
+                            neutral:    { cls: 'bg-slate-500/15 text-slate-300 border-slate-500/40 hover:bg-slate-500/25', label: 'Neutral' },
                         };
                         const chip = chipStyles[cat];
                         const categoryChip = `<button type="button" data-block-category` +
-                            ` class="ml-2 inline-flex items-center rounded-full px-2 py-0.5 text-[0.65rem] uppercase tracking-wider transition-colors ${chip.cls}"` +
+                            ` class="inline-flex items-center rounded-full border px-2 py-0.5 text-[0.6rem] uppercase tracking-[0.15em] transition-colors ${chip.cls}"` +
                             ` title="Click to cycle: productive → wasted → neutral">${chip.label}</button>`;
                         const goalChip = goalChipFor(block);
 
                         const editButton = block.status === 'completed'
-                            ? '<button class="text-[var(--chrono-blue)]" data-block-edit>Edit</button>'
+                            ? '<button class="rounded-md border border-slate-700 hover:border-[var(--chrono-blue)]/60 hover:text-[var(--chrono-blue)] text-xs px-2 py-1 text-slate-300 transition-colors" data-block-edit>Edit</button>'
                             : '';
 
+                        // Time cells: font-digital + nowrap so "12:45 PM" never
+                        // splits onto two lines. Reason cell allows word-wrap +
+                        // breaks so a long unspaced run (e.g. "ssssssssss…")
+                        // still stays inside its column.
+                        const accent = accentClassFor(block.status, cat);
                         tr.innerHTML = `
-                            <td class="py-3">${escapeHtml(formatTime12(block.start))}</td>
-                            <td class="py-3">${endText}</td>
-                            <td class="py-3">${escapeHtml(msToDurationLabel(block.durationMs))}</td>
-                            <td class="py-3">${badge}${escapeHtml(labelText)}${categoryChip}${goalChip}</td>
-                            <td class="py-3">
-                                <div class="flex gap-2">
+                            <td class="relative px-4 py-3 font-digital text-slate-100 whitespace-nowrap before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[3px] before:rounded-full ${accent}">
+                                ${escapeHtml(formatTime12(block.start))}
+                            </td>
+                            <td class="px-4 py-3 font-digital text-slate-100 whitespace-nowrap">
+                                ${endText}
+                            </td>
+                            <td class="px-4 py-3 whitespace-nowrap">
+                                <span class="inline-flex items-center rounded-md bg-slate-800/60 px-2 py-0.5 text-xs text-slate-200">
+                                    ${escapeHtml(msToDurationLabel(block.durationMs))}
+                                </span>
+                            </td>
+                            <td class="px-4 py-3 text-slate-100">
+                                <p class="break-words whitespace-pre-wrap leading-relaxed">${escapeHtml(labelText)}${statusBadge}</p>
+                                <div class="mt-2 flex flex-wrap items-center gap-1.5">
+                                    ${categoryChip}${goalChip}
+                                </div>
+                            </td>
+                            <td class="px-4 py-3">
+                                <div class="flex justify-end gap-2">
                                     ${editButton}
-                                    <button class="text-[var(--chrono-red)]" data-block-delete>Delete</button>
+                                    <button class="rounded-md border border-rose-500/30 hover:border-rose-400 hover:bg-rose-500/10 text-xs px-2 py-1 text-rose-300 transition-colors" data-block-delete>Delete</button>
                                 </div>
                             </td>
                         `;

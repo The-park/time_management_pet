@@ -3,6 +3,7 @@ import Alpine from 'alpinejs';
 import './time12';
 import './password-toggle';
 import './password-strength';
+import './block-sync';
 
 window.Alpine = Alpine;
 

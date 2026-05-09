@@ -21,52 +21,34 @@ class ActivityClassifierCorpus
 {
     public const PRODUCTIVE = 'productive';
     public const UNPRODUCTIVE = 'unproductive';
-    public const AMBIGUOUS = 'ambiguous';
 
     /**
      * Returns the merged corpus in php-ml's expected shape:
      *   ['samples' => [...texts...], 'labels' => [...]]
      *
-     * Three classes — productive / unproductive / ambiguous — each
-     * de-duplicated case-insensitively. A phrase that ended up in more
-     * than one class is dropped from all of them as contradictory data.
+     * Both classes are de-duplicated and lowercased so a phrase that
+     * appears in two category bucket lists doesn't get double-weighted.
+     * Cross-class duplicates (a phrase appearing in BOTH productive and
+     * unproductive) are dropped from BOTH — they're contradictory training
+     * data.
      */
     public static function all(): array
     {
         $productive   = self::dedupe(self::productive());
         $unproductive = self::dedupe(self::unproductive());
-        $ambiguous    = self::dedupe(self::ambiguous());
 
-        // Drop any phrase that appears in more than one class.
-        $allClasses = [
-            self::PRODUCTIVE   => $productive,
-            self::UNPRODUCTIVE => $unproductive,
-            self::AMBIGUOUS    => $ambiguous,
-        ];
-        $seen = [];
-        $duplicated = [];
-        foreach ($allClasses as $class) {
-            foreach ($class as $text) {
-                if (isset($seen[$text])) {
-                    $duplicated[$text] = true;
-                } else {
-                    $seen[$text] = true;
-                }
-            }
-        }
-        if (! empty($duplicated)) {
-            $bad = array_keys($duplicated);
-            $productive   = array_values(array_diff($productive,   $bad));
-            $unproductive = array_values(array_diff($unproductive, $bad));
-            $ambiguous    = array_values(array_diff($ambiguous,    $bad));
+        // Drop any phrase that somehow ended up in both classes.
+        $contradictions = array_values(array_intersect($productive, $unproductive));
+        if (! empty($contradictions)) {
+            $productive   = array_values(array_diff($productive,   $contradictions));
+            $unproductive = array_values(array_diff($unproductive, $contradictions));
         }
 
         return [
-            'samples' => array_merge($productive, $unproductive, $ambiguous),
+            'samples' => array_merge($productive, $unproductive),
             'labels'  => array_merge(
                 array_fill(0, count($productive),   self::PRODUCTIVE),
                 array_fill(0, count($unproductive), self::UNPRODUCTIVE),
-                array_fill(0, count($ambiguous),    self::AMBIGUOUS),
             ),
         ];
     }
@@ -74,46 +56,10 @@ class ActivityClassifierCorpus
     public static function counts(): array
     {
         $merged = self::all();
-        $byClass = array_count_values($merged['labels']);
         return [
-            'productive'   => $byClass[self::PRODUCTIVE]   ?? 0,
-            'unproductive' => $byClass[self::UNPRODUCTIVE] ?? 0,
-            'ambiguous'    => $byClass[self::AMBIGUOUS]    ?? 0,
-            'total'        => count($merged['samples']),
+            'productive'    => array_count_values($merged['labels'])[self::PRODUCTIVE]   ?? 0,
+            'unproductive'  => array_count_values($merged['labels'])[self::UNPRODUCTIVE] ?? 0,
         ];
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
-    // Disk-backed seed loader
-    //
-    // The supplement seed files live in storage/app/classifier_corpus_seeds/
-    // and are flat newline-separated lists. Keeping them on disk (rather
-    // than inlined here) lets the corpus grow without bloating this file
-    // beyond review-friendly size, and the dedupe logic in all() handles
-    // any overlap with the inline lists below.
-    // ─────────────────────────────────────────────────────────────────────
-
-    private static function loadSeedFile(string $name): array
-    {
-        // storage_path() is unavailable when this class is loaded outside
-        // a Laravel context (e.g. unit-style usage), so fall back to a
-        // path relative to the app root.
-        $base = function_exists('storage_path')
-            ? storage_path('app/classifier_corpus_seeds')
-            : __DIR__.'/../../storage/app/classifier_corpus_seeds';
-        $path = $base.DIRECTORY_SEPARATOR.$name;
-        if (! is_file($path)) {
-            return [];
-        }
-        $raw = file_get_contents($path);
-        if ($raw === false) {
-            return [];
-        }
-        $lines = preg_split('/\r?\n/', $raw) ?: [];
-        return array_values(array_filter(
-            array_map('trim', $lines),
-            fn ($l) => $l !== '' && ! str_starts_with($l, '#'),
-        ));
     }
 
     private static function dedupe(array $texts): array
@@ -149,22 +95,7 @@ class ActivityClassifierCorpus
             self::pBareAnchors(),
             self::pSpentPatterns(),
             self::pAcademicPrep(),
-            self::loadSeedFile('productive_supplement.txt'),
         );
-    }
-
-    /**
-     * Ambiguous samples — entries the classifier should NOT decide
-     * binarily. Sourced from a curated seed file covering 10 sub-buckets:
-     * intent-vs-action contradictions without resolution, started-then-
-     * shifted with unclear outcome, truncated half-thoughts, mixed-bag
-     * without a clear ratio, hedged self-reports, productive-part-too-
-     * short-to-count, vague self-reports, X-but-Y without a clear winner,
-     * time-relative ambiguity, result-uncertain self-reflection.
-     */
-    public static function ambiguous(): array
-    {
-        return self::loadSeedFile('ambiguous_supplement.txt');
     }
 
     /**
@@ -964,7 +895,6 @@ class ActivityClassifierCorpus
             self::uExtraDoomscroll(),
             self::uExtraMindless(),
             self::uShortPhrases(),
-            self::loadSeedFile('unproductive_supplement.txt'),
         );
     }
 

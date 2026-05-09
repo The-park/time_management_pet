@@ -32,6 +32,7 @@ class Goal extends Model
     protected function casts(): array
     {
         return [
+            'user_id' => 'integer',
             'start_date' => 'date',
             'target_date' => 'date',
             'original_target_date' => 'date',

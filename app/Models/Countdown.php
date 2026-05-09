@@ -33,6 +33,7 @@ class Countdown extends Model
     protected function casts(): array
     {
         return [
+            'user_id' => 'integer',
             'started_at' => 'datetime',
             'paused_at' => 'datetime',
             'duration_seconds' => 'integer',

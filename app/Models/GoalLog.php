@@ -30,6 +30,8 @@ class GoalLog extends Model
     protected function casts(): array
     {
         return [
+            'user_id' => 'integer',
+            'goal_id' => 'integer',
             'old_value' => 'array',
             'new_value' => 'array',
             'reason' => 'encrypted',

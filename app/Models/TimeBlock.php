@@ -34,6 +34,7 @@ class TimeBlock extends Model
     protected function casts(): array
     {
         return [
+            'user_id' => 'integer',
             'start_time' => 'datetime',
             'end_time' => 'datetime',
             'duration_seconds' => 'integer',

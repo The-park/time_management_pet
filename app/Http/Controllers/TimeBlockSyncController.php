@@ -72,6 +72,14 @@ class TimeBlockSyncController extends Controller
             'blocks.*.durationMs' => ['required', 'numeric'],
             'blocks.*.label' => ['nullable', 'string', 'max:500'],
             'blocks.*.category' => ['nullable', 'string', 'in:productive,wasted,neutral'],
+            // categoryManual MUST be in the rule list. $request->validate()
+            // strips any unlisted key from the returned $data, so without
+            // this rule the controller can't see the user's manual chip
+            // toggle and category_manual stays false in DB — the dashboard's
+            // auto-classify migration then reverts the category on the next
+            // page load. Symptom: user toggles productive → wasted,
+            // refreshes, sees productive again. DO NOT REMOVE.
+            'blocks.*.categoryManual' => ['nullable', 'boolean'],
             'blocks.*.auto_filled' => ['nullable', 'boolean'],
         ]);
 
@@ -79,7 +87,18 @@ class TimeBlockSyncController extends Controller
         $hasManual = $this->hasCategoryManualColumn();
         $records = [];
 
-        foreach ($data['blocks'] as $b) {
+        // Defense in depth: even if the validation rule above gets stripped
+        // by an over-eager linter or merge conflict, we read categoryManual
+        // straight from the raw request input. The validator already ran
+        // through the matching key paths, so this is type-safe.
+        $rawBlocks = $request->input('blocks', []);
+
+        foreach ($data['blocks'] as $i => $b) {
+            $rawCategoryManual = filter_var(
+                data_get($rawBlocks, "$i.categoryManual"),
+                FILTER_VALIDATE_BOOLEAN,
+                FILTER_NULL_ON_FAILURE,
+            ) ?? false;
             try {
                 $start = Carbon::parse($b['date'].' '.$b['start']);
             } catch (Throwable $e) {
@@ -116,11 +135,13 @@ class TimeBlockSyncController extends Controller
                 'duration_seconds' => $duration,
                 'reason' => (string) ($b['label'] ?? ''),
                 'category' => $b['category'] ?? null,
-                'category_manual' => ! empty($b['categoryManual']),
                 'auto_filled' => ! empty($b['auto_filled']),
             ];
+            // Only write category_manual when the column exists on the DB.
+            // Pre-migration rollouts will skip it gracefully; a fresh
+            // server with the migration applied stores the user's choice.
             if ($hasManual) {
-                $row['category_manual'] = ! empty($b['categoryManual']);
+                $row['category_manual'] = $rawCategoryManual;
             }
             $records[] = $row;
         }

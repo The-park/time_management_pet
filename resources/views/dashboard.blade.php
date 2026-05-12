@@ -1093,6 +1093,20 @@
                     class="hidden rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-200">
                     Cancel
                 </button>
+                {{-- Copy-to-clipboard. Hidden when there are no blocks for
+                     today (the JS toggles `hidden`). Pastes as TSV so each
+                     value drops into its own column in Excel / Google
+                     Sheets without any "Text to Columns" step. --}}
+                <button id="block_copy_button" type="button" aria-live="polite"
+                    class="hidden rounded-lg border border-slate-700 hover:border-[var(--chrono-blue)]/60 hover:text-[var(--chrono-blue)] text-slate-200 px-4 py-2 text-sm inline-flex items-center gap-2 transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                        class="h-4 w-4" data-copy-icon>
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                    </svg>
+                    <span data-copy-label>Copy as CSV</span>
+                </button>
                 <p id="block_form_error" class="text-xs text-rose-400 hidden" aria-live="polite"></p>
             </div>
 
@@ -2335,6 +2349,86 @@
                     return `<span class="ml-2 inline-flex items-center rounded-full px-2 py-0.5 text-[0.65rem] uppercase tracking-wider bg-[color-mix(in_oklab,var(--chrono-blue)_15%,transparent)] text-[var(--chrono-blue)] border border-[var(--chrono-blue)]/30" title="${escapeHtml(titleAttr)}">→ ${escapeHtml(primary.title)}${extra}</span>`;
                 };
 
+                // ── Copy-to-clipboard for today's blocks ──────────────────
+                // The Copy button (block_copy_button) lives next to Log block.
+                // Visibility is driven by the render below: shown only when
+                // today has at least one logged block. The copied payload is
+                // tab-separated (TSV) — Excel and Google Sheets both auto-
+                // distribute TSV pasted from the clipboard into separate
+                // columns without a "Text to Columns" step.
+                const copyBtn = document.getElementById('block_copy_button');
+                const copyLabelEl = copyBtn?.querySelector('[data-copy-label]');
+                const buildCopyPayload = (blocks) => {
+                    const header = ['Date', 'Start', 'End', 'Duration', 'Category', 'Reason'];
+                    const escape = (v) => {
+                        const s = String(v ?? '');
+                        // Replace tabs / newlines so the row stays on one
+                        // line — Excel splits on \n which would corrupt
+                        // multi-line reasons.
+                        return s.replace(/\t/g, ' ').replace(/[\r\n]+/g, ' ');
+                    };
+                    const rows = blocks.map((b) => {
+                        const cat = b.category === 'wasted' ? 'Wasted'
+                                  : b.category === 'neutral' ? 'Neutral'
+                                  : 'Productive';
+                        return [
+                            b.date || '',
+                            formatTime12(b.start),
+                            b.status === 'paused' ? 'paused' : formatTime12(b.end),
+                            msToDurationLabel(b.durationMs),
+                            cat,
+                            b.label || '',
+                        ].map(escape).join('\t');
+                    });
+                    return [header.join('\t'), ...rows].join('\n');
+                };
+                const copyToClipboard = async (text) => {
+                    // navigator.clipboard requires HTTPS or localhost. Fall
+                    // back to a hidden textarea + execCommand for legacy
+                    // browsers / non-secure contexts.
+                    if (navigator.clipboard?.writeText) {
+                        try { await navigator.clipboard.writeText(text); return true; } catch {}
+                    }
+                    try {
+                        const ta = document.createElement('textarea');
+                        ta.value = text;
+                        ta.style.position = 'fixed';
+                        ta.style.left = '-9999px';
+                        document.body.appendChild(ta);
+                        ta.select();
+                        const ok = document.execCommand('copy');
+                        document.body.removeChild(ta);
+                        return ok;
+                    } catch { return false; }
+                };
+                let copyResetTimer = null;
+                copyBtn?.addEventListener('click', async () => {
+                    const todayKey = localDateString();
+                    const todays = loadBlocks()
+                        .filter((b) => b.date === todayKey)
+                        .sort((a, b) => {
+                            const aMin = hhmmToMinutes(a.start || '00:00');
+                            const bMin = hhmmToMinutes(b.start || '00:00');
+                            if (aMin !== bMin) return aMin - bMin;
+                            return (a.id || '').localeCompare(b.id || '');
+                        });
+                    if (todays.length === 0) return;
+                    const payload = buildCopyPayload(todays);
+                    const ok = await copyToClipboard(payload);
+                    if (copyLabelEl) {
+                        copyLabelEl.textContent = ok
+                            ? `Copied ${todays.length} ${todays.length === 1 ? 'row' : 'rows'}`
+                            : 'Copy failed';
+                    }
+                    copyBtn.classList.toggle('text-emerald-300', ok);
+                    copyBtn.classList.toggle('border-emerald-500/40', ok);
+                    if (copyResetTimer) clearTimeout(copyResetTimer);
+                    copyResetTimer = setTimeout(() => {
+                        if (copyLabelEl) copyLabelEl.textContent = 'Copy as CSV';
+                        copyBtn.classList.remove('text-emerald-300', 'border-emerald-500/40');
+                    }, 1800);
+                });
+
                 const render = () => {
                     // Strict calendar-day scope: only blocks whose date stamp matches the
                     // browser's current local date. A block logged at 11:30 PM is dated to
@@ -2355,6 +2449,13 @@
                         blocksCount.textContent = blocks.length === 0
                             ? ''
                             : `${blocks.length} ${blocks.length === 1 ? 'block' : 'blocks'}`;
+                    }
+                    // Copy button visibility: only shown when there's
+                    // something to copy. Reset to default label whenever we
+                    // re-render so the "Copied N rows" toast doesn't stick
+                    // around after the user adds another block.
+                    if (copyBtn) {
+                        copyBtn.classList.toggle('hidden', blocks.length === 0);
                     }
 
                     if (blocks.length === 0) {
@@ -3277,33 +3378,7 @@
                 window.addEventListener('chrono:blocks:changed', refreshContinueState);
                 refreshContinueState();
 
-                // Public helpers so the prediction-table IIFE (which lives in
-                // a separate closure) can drive the log form. We deliberately
-                // do NOT expose internals like setFormMode or editingBlockId —
-                // these wrappers handle the edit-mode escape hatch internally.
-                const publicSetStartEnd = (startHHMM, endHHMM) => {
-                    if (editingBlockId !== null) setFormMode('add');
-                    setTimeFieldFromHHMM(startDisplay, startHHMM);
-                    setTimeFieldFromHHMM(endDisplay,   endHHMM);
-                    clearBlockFormError();
-                };
-                const publicSetReason = (text) => {
-                    if (!reasonInput) return;
-                    reasonInput.value = text || '';
-                    // Re-fire input so reason-hint, char count, and auto-grow refresh.
-                    reasonInput.dispatchEvent(new Event('input', { bubbles: true }));
-                };
-                const publicFocusReason = () => reasonInput?.focus();
-                const publicScrollFormIntoView = () =>
-                    startDisplay?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-                window.ChronoBlocks = {
-                    add, addWithSplit, update, remove, render, get, dateToHHMM,
-                    setStartEnd: publicSetStartEnd,
-                    setReason:   publicSetReason,
-                    focusReason: publicFocusReason,
-                    scrollFormIntoView: publicScrollFormIntoView,
-                };
+                window.ChronoBlocks = { add, addWithSplit, update, remove, render, get, dateToHHMM };
                 render();
             })();
         </script>

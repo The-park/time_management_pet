@@ -1276,6 +1276,12 @@
                     <tbody data-predict-tbody class="divide-y divide-slate-800/60"></tbody>
                 </table>
             </div>
+
+            {{-- Transparency footer: shows exactly what the model trained on,
+                 so the user can verify it's eating their full history (not
+                 just today's logs). Also surfaces a "Learning" badge while
+                 the dataset is small. --}}
+            <p class="mt-3 text-[0.65rem] uppercase tracking-[0.2em] text-slate-500 hidden" data-predict-trained></p>
         </section>
     </div>
 
@@ -3399,8 +3405,14 @@
             (() => {
                 const STATE_KEY  = 'chrono.predict.v1';
                 const BLOCKS_KEY = 'chrono.timeBlocks.v1';
-                const MIN_BLOCKS = 10;
-                const MIN_DAYS   = 3;
+                // Gate thresholds. Tuned so 2+ days of light logging unlocks
+                // predictions — early predictions are obviously rougher, which
+                // is why renderTable shows a "Learning mode" footer until the
+                // model has ~20+ blocks (a soft threshold separate from the
+                // hard gate below).
+                const MIN_BLOCKS = 4;
+                const MIN_DAYS   = 2;
+                const LEARNING_BLOCKS = 20;
                 const MAX_SLOTS  = 12;
                 const ALPHA      = 0.5;          // Laplace smoothing prior
                 const DECAY_TAU  = 30;           // Days. weight = exp(-daysSince / tau)
@@ -3740,10 +3752,34 @@
                 const tableWrap = section.querySelector('[data-predict-tablewrap]');
                 const tbody     = section.querySelector('[data-predict-tbody]');
                 const countEl   = section.querySelector('[data-predict-count]');
+                const trainedEl = section.querySelector('[data-predict-trained]');
 
                 let lastRenderedSlots = [];
 
+                // Transparency line: lets the user see at a glance that the
+                // model is consuming *all* their history, not just today's
+                // logs. Surfaces vocabulary size and a "Learning" hint when
+                // data is still thin.
+                const renderTrainedFooter = (state) => {
+                    if (!trainedEl) return;
+                    const vocab = Object.keys(state.freq || {}).length;
+                    if (state.totalBlocks === 0) {
+                        trainedEl.classList.add('hidden');
+                        return;
+                    }
+                    const learning = state.totalBlocks < LEARNING_BLOCKS
+                        ? ' · Learning — quality improves as you log more'
+                        : '';
+                    trainedEl.textContent =
+                        `Trained on ${state.totalBlocks} block${state.totalBlocks === 1 ? '' : 's'} ` +
+                        `across ${state.distinctDays} day${state.distinctDays === 1 ? '' : 's'} ` +
+                        `· ${vocab} unique activit${vocab === 1 ? 'y' : 'ies'}` +
+                        learning;
+                    trainedEl.classList.remove('hidden');
+                };
+
                 const renderTable = (state) => {
+                    renderTrainedFooter(state);
                     if (state.totalBlocks < MIN_BLOCKS || state.distinctDays < MIN_DAYS) {
                         // Data-sparse mode — placeholder, no fake predictions.
                         statusEl.classList.remove('hidden');
@@ -3887,8 +3923,14 @@
                     renderTable(modelState);
                 };
 
-                // Initial render — load any cached state, then verify against blocks.
-                modelState = loadState();
+                // Initial render. We deliberately DROP the cached state's
+                // hash before refresh() so we always rebuild on page load —
+                // this protects against a stale cache from a previous
+                // session shadowing fresh hydrated history (and from any
+                // bugs where past-version state happens to share a hash).
+                // We DO keep the dismissed map so user feedback survives.
+                const cached = loadState();
+                modelState = cached ? { ...cached, rebuiltFromHash: null } : null;
                 refresh();
 
                 // Self-update: refresh whenever blocks change.

@@ -990,9 +990,36 @@
         </div>
 
         <section class="chrono-panel rounded-2xl p-6 md:p-8">
-            <div class="flex items-center justify-between gap-4">
-                <h2 class="font-display text-sm uppercase tracking-[0.3em] text-slate-300">Today's time blocks</h2>
-                <span class="text-[0.65rem] uppercase tracking-[0.2em] text-slate-500" data-blocks-count></span>
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <div class="flex items-center gap-3">
+                    <h2 class="font-display text-sm uppercase tracking-[0.3em] text-slate-300">Today's time blocks</h2>
+                    <span class="text-[0.65rem] uppercase tracking-[0.2em] text-slate-500" data-blocks-count></span>
+                </div>
+                <div class="flex flex-wrap items-center gap-2">
+                    {{-- Quick-action: snap the form to (last block's end → now) so
+                         the user doesn't have to retype boundary times after
+                         finishing a stretch of unlogged activity. --}}
+                    <button id="blocks_continue_last" type="button"
+                        title="Use the end of the latest block as Start, and now as End"
+                        aria-label="Continue from last logged time"
+                        class="inline-flex items-center gap-1.5 rounded-md border border-slate-700 hover:border-[var(--chrono-blue)]/60 hover:text-[var(--chrono-blue)] px-3 py-1.5 text-xs text-slate-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-slate-700 disabled:hover:text-slate-200">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-3.5 w-3.5" aria-hidden="true">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm.75-13a.75.75 0 00-1.5 0v5c0 .2.08.39.22.53l3 3a.75.75 0 101.06-1.06l-2.78-2.78V5z" clip-rule="evenodd" />
+                        </svg>
+                        Continue from last
+                    </button>
+                    {{-- Copy today's blocks as CSV (importable to Sheets/Excel). --}}
+                    <button id="blocks_copy_csv" type="button"
+                        title="Copy today's blocks as CSV to your clipboard"
+                        aria-label="Copy today's blocks as CSV"
+                        class="inline-flex items-center gap-1.5 rounded-md border border-slate-700 hover:border-[var(--chrono-orange)]/60 hover:text-[var(--chrono-orange)] px-3 py-1.5 text-xs text-slate-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-slate-700 disabled:hover:text-slate-200">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-3.5 w-3.5" aria-hidden="true">
+                            <path d="M7 3.5A1.5 1.5 0 018.5 2h3.879a1.5 1.5 0 011.06.44l3.122 3.12A1.5 1.5 0 0117 6.622V12.5a1.5 1.5 0 01-1.5 1.5h-1v-3.379a3 3 0 00-.879-2.121L10.5 5.379A3 3 0 008.379 4.5H7v-1z"/>
+                            <path d="M4.5 6A1.5 1.5 0 003 7.5v9A1.5 1.5 0 004.5 18h7a1.5 1.5 0 001.5-1.5v-5.879a1.5 1.5 0 00-.44-1.06L9.44 6.439A1.5 1.5 0 008.378 6H4.5z"/>
+                        </svg>
+                        Copy to CSV
+                    </button>
+                </div>
             </div>
 
             <div data-edit-banner
@@ -3145,6 +3172,150 @@
                     }, Math.max(1000, nextMidnight.getTime() - now.getTime()));
                 };
                 scheduleMidnightRollover();
+
+                // ── Quick-action buttons: Continue-from-last + Copy-to-CSV ──
+                // Both live in the panel header. Continue-from-last snaps the
+                // form to (latest block's end → now) so the user can log a
+                // newly-finished stretch without retyping boundary times.
+                // Copy-to-CSV dumps the day's blocks to the clipboard in a
+                // format Sheets/Excel will paste into cells directly.
+                const continueBtn = document.getElementById('blocks_continue_last');
+                const copyCsvBtn  = document.getElementById('blocks_copy_csv');
+
+                const csvEscape = (val) => {
+                    const s = String(val ?? '');
+                    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+                };
+                const todaysBlocksSorted = () => {
+                    const todayKey = localDateString();
+                    return loadBlocks()
+                        .filter((b) => b.date === todayKey)
+                        .slice()
+                        .sort((a, b) => hhmmToMinutes(a.start || '00:00') - hhmmToMinutes(b.start || '00:00'));
+                };
+                const latestEndMinutesToday = () => {
+                    let latest = null;
+                    for (const b of todaysBlocksSorted()) {
+                        // Only stable end boundaries qualify. Active blocks have a
+                        // forward-running end and paused blocks freeze at the
+                        // pause moment — neither is a real "previous logged time"
+                        // the user can chain off of. Anything else (completed, or
+                        // older blocks without a status field) is fair game.
+                        if (b.status === 'active' || b.status === 'paused') continue;
+                        if (!b.end) continue;
+                        const mins = hhmmToMinutes(b.end);
+                        if (latest === null || mins > latest) latest = mins;
+                    }
+                    return latest;
+                };
+                const refreshContinueState = () => {
+                    if (!continueBtn) return;
+                    const last = latestEndMinutesToday();
+                    continueBtn.disabled = last === null;
+                    if (last === null) {
+                        continueBtn.title = 'No previous block today yet';
+                    } else {
+                        const hhmm = `${pad(Math.floor(last / 60))}:${pad(last % 60)}`;
+                        continueBtn.title = `Continue from ${formatTime12(hhmm)} → now`;
+                    }
+                };
+
+                continueBtn?.addEventListener('click', () => {
+                    if (!window.ChronoAuthRequire?.('log a time block')) return;
+                    const lastEnd = latestEndMinutesToday();
+                    if (lastEnd === null) {
+                        window.showToast?.('No previous block logged today yet.', { tone: 'warn' });
+                        return;
+                    }
+                    const now = new Date();
+                    const nowMin = now.getHours() * 60 + now.getMinutes();
+                    if (nowMin <= lastEnd) {
+                        const hhmm = `${pad(Math.floor(lastEnd / 60))}:${pad(lastEnd % 60)}`;
+                        window.showToast?.(
+                            `Now (${formatTime12(dateToHHMM(now))}) is not after the last block's end (${formatTime12(hhmm)}).`,
+                            { tone: 'warn' }
+                        );
+                        return;
+                    }
+                    // Drop any in-progress edit so we don't overwrite it.
+                    if (editingBlockId !== null) setFormMode('add');
+                    const startHHMM = `${pad(Math.floor(lastEnd / 60))}:${pad(lastEnd % 60)}`;
+                    const endHHMM   = dateToHHMM(now);
+                    setTimeFieldFromHHMM(startDisplay, startHHMM);
+                    setTimeFieldFromHHMM(endDisplay,   endHHMM);
+                    clearBlockFormError();
+                    reasonInput?.focus();
+                    startDisplay?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    window.showToast?.(
+                        `Filled ${formatTime12(startHHMM)} → ${formatTime12(endHHMM)}. Add a reason and save.`,
+                        { tone: 'info', duration: 2600 }
+                    );
+                });
+
+                const buildBlocksCsv = (blocks) => {
+                    const header = ['Start', 'End', 'Duration', 'Reason', 'Category'];
+                    const lines = [header.join(',')];
+                    for (const b of blocks) {
+                        const start = b.start ? formatTime12(b.start) : '';
+                        const end = b.status === 'paused'
+                            ? 'paused'
+                            : (b.end ? formatTime12(b.end) : '');
+                        const dur = msToDurationLabel(b.durationMs || 0);
+                        const reason = b.label
+                            || (b.source === 'countdown' ? 'Custom countdown' : 'Time block');
+                        const category = b.category === 'wasted'
+                            ? 'Wasted'
+                            : (b.category === 'neutral' ? 'Neutral' : 'Productive');
+                        lines.push([start, end, dur, reason, category].map(csvEscape).join(','));
+                    }
+                    return lines.join('\n');
+                };
+
+                const copyTextToClipboard = async (text) => {
+                    try {
+                        if (navigator.clipboard && window.isSecureContext !== false) {
+                            await navigator.clipboard.writeText(text);
+                            return true;
+                        }
+                    } catch (e) { /* fall through to legacy path */ }
+                    try {
+                        const ta = document.createElement('textarea');
+                        ta.value = text;
+                        ta.setAttribute('readonly', '');
+                        ta.style.position = 'fixed';
+                        ta.style.top = '0';
+                        ta.style.left = '0';
+                        ta.style.opacity = '0';
+                        document.body.appendChild(ta);
+                        ta.select();
+                        const ok = document.execCommand('copy');
+                        document.body.removeChild(ta);
+                        return ok;
+                    } catch (e) {
+                        return false;
+                    }
+                };
+
+                copyCsvBtn?.addEventListener('click', async () => {
+                    const blocks = todaysBlocksSorted();
+                    if (blocks.length === 0) {
+                        window.showToast?.('No blocks to copy today.', { tone: 'warn' });
+                        return;
+                    }
+                    const csv = buildBlocksCsv(blocks);
+                    const ok = await copyTextToClipboard(csv);
+                    if (ok) {
+                        window.showToast?.(
+                            `Copied ${blocks.length} ${blocks.length === 1 ? 'row' : 'rows'} as CSV to clipboard.`,
+                            { tone: 'success' }
+                        );
+                    } else {
+                        window.showToast?.('Copy failed — your browser blocked clipboard access.', { tone: 'error' });
+                    }
+                });
+
+                window.addEventListener('chrono:blocks:changed', refreshContinueState);
+                refreshContinueState();
 
                 window.ChronoBlocks = { add, addWithSplit, update, remove, render, get, dateToHHMM };
                 render();

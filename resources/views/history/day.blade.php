@@ -167,9 +167,24 @@
 
     {{-- Block list (read-only) --}}
     <section class="chrono-panel rounded-2xl p-6 md:p-8">
-        <div class="flex items-baseline justify-between gap-3 mb-3">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
             <h2 class="font-display text-sm uppercase tracking-[0.3em] text-slate-300">Time blocks</h2>
-            <span class="text-xs text-slate-500">Read-only — old logs can't be edited</span>
+            <div class="flex flex-wrap items-center gap-3">
+                @if (!empty($rows))
+                    {{-- Copy this day's blocks as CSV (importable to Sheets/Excel). --}}
+                    <button id="day_copy_csv" type="button"
+                        title="Copy this day's blocks as CSV to your clipboard"
+                        aria-label="Copy this day's blocks as CSV"
+                        class="inline-flex items-center gap-1.5 rounded-md border border-slate-700 hover:border-[var(--chrono-orange)]/60 hover:text-[var(--chrono-orange)] px-3 py-1.5 text-xs text-slate-200 transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-3.5 w-3.5" aria-hidden="true">
+                            <path d="M7 3.5A1.5 1.5 0 018.5 2h3.879a1.5 1.5 0 011.06.44l3.122 3.12A1.5 1.5 0 0117 6.622V12.5a1.5 1.5 0 01-1.5 1.5h-1v-3.379a3 3 0 00-.879-2.121L10.5 5.379A3 3 0 008.379 4.5H7v-1z"/>
+                            <path d="M4.5 6A1.5 1.5 0 003 7.5v9A1.5 1.5 0 004.5 18h7a1.5 1.5 0 001.5-1.5v-5.879a1.5 1.5 0 00-.44-1.06L9.44 6.439A1.5 1.5 0 008.378 6H4.5z"/>
+                        </svg>
+                        Copy to CSV
+                    </button>
+                @endif
+                <span class="text-xs text-slate-500">Read-only — old logs can't be edited</span>
+            </div>
         </div>
 
         @if (empty($rows))
@@ -300,6 +315,83 @@
                 }).join('');
 
                 section.classList.remove('hidden');
+            })();
+        </script>
+
+        <script>
+            // Copy this day's blocks as CSV. Rows are taken straight from the
+            // server-rendered $rows so the clipboard output mirrors exactly
+            // what the page shows (already-formatted Start/End strings,
+            // human-readable duration, and the same category labels).
+            (() => {
+                const btn = document.getElementById('day_copy_csv');
+                if (!btn) return;
+
+                const rows = @json($rows ?? []);
+                const dateLabel = @json($dateLabel ?? '');
+
+                const csvEscape = (val) => {
+                    const s = String(val ?? '');
+                    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+                };
+
+                const buildCsv = () => {
+                    const header = ['Start', 'End', 'Duration', 'Reason', 'Category'];
+                    const lines = [header.join(',')];
+                    for (const r of rows) {
+                        const cat = r.category === 'wasted' ? 'Wasted'
+                            : (r.category === 'neutral' ? 'Neutral' : 'Productive');
+                        lines.push([
+                            r.start ?? '',
+                            r.end ?? '',
+                            r.durationLabel ?? '',
+                            r.reason ?? '',
+                            cat,
+                        ].map(csvEscape).join(','));
+                    }
+                    return lines.join('\n');
+                };
+
+                const copy = async (text) => {
+                    try {
+                        if (navigator.clipboard && window.isSecureContext !== false) {
+                            await navigator.clipboard.writeText(text);
+                            return true;
+                        }
+                    } catch (e) { /* fall through */ }
+                    try {
+                        const ta = document.createElement('textarea');
+                        ta.value = text;
+                        ta.setAttribute('readonly', '');
+                        ta.style.position = 'fixed';
+                        ta.style.top = '0';
+                        ta.style.left = '0';
+                        ta.style.opacity = '0';
+                        document.body.appendChild(ta);
+                        ta.select();
+                        const ok = document.execCommand('copy');
+                        document.body.removeChild(ta);
+                        return ok;
+                    } catch (e) {
+                        return false;
+                    }
+                };
+
+                btn.addEventListener('click', async () => {
+                    if (!rows || rows.length === 0) {
+                        window.showToast?.('No blocks to copy for this day.', { tone: 'warn' });
+                        return;
+                    }
+                    const ok = await copy(buildCsv());
+                    if (ok) {
+                        window.showToast?.(
+                            `Copied ${rows.length} ${rows.length === 1 ? 'row' : 'rows'} from ${dateLabel} as CSV.`,
+                            { tone: 'success' }
+                        );
+                    } else {
+                        window.showToast?.('Copy failed — your browser blocked clipboard access.', { tone: 'error' });
+                    }
+                });
             })();
         </script>
     @endpush

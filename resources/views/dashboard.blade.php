@@ -1222,6 +1222,61 @@
                 </table>
             </div>
         </section>
+
+        {{-- ── Predicted next blocks ────────────────────────────────────
+             A forward-looking schedule built from the user's own history
+             using a lightweight hybrid scorer (1st-order Markov chain +
+             time-of-day affinity + median-duration). Renders only once
+             there's enough data; re-rolls on every save / edit / delete
+             and on a slow 5-min tick. See plan file for the algorithm. --}}
+        <section class="chrono-panel rounded-2xl p-6 md:p-8 mt-6" data-predict-section>
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <div class="flex items-center gap-3">
+                    <h2 class="font-display text-sm uppercase tracking-[0.3em] text-slate-300">Predicted next blocks</h2>
+                    <span class="text-[0.65rem] uppercase tracking-[0.2em] text-slate-500" data-predict-count></span>
+                </div>
+                <div class="text-[0.65rem] uppercase tracking-[0.2em] text-slate-500">
+                    Updates as you log
+                </div>
+            </div>
+
+            <p class="mt-2 text-xs text-slate-400">
+                A guess at the rest of your day from your past patterns. Click <strong>Use</strong> on any row
+                to drop it into the log form above.
+            </p>
+
+            {{-- Status row: shown while the model is cold-starting, when
+                 there isn't enough history yet, or when the day is fully
+                 booked / past the end-of-day cutoff. --}}
+            <div data-predict-status
+                class="mt-4 rounded-lg border border-slate-800/70 bg-slate-900/40 px-4 py-3 text-sm text-slate-400">
+                Loading predictions…
+            </div>
+
+            <div class="mt-4 overflow-x-auto rounded-xl border border-slate-800/70 hidden" data-predict-tablewrap>
+                <table class="w-full table-fixed text-sm">
+                    <colgroup>
+                        <col class="w-[112px]">
+                        <col class="w-[112px]">
+                        <col class="w-[88px]">
+                        <col>
+                        <col class="w-[120px]">
+                        <col class="w-[100px]">
+                    </colgroup>
+                    <thead class="bg-slate-900/60">
+                        <tr class="text-[0.6rem] uppercase tracking-[0.2em] text-slate-400">
+                            <th class="text-left px-4 py-2.5 font-medium">Start</th>
+                            <th class="text-left px-4 py-2.5 font-medium">End</th>
+                            <th class="text-left px-4 py-2.5 font-medium">Duration</th>
+                            <th class="text-left px-4 py-2.5 font-medium">Likely activity</th>
+                            <th class="text-left px-4 py-2.5 font-medium">Category</th>
+                            <th class="text-right px-4 py-2.5 font-medium">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody data-predict-tbody class="divide-y divide-slate-800/60"></tbody>
+                </table>
+            </div>
+        </section>
     </div>
 
     <div id="confirm_modal" role="dialog" aria-modal="true" aria-labelledby="confirm_modal_title" aria-hidden="true"
@@ -3319,6 +3374,586 @@
 
                 window.ChronoBlocks = { add, addWithSplit, update, remove, render, get, dateToHHMM };
                 render();
+            })();
+        </script>
+
+        {{-- ══════════════════════════════════════════════════════════════
+             Prediction-table module.
+
+             Derives a "what will I do next" schedule from the user's own
+             history using a hybrid scorer:
+               score = 0.35*markov + 0.25*timeOfDay + 0.15*dow
+                     + 0.15*freq   + 0.10*recency
+             Every component is "count something, then divide" — no
+             gradients, no neural nets, no servers. The model is rebuilt
+             from blocks whenever they change, so the system is
+             self-updating by construction.
+
+             Storage: model state cached at localStorage['chrono.predict.v1'].
+             A content hash of the blocks tells us when the cache is stale.
+
+             Public surface: none — this module reads/writes through
+             localStorage and the existing window.ChronoBlocks helpers.
+        --}}
+        <script>
+            (() => {
+                const STATE_KEY  = 'chrono.predict.v1';
+                const BLOCKS_KEY = 'chrono.timeBlocks.v1';
+                const MIN_BLOCKS = 10;
+                const MIN_DAYS   = 3;
+                const MAX_SLOTS  = 12;
+                const ALPHA      = 0.5;          // Laplace smoothing prior
+                const DECAY_TAU  = 30;           // Days. weight = exp(-daysSince / tau)
+                const REPEAT_PENALTY    = 0.6;   // Multiplier when candidate == prev slot (just-did)
+                const DISMISS_TTL_MS    = 6 * 60 * 60 * 1000;  // Soft-dismiss cool-down
+                const DISMISS_PENALTY   = 0.2;   // Multiplier while a key is dismissed
+                const STOPWORDS  = new Set([
+                    '', 'time block', 'custom countdown',
+                ]);
+
+                // ── Tiny helpers (local copies — IIFE is intentionally
+                // standalone so it doesn't depend on the dashboard IIFE's
+                // private closure).
+                const pad = (n) => String(n).padStart(2, '0');
+                const hhmmToMin = (s) => {
+                    if (!s || typeof s !== 'string') return NaN;
+                    const [h, m] = s.split(':').map(Number);
+                    if (!Number.isFinite(h) || !Number.isFinite(m)) return NaN;
+                    return h * 60 + m;
+                };
+                const minToHHMM = (mins) => {
+                    const c = Math.max(0, Math.min(23 * 60 + 59, Math.round(mins)));
+                    return `${pad(Math.floor(c / 60))}:${pad(c % 60)}`;
+                };
+                const fmt12 = (hhmm) => {
+                    if (!hhmm) return '';
+                    const [h, m] = hhmm.split(':').map(Number);
+                    const period = h >= 12 ? 'PM' : 'AM';
+                    const h12 = h === 0 ? 12 : (h > 12 ? h - 12 : h);
+                    return `${h12}:${pad(m)} ${period}`;
+                };
+                const fmtDur = (mins) => {
+                    const m = Math.max(0, Math.round(mins));
+                    if (m < 60) return `${m}m`;
+                    const h = Math.floor(m / 60);
+                    const rem = m % 60;
+                    return rem === 0 ? `${h}h` : `${h}h ${rem}m`;
+                };
+                const todayKey = () => {
+                    const d = new Date();
+                    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+                };
+                const escapeHtml = (str) => String(str ?? '').replace(/[&<>"']/g, (c) => ({
+                    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+                }[c]));
+
+                const activityKey = (label) => {
+                    const s = String(label || '').toLowerCase().trim().replace(/\s+/g, ' ');
+                    if (!s || STOPWORDS.has(s)) return null;
+                    return s;
+                };
+                // 12 two-hour buckets, 0..11.
+                const bucketOf = (hour) => Math.max(0, Math.min(11, Math.floor(hour / 2)));
+                // 0 = weekday, 1 = weekend. Cheap but useful split.
+                const dowClassOf = (yyyymmdd) => {
+                    if (!yyyymmdd) return 0;
+                    const [y, m, d] = yyyymmdd.split('-').map(Number);
+                    if (!Number.isFinite(y)) return 0;
+                    const day = new Date(y, m - 1, d).getDay();
+                    return (day === 0 || day === 6) ? 1 : 0;
+                };
+                // Weighted bump. Counts are floats — exponential decay means
+                // a 30-day-old block contributes ~0.37, a 90-day-old ~0.05,
+                // so the model tracks the user's *current* routine, not what
+                // they did a year ago. Identical math to plain counts with
+                // weight=1, so all downstream sums / ratios work unchanged.
+                const bump = (obj, key, weight = 1) => {
+                    obj[key] = (obj[key] || 0) + weight;
+                };
+                const bumpNested = (root, outer, inner, weight = 1) => {
+                    if (!root[outer]) root[outer] = {};
+                    bump(root[outer], inner, weight);
+                };
+                // Compute the decay weight for a block whose end (or start)
+                // timestamp is `tsMs`. weight in (0, 1], 1.0 for "now".
+                const decayWeight = (tsMs, nowMs) => {
+                    const daysSince = Math.max(0, (nowMs - tsMs) / 86400000);
+                    return Math.exp(-daysSince / DECAY_TAU);
+                };
+
+                // ── Block IO + content hash (so we know when to rebuild).
+                const loadBlocksLocal = () => {
+                    try {
+                        const raw = localStorage.getItem(BLOCKS_KEY);
+                        if (!raw) return [];
+                        const arr = JSON.parse(raw);
+                        return Array.isArray(arr) ? arr : [];
+                    } catch { return []; }
+                };
+                const hashBlocks = (blocks) => {
+                    // Order-insensitive content hash — buildModel sorts on its own.
+                    let h = 0;
+                    for (const b of blocks) {
+                        if (!b) continue;
+                        const s = `${b.id}|${b.date}|${b.start}|${b.end}|${b.label}|${b.category}|${b.status || ''}`;
+                        for (let i = 0; i < s.length; i++) {
+                            h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+                        }
+                    }
+                    return String(h);
+                };
+
+                // ── Model construction.
+                //
+                // Every observed (start, end, label, category) tuple flows
+                // through here exactly once. Same code is used on initial
+                // page load and after every block save — so there is one
+                // canonical place where the math lives.
+                const buildModel = (allBlocks) => {
+                    const state = {
+                        version: 1,
+                        transitions: {},      // Markov 1st-order
+                        timeBuckets: {},      // hour-bucket -> { key: count }
+                        dowBuckets:  { 0: {}, 1: {} },
+                        freq:        {},
+                        durations:   {},      // running mean of block length (minutes)
+                        category:    {},      // modal category vote per key
+                        lastUsedTs:  {},      // for recency score
+                        labelDisplay:{},      // key -> nicest display label
+                        totalBlocks: 0,
+                        distinctDays:0,
+                    };
+
+                    // Filter to logged, real blocks; sort chronologically.
+                    const ordered = allBlocks
+                        .filter((b) => b && b.start && b.end && b.label)
+                        .filter((b) => b.status !== 'paused' && b.status !== 'active')
+                        .filter((b) => activityKey(b.label) !== null)
+                        .slice()
+                        .sort((a, b) => {
+                            if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+                            const am = hhmmToMin(a.start || '00:00');
+                            const bm = hhmmToMin(b.start || '00:00');
+                            return am - bm;
+                        });
+
+                    const days = new Set();
+                    let prevKey = null;
+                    const nowMs = Date.now();
+
+                    for (const b of ordered) {
+                        const k = activityKey(b.label);
+                        if (!k) continue;
+
+                        days.add(b.date);
+                        if (!state.labelDisplay[k]) {
+                            state.labelDisplay[k] = String(b.label).trim();
+                        }
+
+                        // Block timestamp drives the decay weight. Older
+                        // blocks contribute less; ones from today contribute
+                        // ~1.0. This is what makes the model track the user's
+                        // *current* routine rather than what they did months
+                        // ago.
+                        let blockTs = nowMs;
+                        try {
+                            const [y, mo, dd] = b.date.split('-').map(Number);
+                            const [hh, mm] = (b.end || b.start).split(':').map(Number);
+                            if (Number.isFinite(y) && Number.isFinite(hh)) {
+                                blockTs = new Date(y, mo - 1, dd, hh, mm).getTime();
+                            }
+                        } catch {}
+                        const w = decayWeight(blockTs, nowMs);
+
+                        // Markov transition from the previous block in chronological order.
+                        // We deliberately chain across days too (last block of yesterday →
+                        // first of today) — sleep → coffee is a useful pattern.
+                        if (prevKey) bumpNested(state.transitions, prevKey, k, w);
+
+                        const startMin = hhmmToMin(b.start);
+                        if (Number.isFinite(startMin)) {
+                            bumpNested(state.timeBuckets, bucketOf(Math.floor(startMin / 60)), k, w);
+                        }
+                        bumpNested(state.dowBuckets, dowClassOf(b.date), k, w);
+                        bump(state.freq, k, w);
+
+                        // Duration: weighted running mean. Recent durations
+                        // dominate the predicted slot length.
+                        const durMin = Math.max(1, Math.round((b.durationMs || 0) / 60000));
+                        const dPrev = state.durations[k] || { sumMin: 0, n: 0 };
+                        dPrev.sumMin += durMin * w;
+                        dPrev.n      += w;
+                        state.durations[k] = dPrev;
+
+                        // Category modal vote — also decay-weighted so a
+                        // historical mis-tag fades over time.
+                        const cat = b.category === 'wasted'  ? 'wasted'
+                                  : b.category === 'neutral' ? 'neutral'
+                                  : 'productive';
+                        if (!state.category[k]) state.category[k] = { productive: 0, wasted: 0, neutral: 0 };
+                        state.category[k][cat] += w;
+
+                        if (!state.lastUsedTs[k] || blockTs > state.lastUsedTs[k]) {
+                            state.lastUsedTs[k] = blockTs;
+                        }
+
+                        state.totalBlocks += 1;   // count remains integer (gate threshold)
+                        prevKey = k;
+                    }
+                    state.distinctDays = days.size;
+                    return state;
+                };
+
+                // ── Scoring + ranking.
+                const modalCategory = (state, k) => {
+                    const c = state.category[k];
+                    if (!c) return 'productive';
+                    let best = 'productive', bestN = -1;
+                    for (const cat of ['productive', 'neutral', 'wasted']) {
+                        const n = c[cat] || 0;
+                        if (n > bestN) { bestN = n; best = cat; }
+                    }
+                    return best;
+                };
+                const avgDuration = (state, k) => {
+                    const d = state.durations[k];
+                    return (d && d.n) ? d.sumMin / d.n : null;
+                };
+                const rankCandidates = (state, prevKey, bucket, dowClass) => {
+                    const keys = Object.keys(state.freq);
+                    const V = keys.length;
+                    if (!V) return [];
+                    const transRow = (prevKey && state.transitions[prevKey]) || {};
+                    const timeRow  = state.timeBuckets[bucket] || {};
+                    const dowRow   = state.dowBuckets[dowClass] || {};
+                    const sumOf = (o) => {
+                        let s = 0;
+                        for (const k in o) s += o[k];
+                        return s;
+                    };
+                    const transSum = sumOf(transRow);
+                    const timeSum  = sumOf(timeRow);
+                    const dowSum   = sumOf(dowRow);
+                    const now = Date.now();
+                    const dismissed = state.dismissed || {};
+                    const out = [];
+                    for (const k of keys) {
+                        const markov = ((transRow[k] || 0) + ALPHA) / (transSum + ALPHA * V);
+                        const time   = ((timeRow[k]  || 0) + ALPHA) / (timeSum  + ALPHA * V);
+                        const dow    = ((dowRow[k]   || 0) + ALPHA) / (dowSum   + ALPHA * V);
+                        const freq   = (state.freq[k] || 0) / Math.max(1, state.totalBlocks);
+                        const daysSince = state.lastUsedTs[k]
+                            ? Math.max(0, (now - state.lastUsedTs[k]) / 86400000)
+                            : 365;
+                        const recency = 1 / (1 + daysSince);
+                        let score = 0.35 * markov + 0.25 * time + 0.15 * dow
+                                  + 0.15 * freq   + 0.10 * recency;
+
+                        // Just-did penalty: avoid suggesting the same activity
+                        // we just did. Soft multiplier (0.6) rather than hard
+                        // exclusion, so a genuinely dominant activity can still
+                        // back-to-back if its other signals are strong enough.
+                        if (prevKey && k === prevKey) score *= REPEAT_PENALTY;
+
+                        // Soft dismiss: if the user clicked × on this key in
+                        // the last DISMISS_TTL_MS, demote it heavily but don't
+                        // erase it (so they can still see it if it remains the
+                        // only plausible pick).
+                        const dts = dismissed[k];
+                        if (dts && (now - dts) < DISMISS_TTL_MS) {
+                            score *= DISMISS_PENALTY;
+                        }
+
+                        out.push({ key: k, score });
+                    }
+                    out.sort((a, b) => b.score - a.score);
+                    return out;
+                };
+
+                // ── Schedule generation. Walks forward from the latest known
+                //    boundary, picking the top-ranked activity for each slot,
+                //    until end-of-day or MAX_SLOTS.
+                const predictRestOfDay = (state) => {
+                    const cfg = window.ChronoDashboardConfig || {};
+                    const wakeMin = hhmmToMin(cfg.wakeTime || '07:00');
+                    const endMin  = hhmmToMin(cfg.endTime  || '22:00');
+                    if (!Number.isFinite(wakeMin) || !Number.isFinite(endMin)) return [];
+
+                    const blocks = loadBlocksLocal();
+                    const today = todayKey();
+                    const todays = blocks
+                        .filter((b) => b && b.date === today
+                                    && b.status !== 'paused' && b.status !== 'active')
+                        .slice()
+                        .sort((a, b) => hhmmToMin(a.start || '00:00') - hhmmToMin(b.start || '00:00'));
+
+                    const now = new Date();
+                    const nowMin = now.getHours() * 60 + now.getMinutes();
+
+                    let cursor;
+                    let prevKey = null;
+                    if (todays.length) {
+                        const last = todays[todays.length - 1];
+                        const lastEnd = hhmmToMin(last.end || '00:00');
+                        // Cursor = max(last block's end, now). Past gaps aren't
+                        // retroactively predicted.
+                        cursor = Math.max(lastEnd, nowMin);
+                        prevKey = activityKey(last.label);
+                    } else {
+                        // Before-day-starts case: anchor to wake-up time but
+                        // never predict the past.
+                        cursor = Math.max(wakeMin, nowMin);
+                    }
+
+                    const dowClass = dowClassOf(today);
+                    const slots = [];
+                    let safety = MAX_SLOTS;
+                    while (cursor < endMin && safety-- > 0) {
+                        const bucket = bucketOf(Math.floor(cursor / 60));
+                        const ranked = rankCandidates(state, prevKey, bucket, dowClass);
+                        if (!ranked.length) break;
+                        const pick = ranked[0];
+                        // Floor at 15 min so a single-occurrence outlier (e.g. a
+                        // 4-minute test block) doesn't generate a 16-row table.
+                        const durMin = Math.max(15, Math.round(avgDuration(state, pick.key) || 60));
+                        const slotEnd = Math.min(cursor + durMin, endMin);
+                        if (slotEnd <= cursor) break;
+                        slots.push({
+                            startHHMM: minToHHMM(cursor),
+                            endHHMM:   minToHHMM(slotEnd),
+                            durationMin: slotEnd - cursor,
+                            key:       pick.key,
+                            label:     state.labelDisplay[pick.key] || pick.key,
+                            category:  modalCategory(state, pick.key),
+                            confidence: pick.score,
+                        });
+                        prevKey = pick.key;
+                        cursor = slotEnd;
+                    }
+                    return slots;
+                };
+
+                // ── DOM rendering.
+                const section = document.querySelector('[data-predict-section]');
+                if (!section) return;
+                const statusEl  = section.querySelector('[data-predict-status]');
+                const tableWrap = section.querySelector('[data-predict-tablewrap]');
+                const tbody     = section.querySelector('[data-predict-tbody]');
+                const countEl   = section.querySelector('[data-predict-count]');
+
+                let lastRenderedSlots = [];
+
+                const renderTable = (state) => {
+                    if (state.totalBlocks < MIN_BLOCKS || state.distinctDays < MIN_DAYS) {
+                        // Data-sparse mode — placeholder, no fake predictions.
+                        statusEl.classList.remove('hidden');
+                        statusEl.textContent =
+                            `Predictions unlock after ${MIN_DAYS}+ days with ${MIN_BLOCKS}+ logged blocks ` +
+                            `(currently ${state.distinctDays} day${state.distinctDays === 1 ? '' : 's'}, ` +
+                            `${state.totalBlocks} block${state.totalBlocks === 1 ? '' : 's'}). ` +
+                            `Keep logging — the model trains itself as you go.`;
+                        tableWrap.classList.add('hidden');
+                        tbody.innerHTML = '';
+                        if (countEl) countEl.textContent = '';
+                        lastRenderedSlots = [];
+                        return;
+                    }
+
+                    const slots = predictRestOfDay(state);
+                    lastRenderedSlots = slots;
+
+                    if (!slots.length) {
+                        const cfg = window.ChronoDashboardConfig || {};
+                        statusEl.classList.remove('hidden');
+                        statusEl.textContent =
+                            `Nothing more to predict — your day is full (past ${fmt12(cfg.endTime || '22:00')}).`;
+                        tableWrap.classList.add('hidden');
+                        tbody.innerHTML = '';
+                        if (countEl) countEl.textContent = '';
+                        return;
+                    }
+
+                    statusEl.classList.add('hidden');
+                    tableWrap.classList.remove('hidden');
+                    if (countEl) {
+                        countEl.textContent = `${slots.length} ${slots.length === 1 ? 'slot' : 'slots'}`;
+                    }
+
+                    const chipStyles = {
+                        productive: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30',
+                        wasted:     'bg-rose-500/10    text-rose-200   border-rose-500/40',
+                        neutral:    'bg-slate-500/10   text-slate-300  border-slate-500/30',
+                    };
+                    const accentMap = {
+                        productive: 'before:bg-emerald-400/40',
+                        wasted:     'before:bg-rose-400/40',
+                        neutral:    'before:bg-slate-500/40',
+                    };
+                    const catLabel = (c) =>
+                        c === 'wasted' ? 'Wasted' : (c === 'neutral' ? 'Neutral' : 'Productive');
+
+                    tbody.innerHTML = '';
+                    slots.forEach((slot, i) => {
+                        const tr = document.createElement('tr');
+                        tr.className = 'hover:bg-slate-900/40 transition-colors align-top';
+                        tr.dataset.slotIndex = String(i);
+                        const cat = (slot.category in chipStyles) ? slot.category : 'productive';
+                        const conf = Math.max(0, Math.min(1, slot.confidence || 0));
+                        const confLabel = `${Math.round(conf * 100)}%`;
+                        // Fade rows that are clearly low-confidence so the eye
+                        // naturally trusts the top picks more.
+                        const fade = conf < 0.15 ? 'opacity-70' : '';
+                        tr.innerHTML = `
+                            <td class="relative px-4 py-3 font-digital text-slate-100 whitespace-nowrap before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[3px] before:rounded-full ${accentMap[cat]} ${fade}">
+                                ${escapeHtml(fmt12(slot.startHHMM))}
+                            </td>
+                            <td class="px-4 py-3 font-digital text-slate-100 whitespace-nowrap ${fade}">
+                                ${escapeHtml(fmt12(slot.endHHMM))}
+                            </td>
+                            <td class="px-4 py-3 whitespace-nowrap ${fade}">
+                                <span class="inline-flex items-center rounded-md bg-slate-800/60 px-2 py-0.5 text-xs text-slate-200">
+                                    ${escapeHtml(fmtDur(slot.durationMin))}
+                                </span>
+                            </td>
+                            <td class="px-4 py-3 text-slate-100 ${fade}">
+                                <p class="break-words leading-relaxed">${escapeHtml(slot.label)}</p>
+                                <span class="mt-1 inline-block text-[0.6rem] uppercase tracking-wider text-slate-500">
+                                    ${confLabel} confidence
+                                </span>
+                            </td>
+                            <td class="px-4 py-3 ${fade}">
+                                <span class="inline-flex items-center rounded-full border px-2 py-0.5 text-[0.6rem] uppercase tracking-[0.15em] ${chipStyles[cat]}">
+                                    ${catLabel(cat)}
+                                </span>
+                            </td>
+                            <td class="px-4 py-3">
+                                <div class="flex justify-end gap-1.5">
+                                    <button type="button" data-predict-use
+                                        class="rounded-md border border-slate-700 hover:border-[var(--chrono-blue)]/60 hover:text-[var(--chrono-blue)] text-xs px-2 py-1 text-slate-300 transition-colors"
+                                        title="Drop this slot into the log form above">
+                                        Use
+                                    </button>
+                                    <button type="button" data-predict-dismiss
+                                        data-predict-key="${escapeHtml(slot.key)}"
+                                        data-predict-label="${escapeHtml(slot.label)}"
+                                        class="rounded-md border border-slate-700 hover:border-rose-400/60 hover:text-rose-300 text-xs px-2 py-1 text-slate-400 transition-colors"
+                                        title="Not this — demote for a few hours">
+                                        ×
+                                    </button>
+                                </div>
+                            </td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                };
+
+                // ── State cache (purely to skip a rebuild when blocks
+                //    haven't changed since last render). State is always
+                //    re-derived from blocks; the cache is just a perf hint.
+                const loadState = () => {
+                    try {
+                        const raw = localStorage.getItem(STATE_KEY);
+                        if (!raw) return null;
+                        const obj = JSON.parse(raw);
+                        return (obj && obj.version === 1) ? obj : null;
+                    } catch { return null; }
+                };
+                const saveState = (state) => {
+                    try { localStorage.setItem(STATE_KEY, JSON.stringify(state)); }
+                    catch { /* localStorage may be disabled or full */ }
+                };
+
+                let modelState = null;
+                const refresh = () => {
+                    const blocks = loadBlocksLocal();
+                    const hash = hashBlocks(blocks);
+                    if (!modelState || modelState.rebuiltFromHash !== hash) {
+                        // Preserve user-facing feedback (dismissals) across
+                        // rebuilds — they survive block edits but expire on
+                        // their own TTL.
+                        const carryDismissed = modelState?.dismissed || {};
+                        const now = Date.now();
+                        const live = {};
+                        for (const k in carryDismissed) {
+                            if ((now - carryDismissed[k]) < DISMISS_TTL_MS) {
+                                live[k] = carryDismissed[k];
+                            }
+                        }
+                        modelState = buildModel(blocks);
+                        modelState.dismissed = live;
+                        modelState.rebuiltFromHash = hash;
+                        saveState(modelState);
+                    }
+                    renderTable(modelState);
+                };
+
+                // Initial render — load any cached state, then verify against blocks.
+                modelState = loadState();
+                refresh();
+
+                // Self-update: refresh whenever blocks change.
+                window.addEventListener('chrono:blocks:changed', refresh);
+
+                // Slow tick so "now" stays current even if the user is idle.
+                // Only re-renders the table — does not rebuild the model.
+                setInterval(() => {
+                    if (modelState) renderTable(modelState);
+                }, 5 * 60 * 1000);
+
+                // Single delegated click handler for both row actions.
+                tbody?.addEventListener('click', (e) => {
+                    // ── × button: soft-dismiss this activity for a cool-down
+                    // window. It still exists in the model — just demoted in
+                    // ranking — so a one-off "not this" doesn't unlearn the
+                    // pattern, but the user gets a fresh suggestion right now.
+                    const dismissBtn = e.target.closest('[data-predict-dismiss]');
+                    if (dismissBtn) {
+                        const key = dismissBtn.dataset.predictKey;
+                        const label = dismissBtn.dataset.predictLabel || key;
+                        if (!key || !modelState) return;
+                        if (!modelState.dismissed) modelState.dismissed = {};
+                        modelState.dismissed[key] = Date.now();
+                        saveState(modelState);
+                        renderTable(modelState);
+                        const hours = Math.round(DISMISS_TTL_MS / 3600000);
+                        window.showToast?.(
+                            `Demoted "${label}" for ${hours}h. It'll come back if it's still the best fit.`,
+                            { tone: 'info', duration: 2600 }
+                        );
+                        return;
+                    }
+
+                    // ── Use button: prefill the log form with the chosen slot.
+                    const useBtn = e.target.closest('[data-predict-use]');
+                    if (!useBtn) return;
+                    const tr = useBtn.closest('tr[data-slot-index]');
+                    if (!tr) return;
+                    const idx = Number(tr.dataset.slotIndex);
+                    const slot = lastRenderedSlots[idx];
+                    if (!slot) return;
+                    const cb = window.ChronoBlocks;
+                    if (!cb || !cb.setStartEnd) {
+                        window.showToast?.('Log form not ready — try again in a moment.', { tone: 'warn' });
+                        return;
+                    }
+                    if (!window.ChronoAuthRequire?.('log a time block')) return;
+                    cb.setStartEnd(slot.startHHMM, slot.endHHMM);
+                    cb.setReason(slot.label);
+                    cb.scrollFormIntoView?.();
+                    cb.focusReason?.();
+                    window.showToast?.(
+                        `Filled ${fmt12(slot.startHHMM)} → ${fmt12(slot.endHHMM)} · "${slot.label}". Tweak and save.`,
+                        { tone: 'info', duration: 2800 }
+                    );
+                });
+
+                // Expose a tiny debug surface — handy when iterating on the
+                // algorithm. Never relied on by other modules.
+                window.ChronoPredict = {
+                    getState: () => modelState,
+                    predict:  () => modelState ? predictRestOfDay(modelState) : [],
+                    rebuild:  refresh,
+                };
             })();
         </script>
 

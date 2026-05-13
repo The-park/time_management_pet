@@ -20,5 +20,58 @@
                 @yield('content')
             </div>
         </div>
+
+        {{-- Session-flash toast pickup. Mirrors the same mechanism in
+             layouts/app.blade.php so a controller can simply
+             ->with('toast', '…') and have it surface on the auth pages too.
+             Used by the logout flow ("You've been logged out…"). --}}
+        @if (session('status') || session('toast'))
+            @php($toastMessage = session('toast') ?? match (session('status')) {
+                'verification-link-sent' => 'A new verification link has been sent.',
+                'profile-information-updated' => 'Profile updated.',
+                'password-updated' => 'Password updated.',
+                default => null,
+            })
+            @if ($toastMessage)
+                <div data-toast-from-server data-toast-message="{{ $toastMessage }}" class="hidden"></div>
+            @endif
+        @endif
+
+        <div id="toast_stack" aria-live="polite" aria-atomic="false"
+            class="fixed inset-x-0 bottom-6 z-50 pointer-events-none flex flex-col items-center gap-2 px-4"></div>
+
+        <script>
+            // Minimal toast renderer — kept inline so guest pages don't
+            // depend on the layout's larger script bundle. Same DOM contract
+            // as layouts/app's renderer so the toast styling stays identical.
+            (() => {
+                const stack = document.getElementById('toast_stack');
+                if (!stack) return;
+                const TONES = {
+                    info:    'border-slate-700 bg-slate-900/95 text-slate-100',
+                    success: 'border-emerald-500/40 bg-emerald-900/40 text-emerald-100',
+                    warn:    'border-amber-500/40 bg-amber-900/40 text-amber-100',
+                    error:   'border-rose-500/40 bg-rose-900/40 text-rose-100',
+                };
+                const showToast = (message, { tone = 'info', duration = 4200 } = {}) => {
+                    if (!message) return;
+                    const t = document.createElement('div');
+                    t.className =
+                        'chrono-toast pointer-events-auto rounded-xl border px-4 py-2 text-sm shadow-2xl backdrop-blur-sm max-w-sm ' +
+                        (TONES[tone] || TONES.info);
+                    t.textContent = message;
+                    stack.appendChild(t);
+                    setTimeout(() => {
+                        t.classList.add('is-leaving');
+                        t.addEventListener('animationend', () => t.remove(), { once: true });
+                    }, duration);
+                };
+                window.showToast = showToast;
+                document.querySelectorAll('[data-toast-from-server]').forEach((el) => {
+                    const msg = el.dataset.toastMessage;
+                    if (msg) showToast(msg, { tone: 'info', duration: 5000 });
+                });
+            })();
+        </script>
     </body>
 </html>

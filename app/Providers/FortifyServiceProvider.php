@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\ValidationException;
+use Laravel\Fortify\Contracts\LogoutResponse as LogoutResponseContract;
 use Laravel\Fortify\Contracts\RegisterResponse as RegisterResponseContract;
 use Laravel\Fortify\Fortify;
 use Symfony\Component\HttpFoundation\Response;
@@ -41,6 +42,26 @@ class FortifyServiceProvider extends ServiceProvider
                     return $request->wantsJson()
                         ? response()->json('', 201)
                         : redirect()->to('/');
+                }
+            };
+        });
+
+        // After logout, send the user to the login screen with a flashed
+        // toast ("You've been logged out — sign in again to keep tracking.").
+        // The guest layout's toast renderer picks up `session('toast')` and
+        // shows it as a transient notification. Default Fortify redirected
+        // to '/' which silently lands authenticated-feeling UI for a logged-
+        // out user — confusing and missed the chance to confirm the action.
+        $this->app->singleton(LogoutResponseContract::class, function () {
+            return new class implements LogoutResponseContract {
+                public function toResponse($request): Response
+                {
+                    if ($request->wantsJson()) {
+                        return response()->json('', 204);
+                    }
+                    return redirect()
+                        ->route('login')
+                        ->with('toast', "You've been logged out. Sign in again to keep tracking your day.");
                 }
             };
         });

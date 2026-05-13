@@ -3416,7 +3416,15 @@
                 const MAX_SLOTS  = 12;
                 const ALPHA      = 0.5;          // Laplace smoothing prior
                 const DECAY_TAU  = 30;           // Days. weight = exp(-daysSince / tau)
+                const RECENCY_TAU = 7;           // Days. Gentler than 1/(1+d) so old patterns aren't crushed.
                 const REPEAT_PENALTY    = 0.6;   // Multiplier when candidate == prev slot (just-did)
+                // Schedule-level diversity. Once an activity has been chosen
+                // earlier in *this* generated schedule, it's heavily demoted
+                // for later slots — prevents the model from collapsing into
+                // a 2-activity ping-pong cycle when one or two activities
+                // dominate freq+recency. Power n means the n-th repeat gets
+                // SCHEDULE_DIVERSITY_PENALTY^n applied (so 3rd use ≈ 4%).
+                const SCHEDULE_DIVERSITY_PENALTY = 0.35;
                 const DISMISS_TTL_MS    = 6 * 60 * 60 * 1000;  // Soft-dismiss cool-down
                 const DISMISS_PENALTY   = 0.2;   // Multiplier while a key is dismissed
                 const STOPWORDS  = new Set([
@@ -3631,7 +3639,12 @@
                     const d = state.durations[k];
                     return (d && d.n) ? d.sumMin / d.n : null;
                 };
-                const rankCandidates = (state, prevKey, bucket, dowClass) => {
+                // `usedInSchedule` is an optional Map(key -> times-already-
+                // chosen-in-this-schedule). Each subsequent use compounds the
+                // SCHEDULE_DIVERSITY_PENALTY exponent so the predictor can't
+                // collapse into a 2-activity ping-pong even when two
+                // activities heavily dominate freq/recency.
+                const rankCandidates = (state, prevKey, bucket, dowClass, usedInSchedule = null) => {
                     const keys = Object.keys(state.freq);
                     const V = keys.length;
                     if (!V) return [];
@@ -3657,20 +3670,36 @@
                         const daysSince = state.lastUsedTs[k]
                             ? Math.max(0, (now - state.lastUsedTs[k]) / 86400000)
                             : 365;
-                        const recency = 1 / (1 + daysSince);
-                        let score = 0.35 * markov + 0.25 * time + 0.15 * dow
-                                  + 0.15 * freq   + 0.10 * recency;
+                        // Gentler recency: exp(-d/7) means today=1.0,
+                        // yesterday=0.87, 3d ago=0.65 — recent still wins
+                        // but doesn't crush older patterns the way the old
+                        // 1/(1+d) formula did (yesterday was 0.5, 3d was 0.25).
+                        const recency = Math.exp(-daysSince / RECENCY_TAU);
+                        let score = 0.35 * markov + 0.30 * time + 0.15 * dow
+                                  + 0.15 * freq   + 0.05 * recency;
 
                         // Just-did penalty: avoid suggesting the same activity
                         // we just did. Soft multiplier (0.6) rather than hard
-                        // exclusion, so a genuinely dominant activity can still
-                        // back-to-back if its other signals are strong enough.
+                        // exclusion, so a genuinely dominant activity can
+                        // still go back-to-back if its other signals are
+                        // strong enough.
                         if (prevKey && k === prevKey) score *= REPEAT_PENALTY;
 
+                        // Schedule-level diversity: graduated penalty for
+                        // every prior use of this key in the same generated
+                        // schedule. This is what kills the CEH↔washroom
+                        // ping-pong: even if CEH is the top pick at slot 1,
+                        // by slot 3 it's been picked once (×0.35) so the
+                        // 3rd-best activity now wins, giving variety.
+                        if (usedInSchedule) {
+                            const n = usedInSchedule.get(k) || 0;
+                            if (n > 0) score *= Math.pow(SCHEDULE_DIVERSITY_PENALTY, n);
+                        }
+
                         // Soft dismiss: if the user clicked × on this key in
-                        // the last DISMISS_TTL_MS, demote it heavily but don't
-                        // erase it (so they can still see it if it remains the
-                        // only plausible pick).
+                        // the last DISMISS_TTL_MS, demote it heavily but
+                        // don't erase it (so they can still see it if it
+                        // remains the only plausible pick).
                         const dts = dismissed[k];
                         if (dts && (now - dts) < DISMISS_TTL_MS) {
                             score *= DISMISS_PENALTY;
@@ -3719,10 +3748,15 @@
 
                     const dowClass = dowClassOf(today);
                     const slots = [];
+                    // Track every key already chosen in this schedule so the
+                    // diversity penalty inside rankCandidates can compound on
+                    // repeats. This is the single biggest fix for the
+                    // "only 2 activities rotating" bug.
+                    const usedInSchedule = new Map();
                     let safety = MAX_SLOTS;
                     while (cursor < endMin && safety-- > 0) {
                         const bucket = bucketOf(Math.floor(cursor / 60));
-                        const ranked = rankCandidates(state, prevKey, bucket, dowClass);
+                        const ranked = rankCandidates(state, prevKey, bucket, dowClass, usedInSchedule);
                         if (!ranked.length) break;
                         const pick = ranked[0];
                         // Floor at 15 min so a single-occurrence outlier (e.g. a
@@ -3739,6 +3773,7 @@
                             category:  modalCategory(state, pick.key),
                             confidence: pick.score,
                         });
+                        usedInSchedule.set(pick.key, (usedInSchedule.get(pick.key) || 0) + 1);
                         prevKey = pick.key;
                         cursor = slotEnd;
                     }

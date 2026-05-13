@@ -65,7 +65,7 @@
             </div>
 
             {{-- Inline KPIs --}}
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 md:max-w-md">
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 md:max-w-2xl">
                 <div class="rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2">
                     <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Time blocks</div>
                     <div class="text-lg font-semibold tabular-nums text-slate-100">{{ number_format($totals['time_blocks']) }}</div>
@@ -81,6 +81,24 @@
                 <div class="rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2">
                     <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Countdowns</div>
                     <div class="text-lg font-semibold tabular-nums text-slate-100">{{ number_format($totals['countdowns']) }}</div>
+                </div>
+                {{-- Email-backup usage tile. Title shows last-sent timestamp on hover. --}}
+                <div class="rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2 col-span-2 sm:col-span-1"
+                    title="{{ $user->backup_last_sent_at ? 'Last sent '.$user->backup_last_sent_at->diffForHumans() : 'No backups sent yet' }}">
+                    <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">
+                        Email backups
+                        @if ($user->backup_email_enabled)
+                            <span class="ml-1 text-emerald-400">●</span>
+                        @else
+                            <span class="ml-1 text-slate-600">○</span>
+                        @endif
+                    </div>
+                    <div class="text-lg font-semibold tabular-nums text-slate-100">
+                        {{ number_format((int) ($user->backup_count ?? 0)) }}
+                        @if ($user->backup_auto_daily)
+                            <span class="text-[0.55rem] uppercase tracking-wider text-emerald-300 align-middle ml-1 border border-emerald-500/30 bg-emerald-500/10 rounded-full px-1.5 py-0.5">auto</span>
+                        @endif
+                    </div>
                 </div>
             </div>
         </div>

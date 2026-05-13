@@ -28,6 +28,11 @@ class User extends Authenticatable implements MustVerifyEmail
         'wake_up_time',
         'gap_threshold_minutes',
         'status',
+        'backup_email_enabled',
+        'backup_email_address',
+        'backup_auto_daily',
+        'backup_last_sent_at',
+        'backup_count',
     ];
 
     /**
@@ -50,7 +55,16 @@ class User extends Authenticatable implements MustVerifyEmail
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'backup_email_enabled' => 'boolean',
+            'backup_auto_daily' => 'boolean',
+            'backup_last_sent_at' => 'datetime',
+            'backup_count' => 'integer',
         ];
+    }
+
+    public function dataExportLogs()
+    {
+        return $this->hasMany(\App\Models\DataExportLog::class);
     }
 
     public function timeBlocks()

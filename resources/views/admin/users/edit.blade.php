@@ -116,6 +116,38 @@
             </div>
         </section>
 
+        {{-- ── Email-backup feature gate ────────────────────────────────
+             Admin-controlled toggle. When ON, the user sees a new
+             "Email backup" section in their Settings page where they
+             can manually email themselves a JSON export and configure
+             daily auto-backups. When OFF, the section is hidden and
+             auto-daily is force-disabled at save time. --}}
+        <section class="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+            <header class="mb-5">
+                <h2 class="font-display text-sm uppercase tracking-[0.2em] text-slate-200">Email backup feature</h2>
+                <p class="text-xs text-slate-400 mt-1">
+                    User-facing data export. With this on, the user can email a JSON snapshot of their
+                    time blocks + goals from <em>Settings</em>, and optionally schedule a daily
+                    auto-backup that fires on their first login each day.
+                </p>
+            </header>
+            <label class="inline-flex items-start gap-3 cursor-pointer">
+                <input type="checkbox" name="backup_email_enabled" value="1"
+                    @checked(old('backup_email_enabled', $user->backup_email_enabled))
+                    class="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-950 text-emerald-500 focus:ring-emerald-500/40">
+                <span class="text-sm text-slate-200">
+                    Enable email backup for this user
+                    <span class="block text-xs text-slate-500 mt-0.5">
+                        Sent {{ (int) ($user->backup_count ?? 0) }} time{{ ((int)($user->backup_count ?? 0)) === 1 ? '' : 's' }} so far.
+                        @if ($user->backup_last_sent_at)
+                            Last: {{ $user->backup_last_sent_at->diffForHumans() }}
+                        @endif
+                    </span>
+                </span>
+            </label>
+            @error('backup_email_enabled')<p class="mt-1 text-xs text-rose-300">{{ $message }}</p>@enderror
+        </section>
+
         <div class="flex items-center gap-3">
             <button type="submit"
                 class="rounded-lg bg-rose-500 hover:bg-rose-400 text-white font-semibold px-4 py-2 text-sm transition-colors">

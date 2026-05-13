@@ -272,12 +272,33 @@ class AdminUserController extends Controller
             'end_of_day_time' => ['required', 'date_format:H:i', 'after_or_equal:18:00', 'before_or_equal:23:59'],
             'wake_up_time' => ['required', 'date_format:H:i', 'after_or_equal:04:00', 'before_or_equal:11:00'],
             'gap_threshold_minutes' => ['required', 'integer', 'min:15', 'max:240'],
+            // Admin gate for the email-backup feature. Unchecked checkbox
+            // doesn't appear in the request payload at all, so we normalise
+            // to a boolean below.
+            'backup_email_enabled' => ['nullable', 'boolean'],
         ]);
 
         // If email changed, force re-verification.
         if ($data['email'] !== $user->email) {
             $user->email_verified_at = null;
         }
+
+        // Detect a flip on backup_email_enabled BEFORE saving so we can
+        // (a) log it as a separate audit entry and (b) reset the user's
+        // auto-daily toggle when the admin disables the feature — that
+        // way an admin can fully revoke the feature in one click.
+        $wasEnabled = (bool) $user->backup_email_enabled;
+        $nowEnabled = (bool) ($data['backup_email_enabled'] ?? false);
+        if ($wasEnabled !== $nowEnabled) {
+            AdminAudit::log($nowEnabled ? 'enabled_email_backup' : 'disabled_email_backup', $user->id);
+        }
+        if (! $nowEnabled) {
+            // Disabling the admin gate also turns off auto-daily so the
+            // user can't keep firing scheduled mails through a stale
+            // cookie or open tab.
+            $data['backup_auto_daily'] = false;
+        }
+        $data['backup_email_enabled'] = $nowEnabled;
 
         $user->forceFill($data)->save();
         AdminAudit::log('updated_user', $user->id);

@@ -6,6 +6,8 @@ use DateTimeZone;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -13,8 +15,31 @@ class SettingsController extends Controller
 {
     public function show(Request $request)
     {
+        // ── Email-backup readiness gate ─────────────────────────────
+        // The /settings view has an optional "Email backup" panel that's
+        // only legal to render when BOTH the DB columns AND the routes
+        // are in place. If a partial deploy happens (e.g. new view
+        // uploaded but `php artisan route:cache` not yet refreshed, or
+        // migration pending), calling `route('backup.send')` from the
+        // view throws RouteNotFoundException → 500. Compute the flag
+        // here and let the view skip the section instead of crashing.
+        //
+        // Try/catch on Schema::hasColumn so a DB hiccup degrades to
+        // "feature hidden" rather than re-throwing — settings is a
+        // non-critical page; we'd rather render without one section
+        // than show a 500.
+        $backupFeatureReady = false;
+        try {
+            $backupFeatureReady = Schema::hasColumn('users', 'backup_email_enabled')
+                && Route::has('backup.send')
+                && Route::has('backup.config');
+        } catch (\Throwable $e) {
+            $backupFeatureReady = false;
+        }
+
         return view('settings', [
             'user' => $request->user(),
+            'backupFeatureReady' => $backupFeatureReady,
         ]);
     }
 

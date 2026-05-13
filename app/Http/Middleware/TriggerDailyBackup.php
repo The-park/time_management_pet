@@ -44,8 +44,23 @@ class TriggerDailyBackup
             } catch (\Throwable $e) {
                 // NEVER block the dashboard for a mail problem. Log
                 // and move on. The user can still trigger manually
-                // and the audit row will show 'failed'.
+                // from /settings, and the audit row reflects the
+                // failure so admins can see what went wrong.
                 report($e);
+                // Best-effort: mark the most-recent queued log row for
+                // this user as failed so the admin tile reflects it.
+                try {
+                    \App\Models\DataExportLog::where('user_id', $user->id)
+                        ->where('status', \App\Models\DataExportLog::STATUS_QUEUED)
+                        ->latest('id')
+                        ->limit(1)
+                        ->update([
+                            'status' => \App\Models\DataExportLog::STATUS_FAILED,
+                            'failure_reason' => substr($e->getMessage(), 0, 1000),
+                        ]);
+                } catch (\Throwable $inner) {
+                    // Swallow — we're already in a fail-safe path.
+                }
             }
         }
         return $next($request);
@@ -86,13 +101,16 @@ class TriggerDailyBackup
             'status'      => DataExportLog::STATUS_QUEUED,
         ]);
 
-        // Update the idempotency marker BEFORE queueing so a parallel
-        // request in the same session won't see a stale "not sent
-        // today" value and dispatch a second job.
+        // Update the idempotency marker BEFORE sending so a parallel
+        // dashboard load in the same session won't see a stale
+        // "not sent today" value and trigger a second send.
         $user->forceFill(['backup_last_sent_at' => now()])->save();
-        $user->increment('backup_count');
 
-        Mail::to($user->backup_email_address)->queue(
+        // Synchronous send (no queue worker required on the server) —
+        // matches password-reset / verify-email flow. The outer
+        // try/catch in handle() turns any send failure into a
+        // logged-and-swallowed error so the dashboard never 500s.
+        Mail::to($user->backup_email_address)->send(
             new UserDataBackupMail(
                 $user,
                 $log->id,
@@ -101,5 +119,9 @@ class TriggerDailyBackup
                 DataExportLog::TYPE_AUTO_DAILY,
             )
         );
+
+        // Bump the user-facing counter only on successful send. If the
+        // send throws, control bubbles to handle()'s outer try/catch.
+        $user->increment('backup_count');
     }
 }

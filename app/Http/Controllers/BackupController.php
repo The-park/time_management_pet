@@ -7,6 +7,7 @@ use App\Models\DataExportLog;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rule;
 
@@ -73,21 +74,47 @@ class BackupController extends Controller
             'status'      => DataExportLog::STATUS_QUEUED,
         ]);
 
-        // Eager bookkeeping. If the queued job fails, `failed()` flips
-        // the log row to 'failed' — but we keep the timestamp bump so
-        // the user knows the system tried.
+        // Remember the address for the auto-daily setting + bookkeeping.
+        // We bump `backup_last_sent_at` BEFORE the send so a concurrent
+        // request from a panicked re-click can't double-send.
         $user->forceFill([
-            'backup_last_sent_at' => now(),
-            'backup_email_address' => $data['email'], // remember for auto-daily
+            'backup_last_sent_at'  => now(),
+            'backup_email_address' => $data['email'],
         ])->save();
 
-        Mail::to($data['email'])->queue(
-            new UserDataBackupMail($user, $log->id, $start, $end, $type)
-        );
+        // Synchronous send. Same path Fortify uses for password-reset
+        // + email-verification, so no queue worker is needed on the
+        // server. If SMTP throws, catch it, flip the log row to
+        // 'failed', and show the user a toast — never bubble a 500
+        // up just because a mail server hiccup'd.
+        try {
+            Mail::to($data['email'])->send(
+                new UserDataBackupMail($user, $log->id, $start, $end, $type)
+            );
+            // The Mailable's attachments() method already flips the log
+            // row to 'sent' as part of building the JSON. Bump the
+            // user-facing counter on success.
+            $user->increment('backup_count');
+        } catch (\Throwable $e) {
+            Log::error('UserDataBackupMail send failed', [
+                'user_id' => $user->id,
+                'email'   => $data['email'],
+                'log_id'  => $log->id,
+                'error'   => $e->getMessage(),
+            ]);
+            DataExportLog::where('id', $log->id)->update([
+                'status'         => DataExportLog::STATUS_FAILED,
+                'failure_reason' => substr($e->getMessage(), 0, 1000),
+            ]);
+            return back()->with(
+                'toast',
+                "Couldn't send backup to {$data['email']} — please try again or check the address. Admins can see the failure reason in the export log."
+            );
+        }
 
         return back()->with(
             'toast',
-            'Backup queued — it should land in '.$data['email'].' within a minute or two.'
+            'Backup emailed to '.$data['email'].'. Check your inbox.'
         );
     }
 

@@ -170,6 +170,9 @@
                         <input id="backup_email" name="email" type="email" required maxlength="254"
                             value="{{ $defaultEmail }}"
                             class="w-full md:w-96 rounded-lg bg-slate-900/70 border border-slate-700 px-3 py-2 text-slate-100">
+                        <p class="mt-1 text-[0.65rem] text-slate-500">
+                            Any email works — doesn't have to match your account address ({{ $user->email }}).
+                        </p>
                         @error('email')<p class="mt-1 text-xs text-rose-400">{{ $message }}</p>@enderror
                     </div>
 
@@ -233,6 +236,9 @@
                             value="{{ old('backup_email_address', $user->backup_email_address ?: '') }}"
                             placeholder="{{ $user->email }}"
                             class="w-full md:w-96 rounded-lg bg-slate-900/70 border border-slate-700 px-3 py-2 text-slate-100">
+                        <p class="mt-1 text-[0.65rem] text-slate-500">
+                            Send to any inbox you like — a personal Gmail, a shared team address, or your account email. Required if auto-backup is on.
+                        </p>
                         @error('backup_email_address')<p class="mt-1 text-xs text-rose-400">{{ $message }}</p>@enderror
                     </div>
 

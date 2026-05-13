@@ -121,8 +121,18 @@
              "Email backup" section in their Settings page where they
              can manually email themselves a JSON export and configure
              daily auto-backups. When OFF, the section is hidden and
-             auto-daily is force-disabled at save time. --}}
-        <section class="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+             auto-daily is force-disabled at save time.
+
+             Defensive: if the migration that adds the backup_* columns
+             hasn't been executed yet, render a loud yellow warning so
+             admin doesn't think "checkbox is broken" — it's just a DB
+             prerequisite. The toggle will silently fail to persist
+             without the column.
+             --}}
+        @php
+            $backupColumnsExist = \Illuminate\Support\Facades\Schema::hasColumn('users', 'backup_email_enabled');
+        @endphp
+        <section class="rounded-2xl border {{ $backupColumnsExist ? 'border-slate-800' : 'border-amber-500/40' }} bg-slate-900/40 p-6">
             <header class="mb-5">
                 <h2 class="font-display text-sm uppercase tracking-[0.2em] text-slate-200">Email backup feature</h2>
                 <p class="text-xs text-slate-400 mt-1">
@@ -131,10 +141,26 @@
                     auto-backup that fires on their first login each day.
                 </p>
             </header>
-            <label class="inline-flex items-start gap-3 cursor-pointer">
+
+            @unless ($backupColumnsExist)
+                <div class="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+                    <div class="font-semibold mb-1">Migration required</div>
+                    <p class="text-amber-200/80">
+                        The <code class="px-1 py-0.5 rounded bg-amber-900/30">backup_email_enabled</code> column doesn't exist yet on the
+                        <code class="px-1 py-0.5 rounded bg-amber-900/30">users</code> table. Until you run the migration this checkbox will
+                        appear to work but won't persist, and the user's <em>Settings &rarr; Email backup</em> section won't show.
+                    </p>
+                    <p class="mt-2 font-mono text-xs text-amber-100 bg-amber-950/50 px-2 py-1 rounded inline-block">
+                        php artisan migrate
+                    </p>
+                </div>
+            @endunless
+
+            <label class="inline-flex items-start gap-3 cursor-pointer {{ $backupColumnsExist ? '' : 'opacity-60' }}">
                 <input type="checkbox" name="backup_email_enabled" value="1"
                     @checked(old('backup_email_enabled', $user->backup_email_enabled))
-                    class="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-950 text-emerald-500 focus:ring-emerald-500/40">
+                    @disabled(! $backupColumnsExist)
+                    class="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-950 text-emerald-500 focus:ring-emerald-500/40 disabled:cursor-not-allowed">
                 <span class="text-sm text-slate-200">
                     Enable email backup for this user
                     <span class="block text-xs text-slate-500 mt-0.5">

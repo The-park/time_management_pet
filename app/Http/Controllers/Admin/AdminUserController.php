@@ -13,6 +13,7 @@ use DateTimeZone;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Password;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
 
 class AdminUserController extends Controller
@@ -402,7 +403,7 @@ class AdminUserController extends Controller
     public function bulk(Request $request)
     {
         $data = $request->validate([
-            'action' => ['required', 'in:suspend,unsuspend,delete'],
+            'action' => ['required', 'in:suspend,unsuspend,delete,enable_backup,disable_backup'],
             'ids' => ['required', 'array', 'min:1', 'max:500'],
             'ids.*' => ['integer'],
         ]);
@@ -410,6 +411,17 @@ class AdminUserController extends Controller
         $action = $data['action'];
         $ids = $data['ids'];
         $count = 0;
+
+        // Backup-toggle actions need the column. If migration hasn't run
+        // yet, bail with a clear message instead of silently failing the
+        // way a bare forceFill on a missing column would.
+        if (in_array($action, ['enable_backup', 'disable_backup'], true)
+            && ! Schema::hasColumn('users', 'backup_email_enabled')
+        ) {
+            return redirect()
+                ->route('admin.users.index')
+                ->with('toast', 'Migration required: run `php artisan migrate` to create the backup_email_enabled column before using this bulk action.');
+        }
 
         DB::transaction(function () use ($action, $ids, &$count) {
             $users = User::query()->whereIn('id', $ids)->get();
@@ -427,15 +439,39 @@ class AdminUserController extends Controller
                         $user->delete();
                         AdminAudit::log('bulk_soft_deleted_user', $user->id);
                         break;
+                    case 'enable_backup':
+                        // Idempotent: skip the audit row if nothing actually
+                        // changed. Same pattern as the per-user flip in
+                        // update(), so the audit log doesn't get spammed
+                        // when admin re-applies a bulk action.
+                        if (! $user->backup_email_enabled) {
+                            $user->forceFill(['backup_email_enabled' => true])->save();
+                            AdminAudit::log('bulk_enabled_email_backup', $user->id);
+                        }
+                        break;
+                    case 'disable_backup':
+                        if ($user->backup_email_enabled || $user->backup_auto_daily) {
+                            // Force off both the gate AND auto-daily so a
+                            // disabled user can't keep auto-firing scheduled
+                            // mails through a stale tab.
+                            $user->forceFill([
+                                'backup_email_enabled' => false,
+                                'backup_auto_daily'    => false,
+                            ])->save();
+                            AdminAudit::log('bulk_disabled_email_backup', $user->id);
+                        }
+                        break;
                 }
                 $count++;
             }
         });
 
         $verb = match ($action) {
-            'suspend' => 'suspended',
-            'unsuspend' => 'reactivated',
-            'delete' => 'soft-deleted',
+            'suspend'        => 'suspended',
+            'unsuspend'      => 'reactivated',
+            'delete'         => 'soft-deleted',
+            'enable_backup'  => 'granted email-backup access',
+            'disable_backup' => 'had email-backup access revoked',
         };
 
         return redirect()

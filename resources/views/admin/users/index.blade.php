@@ -98,6 +98,21 @@
                 class="rounded-md bg-rose-500 hover:bg-rose-400 text-white px-3 py-1 text-xs font-semibold transition-colors">
                 Soft-delete
             </button>
+            <span class="text-slate-700">|</span>
+            {{-- Email-backup bulk grants. The controller validates the
+                 backup_email_enabled column exists before applying, so
+                 these buttons are safe to expose pre-migration too — the
+                 user just gets a "migrate first" toast. --}}
+            <button type="submit" name="action" value="enable_backup"
+                onclick="return confirm('Grant email-backup access to the selected users? They\'ll see the new Email backup section in their Settings.');"
+                class="rounded-md bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-200 border border-cyan-500/30 px-3 py-1 text-xs font-semibold transition-colors">
+                Enable backup
+            </button>
+            <button type="submit" name="action" value="disable_backup"
+                onclick="return confirm('Revoke email-backup access from the selected users? Daily auto-backup is also force-off.');"
+                class="rounded-md bg-slate-500/15 hover:bg-slate-500/25 text-slate-200 border border-slate-500/30 px-3 py-1 text-xs font-semibold transition-colors">
+                Disable backup
+            </button>
             <button type="button" id="bulk-clear" class="ml-auto text-xs text-slate-400 hover:text-slate-100 transition-colors">
                 Clear selection
             </button>
@@ -117,6 +132,7 @@
                         <th class="text-left px-4 py-2.5 text-[0.65rem] uppercase tracking-[0.15em] text-slate-400 font-semibold">Status</th>
                         <th class="text-left px-4 py-2.5 text-[0.65rem] uppercase tracking-[0.15em] text-slate-400 font-semibold">Joined</th>
                         <th class="text-right px-4 py-2.5 text-[0.65rem] uppercase tracking-[0.15em] text-slate-400 font-semibold">Blocks</th>
+                        <th class="text-center px-4 py-2.5 text-[0.65rem] uppercase tracking-[0.15em] text-slate-400 font-semibold" title="Email backup feature status">Backup</th>
                         <th class="text-right px-4 py-2.5 text-[0.65rem] uppercase tracking-[0.15em] text-slate-400 font-semibold"></th>
                     </tr>
                 </thead>
@@ -174,6 +190,28 @@
                             <td class="px-4 py-3 text-right text-sm tabular-nums text-slate-200">
                                 {{ number_format($u->time_blocks_count ?? 0) }}
                             </td>
+                            <td class="px-4 py-3 text-center">
+                                {{-- Backup status chip. Three states: enabled+auto, enabled-only, disabled. --}}
+                                @if (! empty($u->backup_email_enabled) && ! empty($u->backup_auto_daily))
+                                    <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.6rem] uppercase tracking-wider bg-emerald-500/15 text-emerald-200 border border-emerald-500/30"
+                                        title="Backup enabled, daily auto-send ON · {{ (int) ($u->backup_count ?? 0) }} sent">
+                                        <span class="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
+                                        Auto
+                                    </span>
+                                @elseif (! empty($u->backup_email_enabled))
+                                    <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.6rem] uppercase tracking-wider bg-cyan-500/15 text-cyan-200 border border-cyan-500/30"
+                                        title="Backup feature enabled (manual only) · {{ (int) ($u->backup_count ?? 0) }} sent">
+                                        <span class="h-1.5 w-1.5 rounded-full bg-cyan-400"></span>
+                                        On
+                                    </span>
+                                @else
+                                    <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.6rem] uppercase tracking-wider bg-slate-700/40 text-slate-400 border border-slate-700/60"
+                                        title="Backup feature disabled">
+                                        <span class="h-1.5 w-1.5 rounded-full bg-slate-500"></span>
+                                        Off
+                                    </span>
+                                @endif
+                            </td>
                             <td class="px-4 py-3 text-right">
                                 <a href="{{ route('admin.users.show', $u->id) }}"
                                     class="text-xs text-rose-300 hover:text-rose-200 inline-flex items-center gap-1 transition-colors">
@@ -184,7 +222,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="6" class="px-4 py-12 text-center">
+                            <td colspan="7" class="px-4 py-12 text-center">
                                 <div class="text-sm text-slate-500">No users match this filter.</div>
                                 @if ($search !== '' || $status !== 'all')
                                     <a href="{{ route('admin.users.index') }}" class="mt-2 inline-block text-xs text-rose-300 hover:text-rose-200">Clear filters</a>

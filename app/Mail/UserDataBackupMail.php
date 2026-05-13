@@ -6,8 +6,6 @@ use App\Models\DataExportLog;
 use App\Models\User;
 use App\Services\DataExportService;
 use Carbon\CarbonImmutable;
-use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Attachment;
 use Illuminate\Mail\Mailables\Content;
@@ -16,19 +14,26 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Queued mailable that builds the JSON export and ships it to the
- * user's nominated address.
+ * Synchronous mailable that builds the JSON export and ships it to
+ * the user's nominated address. Mirrors how Fortify's password-reset
+ * + verify-email notifications send (also synchronous) so deployments
+ * without a queue worker (`php artisan queue:work`) still get the
+ * mail out.
  *
- * Built inside the queue worker (NOT the controller) so the user's
- * HTTP request returns immediately, regardless of history size. The
- * controller is responsible for creating the DataExportLog row + the
- * eager `backup_last_sent_at` / `backup_count` updates. If delivery
- * fails after retries, `failed()` flips the log row to 'failed' so
- * the admin can see what went wrong.
+ * Previously implemented `ShouldQueue` which put the job in the
+ * database `jobs` table where it sat indefinitely on servers without
+ * a running queue worker — the visible symptom was "POST /backup/send
+ * returns 302 but the mail never arrives". Synchronous send keeps the
+ * implementation simple and matches the working password-reset flow.
+ *
+ * The controller is responsible for creating the DataExportLog row +
+ * the eager `backup_last_sent_at` / `backup_count` updates. If the
+ * SMTP send throws, the controller catches it, flips the log to
+ * 'failed', and shows a toast to the user.
  */
-class UserDataBackupMail extends Mailable implements ShouldQueue
+class UserDataBackupMail extends Mailable
 {
-    use Queueable, SerializesModels;
+    use SerializesModels;
 
     public User $user;
     public int $logId;

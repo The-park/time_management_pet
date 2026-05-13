@@ -115,10 +115,28 @@
         </form>
 
         {{-- ─── Email backup ─────────────────────────────────────────────
-             Only rendered when an admin has flipped backup_email_enabled
-             on the user record. The admin can disable the gate at any
-             time, which also force-resets auto-daily server-side. --}}
-        @if ($user->backup_email_enabled)
+             Only rendered when (a) admin has flipped backup_email_enabled
+             on the user record, AND (b) the feature is fully deployed —
+             columns exist, routes are registered. The second check
+             (passed in from SettingsController as $backupFeatureReady)
+             guards against a 500 RouteNotFoundException during partial
+             deploys (new view uploaded, route cache not refreshed). --}}
+
+        {{-- Partial-deploy edge case: admin already enabled the feature
+             for this user, but the routes or columns aren't ready yet on
+             this server. Show a quiet notice instead of silently hiding
+             everything — otherwise the user thinks admin is lying. --}}
+        @if (! ($backupFeatureReady ?? false) && $user && ! empty($user->backup_email_enabled))
+            <section class="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-6 md:p-8">
+                <h2 class="font-display text-sm uppercase tracking-[0.3em] text-amber-200 mb-1">Email backup</h2>
+                <p class="text-xs text-amber-100/80">
+                    Your admin has granted you email-backup access, but the feature is still being set up on the server.
+                    Please check back in a few minutes.
+                </p>
+            </section>
+        @endif
+
+        @if (($backupFeatureReady ?? false) && $user->backup_email_enabled)
             @php
                 $defaultEmail = old('email', $user->backup_email_address ?: $user->email);
                 $today = \Carbon\CarbonImmutable::now($user->timezone ?: 'UTC')->toDateString();

@@ -7,6 +7,7 @@ use App\Http\Controllers\Admin\AdminDomainController;
 use App\Http\Controllers\Admin\AdminUserController;
 use App\Http\Controllers\Admin\AdministratorController;
 use App\Http\Controllers\ActivityClassifierController;
+use App\Http\Controllers\BackupController;
 use App\Http\Controllers\ContactController;
 use App\Http\Controllers\GoalController;
 use App\Http\Controllers\HistoryController;
@@ -18,9 +19,13 @@ use Illuminate\Support\Facades\Route;
 // Dashboard is the public homepage. Authenticated users get personalised
 // data; guests see the same UI but only the Custom countdown is interactive,
 // every other action prompts them to sign in.
+// The TriggerDailyBackup middleware fires the daily auto-backup mail on
+// the user's first dashboard visit of the day (no cron required).
 Route::get('/', function () {
     return view('dashboard');
-})->name('dashboard');
+})
+    ->middleware(\App\Http\Middleware\TriggerDailyBackup::class)
+    ->name('dashboard');
 
 // Backwards-compat: anything still pointing at /dashboard lands on /.
 Route::get('/dashboard', function () {
@@ -106,6 +111,15 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/settings', [SettingsController::class, 'show'])->name('settings.show');
     Route::put('/settings', [SettingsController::class, 'update'])->name('settings.update');
     Route::delete('/settings/account', [SettingsController::class, 'destroyAccount'])->name('account.destroy');
+
+    // Email-backup feature. The admin gate (users.backup_email_enabled)
+    // is re-checked inside the controller — the route just enforces
+    // login + throttling. Throttle 5/hour to keep abuse cheap.
+    Route::post('/backup/send', [BackupController::class, 'send'])
+        ->middleware('throttle:backup-send')
+        ->name('backup.send');
+    Route::put('/backup/config', [BackupController::class, 'updateConfig'])
+        ->name('backup.config');
 
     // Naive Bayes activity classifier — local, no external API.
     // POST /classify           → predict productive vs unproductive

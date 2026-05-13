@@ -107,6 +107,15 @@ class FortifyServiceProvider extends ServiceProvider
             return Limit::perHour(5)->by($request->ip());
         });
 
+        // Email-backup throttle. Keyed on user_id (with IP fallback for
+        // somehow-unauthenticated requests) so two people behind a
+        // shared NAT don't burn each other's quota. Five per hour is
+        // ample for legitimate use and cheap to abuse-mitigate.
+        RateLimiter::for('backup-send', function (Request $request): Limit {
+            $key = optional($request->user())->id ?: $request->ip();
+            return Limit::perHour(5)->by('backup-send|'.$key);
+        });
+
         Fortify::createUsersUsing(CreateNewUser::class);
         Fortify::updateUserProfileInformationUsing(UpdateUserProfileInformation::class);
         Fortify::updateUserPasswordsUsing(UpdateUserPassword::class);

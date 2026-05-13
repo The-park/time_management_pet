@@ -3378,7 +3378,34 @@
                 window.addEventListener('chrono:blocks:changed', refreshContinueState);
                 refreshContinueState();
 
-                window.ChronoBlocks = { add, addWithSplit, update, remove, render, get, dateToHHMM };
+                // Public form-driver helpers so the prediction-table IIFE
+                // (which lives in a separate closure) can prefill the log
+                // form. Deliberately do NOT expose internals like
+                // setFormMode or editingBlockId — these wrappers handle
+                // the edit-mode escape hatch internally.
+                const publicSetStartEnd = (startHHMM, endHHMM) => {
+                    if (editingBlockId !== null) setFormMode('add');
+                    setTimeFieldFromHHMM(startDisplay, startHHMM);
+                    setTimeFieldFromHHMM(endDisplay,   endHHMM);
+                    clearBlockFormError();
+                };
+                const publicSetReason = (text) => {
+                    if (!reasonInput) return;
+                    reasonInput.value = text || '';
+                    // Re-fire input so reason-hint, char count, and auto-grow refresh.
+                    reasonInput.dispatchEvent(new Event('input', { bubbles: true }));
+                };
+                const publicFocusReason = () => reasonInput?.focus();
+                const publicScrollFormIntoView = () =>
+                    startDisplay?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+                window.ChronoBlocks = {
+                    add, addWithSplit, update, remove, render, get, dateToHHMM,
+                    setStartEnd: publicSetStartEnd,
+                    setReason:   publicSetReason,
+                    focusReason: publicFocusReason,
+                    scrollFormIntoView: publicScrollFormIntoView,
+                };
                 render();
             })();
         </script>
@@ -4008,16 +4035,50 @@
                     const idx = Number(tr.dataset.slotIndex);
                     const slot = lastRenderedSlots[idx];
                     if (!slot) return;
-                    const cb = window.ChronoBlocks;
-                    if (!cb || !cb.setStartEnd) {
-                        window.showToast?.('Log form not ready — try again in a moment.', { tone: 'warn' });
-                        return;
-                    }
                     if (!window.ChronoAuthRequire?.('log a time block')) return;
-                    cb.setStartEnd(slot.startHHMM, slot.endHHMM);
-                    cb.setReason(slot.label);
-                    cb.scrollFormIntoView?.();
-                    cb.focusReason?.();
+
+                    // Preferred path: use the public ChronoBlocks API exposed
+                    // by the dashboard IIFE. It handles edit-mode cancellation,
+                    // time12-input parsing, reason auto-grow, and the form
+                    // error reset in one shot.
+                    const cb = window.ChronoBlocks;
+                    if (cb && typeof cb.setStartEnd === 'function') {
+                        cb.setStartEnd(slot.startHHMM, slot.endHHMM);
+                        cb.setReason(slot.label);
+                        cb.scrollFormIntoView?.();
+                        cb.focusReason?.();
+                    } else {
+                        // Fallback: drive the form via DOM directly. Used when
+                        // ChronoBlocks failed to expose its helpers (e.g. an
+                        // earlier init error or a partial deploy). Less polished
+                        // but the button never silently fails.
+                        const startDisp = document.getElementById('block_start_display');
+                        const endDisp   = document.getElementById('block_end_display');
+                        const startHid  = document.getElementById('block_start_value');
+                        const endHid    = document.getElementById('block_end_value');
+                        const reasonEl  = document.getElementById('block_reason_input');
+                        const writeTime = (display, hidden, hhmm) => {
+                            if (!display) return;
+                            // Mirror the same write path the dashboard IIFE uses:
+                            // set the display to 12-hour text, set hidden to HH:MM,
+                            // and fire 'input' so the time12 module reparses.
+                            const [h, m] = (hhmm || '00:00').split(':').map(Number);
+                            const period = h >= 12 ? 'PM' : 'AM';
+                            const h12 = h === 0 ? 12 : (h > 12 ? h - 12 : h);
+                            display.value = `${h12}:${String(m).padStart(2, '0')} ${period}`;
+                            if (hidden) hidden.value = hhmm || '';
+                            display.dispatchEvent(new Event('input', { bubbles: true }));
+                        };
+                        writeTime(startDisp, startHid, slot.startHHMM);
+                        writeTime(endDisp,   endHid,   slot.endHHMM);
+                        if (reasonEl) {
+                            reasonEl.value = slot.label || '';
+                            reasonEl.dispatchEvent(new Event('input', { bubbles: true }));
+                            reasonEl.focus();
+                        }
+                        startDisp?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+
                     window.showToast?.(
                         `Filled ${fmt12(slot.startHHMM)} → ${fmt12(slot.endHHMM)} · "${slot.label}". Tweak and save.`,
                         { tone: 'info', duration: 2800 }

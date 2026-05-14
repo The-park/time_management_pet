@@ -33,6 +33,7 @@ class User extends Authenticatable implements MustVerifyEmail
         'backup_auto_daily',
         'backup_last_sent_at',
         'backup_count',
+        'flying_quotes_enabled',
     ];
 
     /**
@@ -59,6 +60,7 @@ class User extends Authenticatable implements MustVerifyEmail
             'backup_auto_daily' => 'boolean',
             'backup_last_sent_at' => 'datetime',
             'backup_count' => 'integer',
+            'flying_quotes_enabled' => 'boolean',
         ];
     }
 

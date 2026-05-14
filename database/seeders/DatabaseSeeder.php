@@ -18,6 +18,7 @@ class DatabaseSeeder extends Seeder
             AdminSeeder::class,
             DisposableDomainsSeeder::class,
             DemoUserSeeder::class,
+            QuotesSeeder::class,
         ]);
     }
 }

@@ -25,7 +25,7 @@
     </div>
 
     {{-- Quick-jump shortcuts (moved out of the header to keep the top nav tight). --}}
-    <section class="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
+    <section class="mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         <a href="{{ route('profile.show') }}"
            class="group flex items-center justify-between rounded-xl border border-slate-800/60 bg-slate-900/40 hover:border-[var(--chrono-blue)]/60 hover:bg-slate-900/60 transition-colors px-4 py-3">
             <div class="flex items-center gap-3">
@@ -58,6 +58,23 @@
                 </div>
             </div>
             <span class="text-slate-500 group-hover:text-emerald-300 transition-colors">→</span>
+        </a>
+
+        <a href="{{ route('quotes.index') }}"
+           class="group flex items-center justify-between rounded-xl border border-slate-800/60 bg-slate-900/40 hover:border-amber-400/60 hover:bg-slate-900/60 transition-colors px-4 py-3">
+            <div class="flex items-center gap-3">
+                <span class="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-amber-500/15 text-amber-300">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" class="h-5 w-5">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
+                              d="M7.5 8.25h6m-6 3.75h4.5m-4.5 3.75h6M3.75 6.75c0-1.243 1.007-2.25 2.25-2.25h12c1.243 0 2.25 1.007 2.25 2.25v10.5c0 1.243-1.007 2.25-2.25 2.25h-3.75l-3.75 3v-3h-4.5a2.25 2.25 0 01-2.25-2.25V6.75z"/>
+                    </svg>
+                </span>
+                <div>
+                    <p class="text-sm font-semibold text-slate-100">Quotes</p>
+                    <p class="text-xs text-slate-400">Your motivational lines</p>
+                </div>
+            </div>
+            <span class="text-slate-500 group-hover:text-amber-300 transition-colors">→</span>
         </a>
     </section>
 
@@ -127,13 +144,18 @@
             </section>
 
             {{-- ─── Motivation ──────────────────────────────────────────── --}}
-            <section class="chrono-panel rounded-2xl p-6 md:p-8">
+            @php
+                $flyingEnabled = (bool) old('flying_quotes_enabled', $user?->flying_quotes_enabled ?? true);
+                $currentSource = old('quote_source', $user?->quoteSource() ?? 'mixed');
+            @endphp
+            <section class="chrono-panel rounded-2xl p-6 md:p-8" data-motivation-panel>
                 <h2 class="font-display text-sm uppercase tracking-[0.3em] text-slate-300 mb-1">Motivation</h2>
                 <p class="text-xs text-slate-500 mb-5">Floating quote bubbles that drift up the screen with rotating quotes from anime, movies, and elsewhere.</p>
 
                 <label class="inline-flex items-start gap-2.5 cursor-pointer">
                     <input type="checkbox" name="flying_quotes_enabled" value="1"
-                        @checked(old('flying_quotes_enabled', $user?->flying_quotes_enabled ?? true))
+                        @checked($flyingEnabled)
+                        data-flying-quotes-toggle
                         class="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-950 text-emerald-500 focus:ring-emerald-500/40">
                     <span class="text-sm text-slate-200">
                         Show motivational quotes
@@ -143,6 +165,36 @@
                     </span>
                 </label>
                 @error('flying_quotes_enabled')<p class="mt-2 text-xs text-rose-400">{{ $message }}</p>@enderror
+
+                {{-- Source preference: only meaningful when the bubble is
+                     on. Hidden via [hidden] (server-side, no JS flash) and
+                     also tracked via JS so the user sees it appear/disappear
+                     as they tick the checkbox. The Quotes management page
+                     (/quotes) is the place to actually add personal quotes. --}}
+                <div class="mt-5 pt-5 border-t border-slate-800/60" data-quote-source-wrapper @if(! $flyingEnabled) hidden @endif>
+                    <p class="text-xs uppercase tracking-[0.2em] text-slate-400 mb-1">Which pool to draw from</p>
+                    <p class="text-[0.7rem] text-slate-500 mb-3">
+                        Curate where the bubble's quotes come from.
+                        <a href="{{ route('quotes.index') }}" class="text-amber-300 hover:underline">Manage your own quotes →</a>
+                    </p>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        @foreach ([
+                            'admin' => ['Curated', "Use only the app's built-in quote pool."],
+                            'mine'  => ['My quotes only', 'Only quotes you\'ve added yourself.'],
+                            'mixed' => ['Mixed', 'Both pools combined.'],
+                        ] as $value => $meta)
+                            <label class="flex items-start gap-2.5 cursor-pointer rounded-lg border border-slate-700 hover:border-amber-400/60 bg-slate-900/40 p-3 transition-colors {{ $currentSource === $value ? 'border-amber-400/70 bg-amber-500/5' : '' }}">
+                                <input type="radio" name="quote_source" value="{{ $value }}" @checked($currentSource === $value)
+                                    class="mt-0.5 h-4 w-4 border-slate-600 bg-slate-950 text-amber-400 focus:ring-amber-400/40">
+                                <span class="text-sm text-slate-100">
+                                    {{ $meta[0] }}
+                                    <span class="block text-xs text-slate-400 mt-0.5">{{ $meta[1] }}</span>
+                                </span>
+                            </label>
+                        @endforeach
+                    </div>
+                    @error('quote_source')<p class="mt-2 text-xs text-rose-400">{{ $message }}</p>@enderror
+                </div>
             </section>
 
             {{-- ─── Detection ───────────────────────────────────────────── --}}
@@ -169,6 +221,29 @@
                 </button>
             </div>
         </form>
+
+        @push('scripts')
+            <script>
+                // Toggle the quote-source radio block in/out as the user
+                // ticks the "Show motivational quotes" checkbox. Server
+                // still accepts/ignores quote_source regardless — this is
+                // pure UX so the picker doesn't shout at a disabled feature.
+                (() => {
+                    const toggle = document.querySelector('[data-flying-quotes-toggle]');
+                    const wrapper = document.querySelector('[data-quote-source-wrapper]');
+                    if (!toggle || !wrapper) return;
+                    const refresh = () => {
+                        if (toggle.checked) {
+                            wrapper.removeAttribute('hidden');
+                        } else {
+                            wrapper.setAttribute('hidden', '');
+                        }
+                    };
+                    toggle.addEventListener('change', refresh);
+                    refresh();
+                })();
+            </script>
+        @endpush
 
         {{-- ─── Email backup ─────────────────────────────────────────────
              Only rendered when (a) admin has flipped backup_email_enabled

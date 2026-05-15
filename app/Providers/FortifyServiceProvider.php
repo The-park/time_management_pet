@@ -129,15 +129,26 @@ class FortifyServiceProvider extends ServiceProvider
             // CAPTCHA gate first so a failed challenge doesn't even count
             // against the credential rate-limiter. The honeypot + math
             // challenge live in the same partial used by /register and
-            // /contact, so a single source of truth here.
+            // /contact, so a single source of truth here. verifyDetailed
+            // distinguishes timing / proof-of-work / answer failures so the
+            // message we surface is actionable.
             $captcha = app(CaptchaService::class);
-            if (! $captcha->verify(
+            $result = $captcha->verifyDetailed(
                 $request->input('captcha_token'),
                 $request->input('captcha_answer'),
                 $request->input('captcha_hp'),
-            )) {
+                $request->input('captcha_pow_nonce'),
+                $request->ip(),
+            );
+            if ($result !== 'ok') {
+                $message = match ($result) {
+                    'pow' => "Your browser couldn't complete the verification challenge. Refresh and try again.",
+                    'timing' => 'Form submitted too quickly — please try again.',
+                    'rate' => 'Too many CAPTCHA attempts from your network. Please wait a minute and try again.',
+                    default => 'The CAPTCHA answer is incorrect. Please try the new one below.',
+                };
                 throw ValidationException::withMessages([
-                    'captcha_answer' => 'The CAPTCHA answer is incorrect. Please try the new one below.',
+                    'captcha_answer' => $message,
                 ]);
             }
 

@@ -15,7 +15,11 @@ class AdminQuoteController extends Controller
         $search = trim((string) $request->query('q', ''));
         $category = trim((string) $request->query('category', ''));
 
-        $query = Quote::query();
+        // Admin panel manages ONLY the global/curated quote pool. User-
+        // created quotes (user_id IS NOT NULL) belong to their owner and
+        // are managed at /quotes — never expose them here, even for
+        // search / counts.
+        $query = Quote::query()->whereNull('user_id');
         if ($search !== '') {
             $query->where(function ($q) use ($search) {
                 $q->where('text', 'like', '%'.$search.'%')
@@ -32,8 +36,8 @@ class AdminQuoteController extends Controller
             'search' => $search,
             'category' => $category,
             'categories' => Quote::ALLOWED_CATEGORIES,
-            'total' => Quote::query()->count(),
-            'activeCount' => Quote::query()->where('is_active', true)->count(),
+            'total' => Quote::query()->whereNull('user_id')->count(),
+            'activeCount' => Quote::query()->whereNull('user_id')->where('is_active', true)->count(),
         ]);
     }
 
@@ -52,6 +56,9 @@ class AdminQuoteController extends Controller
         // during create actually saves the quote as inactive. Matches the
         // update() path below.
         $data['is_active'] = $request->boolean('is_active', false);
+        // Explicit: admin-created quotes ALWAYS belong to the global
+        // pool, never to a user.
+        $data['user_id'] = null;
 
         $quote = Quote::create($data);
         AdminAudit::log('created_quote', null, ['id' => $quote->id]);
@@ -63,7 +70,9 @@ class AdminQuoteController extends Controller
 
     public function edit($id)
     {
-        $quote = Quote::query()->findOrFail($id);
+        // Scope by user_id IS NULL so admins can't accidentally land on
+        // a user-owned quote's edit page (would 404 instead of leaking).
+        $quote = Quote::query()->whereNull('user_id')->findOrFail($id);
 
         return view('admin.quotes.edit', [
             'quote' => $quote,
@@ -73,7 +82,7 @@ class AdminQuoteController extends Controller
 
     public function update(Request $request, $id)
     {
-        $quote = Quote::query()->findOrFail($id);
+        $quote = Quote::query()->whereNull('user_id')->findOrFail($id);
 
         $data = $this->validated($request);
         $data['is_active'] = $request->boolean('is_active', false);
@@ -88,7 +97,7 @@ class AdminQuoteController extends Controller
 
     public function toggleActive($id)
     {
-        $quote = Quote::query()->findOrFail($id);
+        $quote = Quote::query()->whereNull('user_id')->findOrFail($id);
         $quote->is_active = ! $quote->is_active;
         $quote->save();
         AdminAudit::log('toggled_quote', null, ['id' => $quote->id, 'is_active' => $quote->is_active]);
@@ -100,7 +109,7 @@ class AdminQuoteController extends Controller
 
     public function destroy($id)
     {
-        $quote = Quote::query()->findOrFail($id);
+        $quote = Quote::query()->whereNull('user_id')->findOrFail($id);
         $quote->delete();
         AdminAudit::log('deleted_quote', null, ['id' => (int) $id]);
 

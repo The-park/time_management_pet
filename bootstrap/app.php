@@ -59,6 +59,13 @@ return Application::configure(basePath: dirname(__DIR__))
                 return redirect()->route('rules.index')
                     ->with('toast', "That rule no longer exists, or you don't have access.");
             }
+            if ($request->is('quotes/*') && ! $request->is('quotes/random')) {
+                // /quotes/random is a JSON endpoint that already returns
+                // its own fallback payload — let it through. Everything
+                // else under /quotes/ is the user-quotes management UI.
+                return redirect()->route('quotes.index')
+                    ->with('toast', "That quote no longer exists, or you don't have access.");
+            }
             return null; // fall through to default 404 page
         };
 

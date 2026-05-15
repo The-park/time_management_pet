@@ -41,7 +41,7 @@
                     class="rounded-lg bg-slate-950/60 border border-slate-800 px-3 py-1.5 text-sm text-slate-100 focus:border-rose-500/40 focus:outline-none focus:ring-1 focus:ring-rose-500/20">
                     <option value="">All categories</option>
                     @foreach ($categories as $c)
-                        <option value="{{ $c }}" @selected($category === $c)>{{ ucfirst($c) }}</option>
+                        <option value="{{ $c }}" @selected($category === $c)>{{ \App\Models\Quote::categoryLabel($c) }}</option>
                     @endforeach
                 </select>
                 <button type="submit" class="rounded-lg bg-rose-500 hover:bg-rose-400 text-white font-semibold px-3 py-1.5 text-sm transition-colors">Search</button>

@@ -9,6 +9,7 @@ use App\Http\Controllers\Admin\AdminUserController;
 use App\Http\Controllers\Admin\AdministratorController;
 use App\Http\Controllers\ActivityClassifierController;
 use App\Http\Controllers\BackupController;
+use App\Http\Controllers\CaptchaController;
 use App\Http\Controllers\ContactController;
 use App\Http\Controllers\GoalController;
 use App\Http\Controllers\HistoryController;
@@ -40,6 +41,16 @@ Route::get('/contact', [ContactController::class, 'show'])->name('contact.show')
 Route::post('/contact', [ContactController::class, 'store'])
     ->middleware('throttle:contact-form')
     ->name('contact.store');
+
+// CAPTCHA support endpoints. Both are public — the captcha partial is used
+// on /login, /register, /contact (all guest-facing). The .svg suffix is
+// included in the URL so caches / proxies that key on file extension treat
+// the response as an image.
+Route::get('/captcha/img/{token}.svg', [CaptchaController::class, 'image'])
+    ->where('token', '[A-Za-z0-9\-]{1,64}')
+    ->name('captcha.image');
+Route::get('/captcha/refresh', [CaptchaController::class, 'refresh'])
+    ->name('captcha.refresh');
 
 Route::prefix('admin')->name('admin.')->group(function () {
     Route::get('login', [AdminAuthController::class, 'showLoginForm'])->name('login');
@@ -139,6 +150,11 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/classify/feedback', [ActivityClassifierController::class, 'feedback'])->name('classify.feedback');
 
     Route::get('/quotes/random', [QuoteController::class, 'random'])->name('quotes.random');
+    Route::get('/quotes', [QuoteController::class, 'index'])->name('quotes.index');
+    Route::post('/quotes', [QuoteController::class, 'store'])->name('quotes.store');
+    Route::put('/quotes/{quote}', [QuoteController::class, 'update'])->whereNumber('quote')->name('quotes.update');
+    Route::post('/quotes/{quote}/toggle', [QuoteController::class, 'toggleActive'])->whereNumber('quote')->name('quotes.toggle');
+    Route::delete('/quotes/{quote}', [QuoteController::class, 'destroy'])->whereNumber('quote')->name('quotes.destroy');
 
     Route::get('/rules', [RuleController::class, 'index'])->name('rules.index');
     Route::post('/rules', [RuleController::class, 'store'])->name('rules.store');

@@ -1396,62 +1396,82 @@
         </div>
     </div>
 
+    {{-- Hourly check-in modal.
+         Layout is a 3-zone flex column (header / scrollable body / footer)
+         capped at 90vh so the Save button is ALWAYS reachable regardless of
+         how many rules the user has or how short their viewport is.
+         The body scrolls; the footer never falls off-screen. --}}
     <div id="hourly_modal" role="dialog" aria-modal="true" aria-labelledby="hourly_modal_title" aria-hidden="true"
         class="fixed inset-0 z-50 hidden items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-        <div class="w-full max-w-md rounded-2xl border border-slate-700/60 bg-[var(--chrono-bg)] p-6 shadow-2xl">
-            <h3 id="hourly_modal_title" class="font-display text-base uppercase tracking-[0.2em] text-slate-100">Hourly check-in</h3>
-            <p class="mt-2 text-sm text-slate-300">
-                We found an unlogged gap from
-                <span class="font-medium text-slate-100" data-hourly-from></span>
-                to
-                <span class="font-medium text-slate-100" data-hourly-to></span>. What were you doing?
-            </p>
+        <div class="w-full max-w-md max-h-[90vh] flex flex-col rounded-2xl border border-slate-700/60 bg-[var(--chrono-bg)] shadow-2xl overflow-hidden">
 
-            @auth
-                @php
-                    $hourlyModalRules = auth()->user()->rules()->active()->ordered()->get(['id', 'text']);
-                    $popupRulePalette = [
-                        ['border' => 'border-emerald-400/40', 'soft' => 'bg-emerald-400/10', 'dot' => 'bg-emerald-400', 'text' => 'text-emerald-100'],
-                        ['border' => 'border-sky-400/40',     'soft' => 'bg-sky-400/10',     'dot' => 'bg-sky-400',     'text' => 'text-sky-100'],
-                        ['border' => 'border-violet-400/40',  'soft' => 'bg-violet-400/10',  'dot' => 'bg-violet-400',  'text' => 'text-violet-100'],
-                        ['border' => 'border-amber-400/40',   'soft' => 'bg-amber-400/10',   'dot' => 'bg-amber-400',   'text' => 'text-amber-100'],
-                        ['border' => 'border-rose-400/40',    'soft' => 'bg-rose-400/10',    'dot' => 'bg-rose-400',    'text' => 'text-rose-100'],
-                        ['border' => 'border-teal-400/40',    'soft' => 'bg-teal-400/10',    'dot' => 'bg-teal-400',    'text' => 'text-teal-100'],
-                    ];
-                @endphp
-                @if ($hourlyModalRules->isNotEmpty())
-                    <div class="mt-4 rounded-xl border border-slate-700/50 bg-slate-900/40 px-4 py-3.5">
-                        <div class="flex items-center gap-2 mb-2.5">
-                            <span class="inline-flex h-5 w-5 items-center justify-center rounded-md bg-emerald-400/15 text-emerald-300">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" class="h-3 w-3">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                                </svg>
-                            </span>
-                            <span class="text-[0.65rem] uppercase tracking-[0.25em] text-slate-300 font-semibold">Your rules</span>
-                        </div>
-                        <ul class="grid grid-cols-1 gap-1.5">
-                            @foreach ($hourlyModalRules as $i => $r)
-                                @php $p = $popupRulePalette[$i % count($popupRulePalette)]; @endphp
-                                <li class="flex items-start gap-2.5 rounded-lg border {{ $p['border'] }} {{ $p['soft'] }} px-3 py-2 leading-snug">
-                                    <span class="mt-1 h-1.5 w-1.5 shrink-0 rounded-full {{ $p['dot'] }}"></span>
-                                    <span class="text-xs {{ $p['text'] }} break-words">{{ $r->text }}</span>
-                                </li>
-                            @endforeach
-                        </ul>
-                    </div>
-                @endif
-            @endauth
+            {{-- Header — fixed at top --}}
+            <div class="shrink-0 px-6 pt-5 pb-3 border-b border-slate-800/60">
+                <h3 id="hourly_modal_title" class="font-display text-base uppercase tracking-[0.2em] text-slate-100">Hourly check-in</h3>
+                <p class="mt-2 text-sm text-slate-300">
+                    We found an unlogged gap from
+                    <span class="font-medium text-slate-100" data-hourly-from></span>
+                    to
+                    <span class="font-medium text-slate-100" data-hourly-to></span>. What were you doing?
+                </p>
+            </div>
 
-            <textarea id="hourly_modal_input" rows="3" maxlength="240" placeholder="e.g. Sleep, commute, deep work"
-                class="mt-3 w-full rounded-lg bg-slate-900/70 border border-slate-700 px-3 py-2 text-slate-100"></textarea>
-            <p class="mt-1 text-xs text-slate-500">
-                We'll keep reminding you until it's logged. Near end of day, reminders speed up; remaining gaps are auto-marked as Wasted.
-            </p>
-            <div class="mt-4 flex justify-end gap-2">
+            {{-- Scrollable body — rules card + textarea live here --}}
+            <div class="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-3">
+                @auth
+                    @php
+                        $hourlyModalRules = auth()->user()->rules()->active()->ordered()->get(['id', 'text']);
+                        $popupRulePalette = [
+                            ['border' => 'border-emerald-400/40', 'soft' => 'bg-emerald-400/10', 'dot' => 'bg-emerald-400', 'text' => 'text-emerald-100'],
+                            ['border' => 'border-sky-400/40',     'soft' => 'bg-sky-400/10',     'dot' => 'bg-sky-400',     'text' => 'text-sky-100'],
+                            ['border' => 'border-violet-400/40',  'soft' => 'bg-violet-400/10',  'dot' => 'bg-violet-400',  'text' => 'text-violet-100'],
+                            ['border' => 'border-amber-400/40',   'soft' => 'bg-amber-400/10',   'dot' => 'bg-amber-400',   'text' => 'text-amber-100'],
+                            ['border' => 'border-rose-400/40',    'soft' => 'bg-rose-400/10',    'dot' => 'bg-rose-400',    'text' => 'text-rose-100'],
+                            ['border' => 'border-teal-400/40',    'soft' => 'bg-teal-400/10',    'dot' => 'bg-teal-400',    'text' => 'text-teal-100'],
+                        ];
+                    @endphp
+                    @if ($hourlyModalRules->isNotEmpty())
+                        <details class="rounded-xl border border-slate-700/50 bg-slate-900/40 group" open>
+                            <summary class="cursor-pointer list-none flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl hover:bg-slate-900/60 transition-colors">
+                                <span class="flex items-center gap-2">
+                                    <span class="inline-flex h-5 w-5 items-center justify-center rounded-md bg-emerald-400/15 text-emerald-300">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" class="h-3 w-3">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                        </svg>
+                                    </span>
+                                    <span class="text-[0.65rem] uppercase tracking-[0.25em] text-slate-300 font-semibold">Your rules</span>
+                                    <span class="text-[0.6rem] text-slate-500 font-normal">· {{ $hourlyModalRules->count() }}</span>
+                                </span>
+                                <span class="text-slate-500 group-open:rotate-180 transition-transform text-xs">▾</span>
+                            </summary>
+                            <ul class="px-3 pb-3 pt-0 grid grid-cols-1 gap-1">
+                                @foreach ($hourlyModalRules as $i => $r)
+                                    @php $p = $popupRulePalette[$i % count($popupRulePalette)]; @endphp
+                                    <li class="flex items-start gap-2 rounded-md border {{ $p['border'] }} {{ $p['soft'] }} px-2.5 py-1.5 leading-snug">
+                                        <span class="mt-1 h-1.5 w-1.5 shrink-0 rounded-full {{ $p['dot'] }}"></span>
+                                        <span class="text-[0.7rem] {{ $p['text'] }} break-words">{{ $r->text }}</span>
+                                    </li>
+                                @endforeach
+                            </ul>
+                        </details>
+                    @endif
+                @endauth
+
+                <div>
+                    <textarea id="hourly_modal_input" rows="3" maxlength="240" placeholder="e.g. Sleep, commute, deep work"
+                        class="w-full rounded-lg bg-slate-900/70 border border-slate-700 px-3 py-2 text-slate-100 focus:border-sky-400/70 focus:outline-none focus:ring-2 focus:ring-sky-400/30 transition-colors"></textarea>
+                    <p class="mt-1.5 text-xs text-slate-500 leading-snug">
+                        We'll keep reminding you until it's logged. Near end of day, reminders speed up; remaining gaps are auto-marked as Wasted.
+                    </p>
+                </div>
+            </div>
+
+            {{-- Footer — fixed at bottom, always visible --}}
+            <div class="shrink-0 px-6 py-4 border-t border-slate-800/60 bg-slate-950/40 flex justify-end gap-2">
                 <button type="button" id="hourly_modal_skip"
-                    class="rounded-lg border border-slate-600 px-4 py-2 text-sm">Remind me later</button>
+                    class="rounded-lg border border-slate-600 px-4 py-2 text-sm hover:border-slate-400 transition-colors">Remind me later</button>
                 <button type="button" id="hourly_modal_save" disabled
-                    class="rounded-lg bg-[var(--chrono-blue)] text-slate-950 font-semibold px-4 py-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed">Save block</button>
+                    class="rounded-lg bg-[var(--chrono-blue)] text-slate-950 font-semibold px-4 py-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition-opacity">Save block</button>
             </div>
         </div>
     </div>

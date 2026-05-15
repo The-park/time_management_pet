@@ -1,35 +1,64 @@
-*.log
-.DS_Store
+# ─── Secrets & local config ───────────────────────────────────────────
 .env
 .env.backup
 .env.production
-.phpactor.json
-.phpunit.result.cache
-/.fleet
-/.idea
-/.nova
-/.phpunit.cache
-/.vscode
-/.zed
+.env.*.local
+*.local.php
 /auth.json
+/storage/*.key
+
+# ─── Dependencies & build output ──────────────────────────────────────
 /node_modules
+/vendor
 /public/build
 /public/hot
 /public/storage
-/storage/*.key
+/.vite
+
+# ─── Test & coverage ──────────────────────────────────────────────────
+.phpunit.result.cache
+/.phpunit.cache
+/coverage
+/.nyc_output
+
+# ─── Runtime / cache ──────────────────────────────────────────────────
+*.log
 /storage/pail
-/vendor
 Homestead.json
 Homestead.yaml
+
+# ─── Editors / IDEs ───────────────────────────────────────────────────
+/.fleet
+/.idea
+/.nova
+/.vscode
+/.zed
+.phpactor.json
+*.sublime-*
+
+# ─── Editor swap / backup files ───────────────────────────────────────
+*.swp
+*.swo
+*.bak
+*.orig
+*.rej
+*.tmp
+*~
+
+# ─── OS junk ──────────────────────────────────────────────────────────
+.DS_Store
 Thumbs.db
-rule to build/CHRONOLOG_SPEC.md
-.claude/agent-memory/time-pet/MEMORY.md
-.claude/agent-memory/time-pet/project_dashboard_dual_render.md
-.claude/agents/time-pet.md
-developing pet/2026-05-07_19-00_restore-dashboard-month-year-info.md
-developing pet/INDEX.md
-.claude/agent-memory/time-pet/project_efficiency_formula_and_colors.md
-developing pet/2026-05-07_19-30_efficiency-formula-and-unlogged-color.md
-.claude/agent-memory/time-pet/instructions.md
-rule to build/instructions.md
-.claude/scheduled_tasks.lock
+desktop.ini
+
+# ─── NPM / Yarn / PNPM debug logs ─────────────────────────────────────
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ─── Claude Code agent state (dev-only) ───────────────────────────────
+/.claude
+
+# ─── In-repo developer notes & scratch (not for production) ───────────
+/developing pet
+/rule to build

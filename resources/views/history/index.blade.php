@@ -22,6 +22,60 @@
     </div>
 
     <div class="space-y-6">
+        <section class="chrono-panel rounded-2xl p-6 md:p-8" aria-labelledby="history_search_heading">
+            <div class="flex flex-wrap items-baseline justify-between gap-3 mb-4">
+                <h2 id="history_search_heading" class="font-display text-sm uppercase tracking-[0.3em] text-slate-300">
+                    Search history
+                </h2>
+                <button type="button" data-search-clear
+                    class="hidden text-xs uppercase tracking-[0.2em] text-[var(--chrono-blue)] hover:text-cyan-200">
+                    Clear
+                </button>
+            </div>
+
+            <div class="relative mb-4">
+                <span class="pointer-events-none absolute inset-y-0 left-3 flex items-center text-slate-500" aria-hidden="true">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4">
+                        <path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z" clip-rule="evenodd"/>
+                    </svg>
+                </span>
+                <input type="search" data-search-q autocomplete="off" spellcheck="false"
+                    placeholder="Search activities, reasons, keywords…"
+                    aria-label="Search activities"
+                    class="w-full rounded-lg border border-slate-700/60 bg-slate-900/60 pl-9 pr-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-[var(--chrono-blue)]/60 focus:outline-none focus:ring-1 focus:ring-[var(--chrono-blue)]/40"/>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2 mb-4" role="group" aria-label="Filter by category">
+                @php
+                    $catChips = [
+                        ['all', 'All'],
+                        ['productive', 'Productive'],
+                        ['wasted', 'Wasted'],
+                        ['neutral', 'Neutral'],
+                    ];
+                @endphp
+                @foreach ($catChips as [$val, $label])
+                    <button type="button" data-search-cat="{{ $val }}"
+                        class="rounded-full border px-3 py-1 text-xs uppercase tracking-[0.2em] transition-colors border-slate-700/60 bg-slate-900/40 text-slate-300 hover:border-slate-500 hover:text-slate-100">
+                        {{ $label }}
+                    </button>
+                @endforeach
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label class="flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-slate-400">
+                    <span class="w-10">From</span>
+                    <input type="date" data-search-from
+                        class="flex-1 rounded-md border border-slate-700/60 bg-slate-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-[var(--chrono-blue)]/60 focus:outline-none"/>
+                </label>
+                <label class="flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-slate-400">
+                    <span class="w-10">To</span>
+                    <input type="date" data-search-to
+                        class="flex-1 rounded-md border border-slate-700/60 bg-slate-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-[var(--chrono-blue)]/60 focus:outline-none"/>
+                </label>
+            </div>
+        </section>
+
         <section class="chrono-panel rounded-2xl p-6 md:p-8">
             <div class="flex flex-wrap items-baseline justify-between gap-3 mb-5">
                 <div class="flex items-baseline gap-3">
@@ -594,13 +648,276 @@
                     contentEl.innerHTML = topStats + '<div class="mt-6 space-y-4">' + weekSections + '</div>';
                 };
 
+                // ──────────────────────── Search ────────────────────────
+
+                const FILTERS_KEY = 'chrono.historyFilters.v1';
+                const searchQEl = document.querySelector('[data-search-q]');
+                const searchFromEl = document.querySelector('[data-search-from]');
+                const searchToEl = document.querySelector('[data-search-to]');
+                const searchClearEl = document.querySelector('[data-search-clear]');
+                const searchCatBtns = Array.from(document.querySelectorAll('[data-search-cat]'));
+
+                const filters = { q: '', category: 'all', from: '', to: '' };
+                try {
+                    const raw = sessionStorage.getItem(FILTERS_KEY);
+                    if (raw) {
+                        const parsed = JSON.parse(raw);
+                        if (parsed && typeof parsed === 'object') {
+                            if (typeof parsed.q === 'string') filters.q = parsed.q;
+                            if (typeof parsed.category === 'string') filters.category = parsed.category;
+                            if (typeof parsed.from === 'string') filters.from = parsed.from;
+                            if (typeof parsed.to === 'string') filters.to = parsed.to;
+                        }
+                    }
+                } catch {}
+
+                const persistFilters = () => {
+                    try { sessionStorage.setItem(FILTERS_KEY, JSON.stringify(filters)); } catch {}
+                };
+
+                const isSearchActive = () =>
+                    (filters.q && filters.q.trim() !== '') ||
+                    filters.category !== 'all' ||
+                    !!filters.from ||
+                    !!filters.to;
+
+                const syncSearchUI = () => {
+                    if (searchQEl && searchQEl.value !== filters.q) searchQEl.value = filters.q;
+                    if (searchFromEl && searchFromEl.value !== filters.from) searchFromEl.value = filters.from;
+                    if (searchToEl && searchToEl.value !== filters.to) searchToEl.value = filters.to;
+                    for (const btn of searchCatBtns) {
+                        const active = btn.dataset.searchCat === filters.category;
+                        btn.classList.toggle('border-[var(--chrono-blue)]/60', active);
+                        btn.classList.toggle('bg-[var(--chrono-blue)]/10', active);
+                        btn.classList.toggle('text-cyan-200', active);
+                        btn.classList.toggle('border-slate-700/60', !active);
+                        btn.classList.toggle('bg-slate-900/40', !active);
+                        btn.classList.toggle('text-slate-300', !active);
+                        btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+                    }
+                    if (searchClearEl) searchClearEl.classList.toggle('hidden', !isSearchActive());
+                };
+
+                // Wrap case-insensitive matches of `q` inside escaped text with
+                // <mark>. Caller passes the raw label; we escape ourselves so
+                // the search term never bleeds into HTML.
+                const highlight = (text, q) => {
+                    const escaped = escapeHtml(text);
+                    if (!q) return escaped;
+                    const needle = q.trim();
+                    if (!needle) return escaped;
+                    const lowerText = text.toLowerCase();
+                    const lowerNeedle = needle.toLowerCase();
+                    let out = '';
+                    let cursor = 0;
+                    while (cursor < text.length) {
+                        const found = lowerText.indexOf(lowerNeedle, cursor);
+                        if (found === -1) {
+                            out += escapeHtml(text.slice(cursor));
+                            break;
+                        }
+                        out += escapeHtml(text.slice(cursor, found));
+                        const matchSlice = text.slice(found, found + needle.length);
+                        out += `<mark class="bg-[var(--chrono-blue)]/20 text-cyan-200 rounded px-0.5">${escapeHtml(matchSlice)}</mark>`;
+                        cursor = found + needle.length;
+                    }
+                    return out;
+                };
+
+                const formatDateHeading = (yyyyMmDd) => {
+                    // Parse y-m-d as a local date to avoid TZ drift on the
+                    // group heading vs. the stored `date` string.
+                    const [y, m, d] = yyyyMmDd.split('-').map(Number);
+                    const dt = new Date(y, (m || 1) - 1, d || 1);
+                    if (isNaN(dt.getTime())) return yyyyMmDd;
+                    return dt.toLocaleDateString('en-US', {
+                        weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
+                    });
+                };
+
+                const runSearch = () => {
+                    const blocks = loadBlocks();
+                    const q = (filters.q || '').trim().toLowerCase();
+                    const cat = filters.category;
+                    const from = filters.from || '';
+                    const to = filters.to || '';
+
+                    const results = [];
+                    for (const b of blocks) {
+                        if (b.status !== 'completed') continue;
+                        if (!b.date) continue;
+                        if (from && b.date < from) continue;
+                        if (to && b.date > to) continue;
+                        if (cat !== 'all') {
+                            const bc = b.category;
+                            if (cat === 'productive') {
+                                // Legacy/default blocks (no category) historically
+                                // count as productive in this codebase.
+                                if (bc !== 'productive' && bc != null) continue;
+                            } else {
+                                if (bc !== cat) continue;
+                            }
+                        }
+                        const label = b.label || '';
+                        if (q) {
+                            if (label.toLowerCase().indexOf(q) === -1) continue;
+                        }
+                        results.push(b);
+                    }
+
+                    results.sort((a, b) => {
+                        if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+                        const sa = a.start || '';
+                        const sb = b.start || '';
+                        if (sa !== sb) return sa < sb ? 1 : -1;
+                        return 0;
+                    });
+
+                    return results;
+                };
+
+                const renderSearchResults = () => {
+                    titleEl.textContent = 'Search results';
+                    backBtn.classList.add('hidden');
+
+                    const results = runSearch();
+                    const q = (filters.q || '').trim();
+
+                    if (results.length === 0) {
+                        contentEl.innerHTML =
+                            `<div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-6 text-center">
+                                <p class="text-sm text-slate-300">No matching activities found.</p>
+                                <p class="mt-1 text-xs text-slate-500">Try a different keyword or widen the date range.</p>
+                            </div>`;
+                        return;
+                    }
+
+                    const groups = new Map();
+                    for (const b of results) {
+                        if (!groups.has(b.date)) groups.set(b.date, []);
+                        groups.get(b.date).push(b);
+                    }
+
+                    const summary = `<p class="text-xs text-slate-400 mb-4">Showing ${results.length} ${results.length === 1 ? 'match' : 'matches'} across ${groups.size} ${groups.size === 1 ? 'day' : 'days'}</p>`;
+
+                    const sections = [];
+                    for (const [date, items] of groups) {
+                        const heading = formatDateHeading(date);
+                        const dayUrlTemplate = (window.ChronoHistoryConfig?.dayDetailUrl) || '';
+                        const dayUrl = dayUrlTemplate ? dayUrlTemplate.replace('__DATE__', date) : '#';
+                        const rows = items.map((b) => {
+                            const cat = b.category;
+                            let chipClass, chipText, dotClass;
+                            if (cat === 'wasted') {
+                                chipClass = 'bg-rose-500/15 text-rose-300 border-rose-500/30';
+                                chipText = 'Wasted';
+                                dotClass = 'bg-rose-400';
+                            } else if (cat === 'neutral') {
+                                chipClass = 'bg-slate-700/40 text-slate-300 border-slate-600/40';
+                                chipText = 'Neutral';
+                                dotClass = 'bg-slate-400';
+                            } else {
+                                chipClass = 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40';
+                                chipText = 'Productive';
+                                dotClass = 'bg-emerald-400';
+                            }
+                            const labelHtml = highlight(b.label || 'Time block', q);
+                            return `<a href="${dayUrl}" tabindex="0" data-search-row class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-slate-800/60 bg-slate-900/40 hover:border-[var(--chrono-blue)]/60 hover:bg-slate-800/40 focus:outline-none focus:border-[var(--chrono-blue)]/80 focus:ring-1 focus:ring-[var(--chrono-blue)]/40 transition-colors px-3 py-2 text-sm">
+                                <span class="inline-flex items-center rounded-md border border-slate-700/60 bg-slate-900/60 px-2 py-0.5 text-xs text-slate-100 tabular-nums">${escapeHtml(formatTime12(b.start))} – ${escapeHtml(formatTime12(b.end))}</span>
+                                <span class="inline-flex items-center rounded-md bg-slate-800/60 px-2 py-0.5 text-[0.65rem] uppercase tracking-wider text-slate-300 tabular-nums">${escapeHtml(formatDuration(b.durationMs || 0))}</span>
+                                <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[0.65rem] uppercase tracking-wider border ${chipClass}">
+                                    <span class="inline-block h-1.5 w-1.5 rounded-full ${dotClass} mr-1.5"></span>${chipText}
+                                </span>
+                                <span class="text-slate-200 break-words">${labelHtml}</span>
+                            </a>`;
+                        }).join('');
+
+                        sections.push(`
+                            <section class="rounded-xl border border-slate-800/60 bg-slate-900/20 p-4">
+                                <header class="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+                                    <a href="${dayUrl}" class="text-xs uppercase tracking-[0.2em] text-slate-300 hover:text-[var(--chrono-blue)]">${escapeHtml(heading)}</a>
+                                    <span class="text-xs text-slate-500">(${items.length} ${items.length === 1 ? 'entry' : 'entries'})</span>
+                                </header>
+                                <div class="space-y-2">${rows}</div>
+                            </section>
+                        `);
+                    }
+
+                    contentEl.innerHTML = summary + '<div class="space-y-4">' + sections.join('') + '</div>';
+                };
+
                 // ──────────────────────── Render dispatcher ────────────────────────
 
                 const render = () => {
+                    syncSearchUI();
+                    if (isSearchActive()) {
+                        // Hide the year/month select while in search mode — those
+                        // controls don't apply to the flat results view.
+                        if (filtersEl) filtersEl.innerHTML = '';
+                        renderSearchResults();
+                        return;
+                    }
                     renderFilters();
                     if (state.view === 'month' && state.month) renderMonth();
                     else { state.view = 'overview'; renderOverview(); }
                 };
+
+                // ──────────────────────── Search event wiring ────────────────────────
+
+                let qDebounce = null;
+                searchQEl?.addEventListener('input', (e) => {
+                    const val = e.target.value;
+                    if (qDebounce) clearTimeout(qDebounce);
+                    qDebounce = setTimeout(() => {
+                        filters.q = val;
+                        persistFilters();
+                        render();
+                    }, 150);
+                });
+                searchQEl?.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape') {
+                        filters.q = '';
+                        if (searchQEl) searchQEl.value = '';
+                        persistFilters();
+                        render();
+                        return;
+                    }
+                    if (e.key === 'ArrowDown') {
+                        const firstRow = contentEl.querySelector('[data-search-row]');
+                        if (firstRow) {
+                            e.preventDefault();
+                            firstRow.focus();
+                        }
+                    }
+                });
+
+                searchFromEl?.addEventListener('change', (e) => {
+                    filters.from = e.target.value || '';
+                    persistFilters();
+                    render();
+                });
+                searchToEl?.addEventListener('change', (e) => {
+                    filters.to = e.target.value || '';
+                    persistFilters();
+                    render();
+                });
+
+                for (const btn of searchCatBtns) {
+                    btn.addEventListener('click', () => {
+                        filters.category = btn.dataset.searchCat || 'all';
+                        persistFilters();
+                        render();
+                    });
+                }
+
+                searchClearEl?.addEventListener('click', () => {
+                    filters.q = '';
+                    filters.category = 'all';
+                    filters.from = '';
+                    filters.to = '';
+                    persistFilters();
+                    render();
+                });
 
                 // ──────────────────────── Event wiring ────────────────────────
 

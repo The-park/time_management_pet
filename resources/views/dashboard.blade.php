@@ -471,6 +471,52 @@
             </div>
         </section>
 
+        @auth
+            @php
+                // Server-rendered so the first paint shows rules without an
+                // extra HTTP round-trip. Cap at 5 to keep the widget compact;
+                // the dedicated /rules page is the source of truth.
+                $dashboardRules = \App\Models\Rule::query()
+                    ->active()
+                    ->ordered()
+                    ->limit(5)
+                    ->get(['id', 'text']);
+                $dashboardHasAnyRule = \App\Models\Rule::query()->count() > 0;
+            @endphp
+            <section class="chrono-panel rounded-2xl p-6 md:p-8">
+                <div class="flex items-baseline justify-between gap-4 mb-4">
+                    <h2 class="font-display text-sm uppercase tracking-[0.3em] text-slate-300">Rules I follow</h2>
+                    <a href="{{ route('rules.index') }}" class="text-xs uppercase tracking-[0.2em] text-slate-400 hover:text-[var(--chrono-blue)] transition-colors">Manage →</a>
+                </div>
+
+                @if ($dashboardRules->isEmpty())
+                    <div class="rounded-xl border border-dashed border-slate-700/60 bg-slate-900/30 p-5 text-center">
+                        <p class="text-slate-300 text-sm">
+                            Add the principles you want to live by — they'll surface as gentle reminders.
+                        </p>
+                        <a href="{{ route('rules.index') }}"
+                            class="mt-3 inline-flex items-center gap-1.5 rounded-md border border-[var(--chrono-blue)]/40 hover:border-[var(--chrono-blue)] hover:bg-[var(--chrono-blue)]/10 px-3 py-1.5 text-xs uppercase tracking-[0.2em] text-[var(--chrono-blue)] transition-colors">
+                            + Add your first rule
+                        </a>
+                    </div>
+                @else
+                    <ul class="flex flex-wrap gap-2">
+                        @foreach ($dashboardRules as $r)
+                            <li class="group">
+                                <span class="inline-flex items-center gap-2 rounded-full border border-[var(--chrono-blue)]/30 bg-[var(--chrono-blue)]/5 px-3.5 py-1.5 text-sm text-slate-100 shadow-[0_0_18px_-8px_rgba(0,224,255,0.4)] hover:border-emerald-400/40 hover:bg-emerald-400/5 hover:text-emerald-100 hover:-translate-y-0.5 hover:shadow-[0_0_22px_-6px_rgba(52,211,153,0.45)] transition-all duration-200">
+                                    <span class="h-1.5 w-1.5 rounded-full bg-[var(--chrono-blue)] group-hover:bg-emerald-300"></span>
+                                    {{ $r->text }}
+                                </span>
+                            </li>
+                        @endforeach
+                    </ul>
+                    @if ($dashboardHasAnyRule && $dashboardRules->count() >= 5)
+                        <p class="mt-3 text-[0.65rem] uppercase tracking-[0.2em] text-slate-500">Showing 5 — view all on the Rules page.</p>
+                    @endif
+                @endif
+            </section>
+        @endauth
+
         <section class="chrono-panel rounded-2xl p-6 md:p-8" data-period-section="week">
             <div class="flex items-baseline justify-between gap-4">
                 <h2 class="font-display text-sm uppercase tracking-[0.3em] text-slate-300">This week</h2>
@@ -1322,6 +1368,26 @@
                 to
                 <span class="font-medium text-slate-100" data-hourly-to></span>. What were you doing?
             </p>
+
+            @auth
+                @php
+                    $hourlyModalRules = auth()->user()->rules()->active()->ordered()->get(['id', 'text']);
+                @endphp
+                @if ($hourlyModalRules->isNotEmpty())
+                    <div class="mt-3 rounded-lg border border-slate-700/50 bg-slate-900/50 px-3 py-2.5">
+                        <div class="text-[0.6rem] uppercase tracking-[0.2em] text-slate-500 mb-1.5">Your rules</div>
+                        <ul class="space-y-1 text-xs text-slate-200">
+                            @foreach ($hourlyModalRules as $r)
+                                <li class="flex items-start gap-2 leading-snug">
+                                    <span class="text-[var(--chrono-blue)] mt-0.5">‣</span>
+                                    <span>{{ $r->text }}</span>
+                                </li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endif
+            @endauth
+
             <textarea id="hourly_modal_input" rows="3" maxlength="240" placeholder="e.g. Sleep, commute, deep work"
                 class="mt-3 w-full rounded-lg bg-slate-900/70 border border-slate-700 px-3 py-2 text-slate-100"></textarea>
             <p class="mt-1 text-xs text-slate-500">

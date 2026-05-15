@@ -14,6 +14,7 @@ use App\Http\Controllers\GoalController;
 use App\Http\Controllers\HistoryController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\QuoteController;
+use App\Http\Controllers\RuleController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\TimeBlockSyncController;
 use Illuminate\Support\Facades\Route;
@@ -138,4 +139,11 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/classify/feedback', [ActivityClassifierController::class, 'feedback'])->name('classify.feedback');
 
     Route::get('/quotes/random', [QuoteController::class, 'random'])->name('quotes.random');
+
+    Route::get('/rules', [RuleController::class, 'index'])->name('rules.index');
+    Route::post('/rules', [RuleController::class, 'store'])->name('rules.store');
+    Route::post('/rules/reorder', [RuleController::class, 'reorder'])->name('rules.reorder');
+    Route::put('/rules/{rule}', [RuleController::class, 'update'])->whereNumber('rule')->name('rules.update');
+    Route::post('/rules/{rule}/toggle', [RuleController::class, 'toggleActive'])->whereNumber('rule')->name('rules.toggle');
+    Route::delete('/rules/{rule}', [RuleController::class, 'destroy'])->whereNumber('rule')->name('rules.destroy');
 });

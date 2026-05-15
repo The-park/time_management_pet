@@ -55,6 +55,10 @@ return Application::configure(basePath: dirname(__DIR__))
                 return redirect()->route('goals.index')
                     ->with('toast', "That goal no longer exists, or you don't have access.");
             }
+            if ($request->is('rules/*')) {
+                return redirect()->route('rules.index')
+                    ->with('toast', "That rule no longer exists, or you don't have access.");
+            }
             return null; // fall through to default 404 page
         };
 

@@ -98,6 +98,7 @@
                         <a href="{{ route('dashboard') }}" class="hover:text-[var(--chrono-blue)]">Dashboard</a>
                         @auth
                             <a href="{{ route('goals.index') }}" class="hover:text-[var(--chrono-blue)]">Goals</a>
+                            <a href="{{ route('rules.index') }}" class="hover:text-[var(--chrono-blue)]">Rules</a>
                             <a href="{{ route('history.index') }}" class="hover:text-[var(--chrono-blue)]">History</a>
                             <a href="{{ route('profile.show') }}" class="hover:text-[var(--chrono-blue)]">Profile</a>
                             <a href="{{ route('settings.show') }}" class="hover:text-[var(--chrono-blue)]">Settings</a>
@@ -165,6 +166,7 @@
                         <a href="{{ route('dashboard') }}" class="hover:text-slate-200">Dashboard</a>
                         @auth
                             <a href="{{ route('goals.index') }}" class="hover:text-slate-200">Goals</a>
+                            <a href="{{ route('rules.index') }}" class="hover:text-slate-200">Rules</a>
                             <a href="{{ route('history.index') }}" class="hover:text-slate-200">History</a>
                             <a href="{{ route('settings.show') }}" class="hover:text-slate-200">Settings</a>
                         @else

@@ -31,7 +31,7 @@
     <select id="category" name="category" required
         class="w-full rounded-lg bg-slate-950/60 border border-slate-800 px-3 py-2 text-sm text-slate-100 focus:border-rose-500/40 focus:outline-none focus:ring-1 focus:ring-rose-500/20">
         @foreach ($categories as $c)
-            <option value="{{ $c }}" @selected(old('category', $quote?->category) === $c)>{{ ucfirst($c) }}</option>
+            <option value="{{ $c }}" @selected(old('category', $quote?->category) === $c)>{{ \App\Models\Quote::categoryLabel($c) }}</option>
         @endforeach
     </select>
     @error('category')<p class="mt-1 text-xs text-rose-300">{{ $message }}</p>@enderror

@@ -34,6 +34,7 @@ class User extends Authenticatable implements MustVerifyEmail
         'backup_last_sent_at',
         'backup_count',
         'flying_quotes_enabled',
+        'quote_source',
     ];
 
     /**
@@ -92,5 +93,23 @@ class User extends Authenticatable implements MustVerifyEmail
     public function rules()
     {
         return $this->hasMany(Rule::class);
+    }
+
+    public function quotes()
+    {
+        return $this->hasMany(Quote::class);
+    }
+
+    /**
+     * Resolve the user's quote-source preference, defaulting to 'mixed'
+     * when the column is null (pre-migration users) or missing.
+     */
+    public function quoteSource(): string
+    {
+        $value = $this->attributes['quote_source'] ?? null;
+        if (! is_string($value) || $value === '') {
+            return 'mixed';
+        }
+        return in_array($value, Quote::SOURCES, true) ? $value : 'mixed';
     }
 }

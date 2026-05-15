@@ -4,12 +4,20 @@ namespace Database\Seeders;
 
 use App\Models\Quote;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 
 class QuotesSeeder extends Seeder
 {
     public function run(): void
     {
-        $quotes = [
+        // Keep the original 31 hand-picked entries. These were curated for
+        // the bubble at launch and we want them to stay regardless of
+        // whether the bulk corpus is imported. The bulk loader below
+        // uses updateOrCreate keyed on text so dupes between the
+        // hand-picked list and the corpus are safely deduped.
+        $handPicked = [
             // ── badass ─────────────────────────────────────────────
             ['text' => 'Push yourself, because no one else is going to do it for you.', 'author' => null, 'source' => null, 'category' => 'badass'],
             ['text' => 'The pain you feel today will be the strength you feel tomorrow.', 'author' => null, 'source' => null, 'category' => 'badass'],
@@ -52,11 +60,74 @@ class QuotesSeeder extends Seeder
             ['text' => 'Get busy living, or get busy dying.', 'author' => 'Andy Dufresne', 'source' => 'The Shawshank Redemption', 'category' => 'movie'],
         ];
 
-        foreach ($quotes as $q) {
-            Quote::updateOrCreate(
-                ['text' => $q['text']],
-                array_merge($q, ['is_active' => true])
-            );
+        // Merge in the consolidated bulk corpus. Lives at
+        // database/seeders/quotes_data/all.php as a single flat array of
+        // ['text','author','source','category'] entries (~4.6k rows). The
+        // per-category files this used to load were merged into one to cut
+        // production disk footprint and inode count.
+        $all = $handPicked;
+        $corpusFile = __DIR__ . '/quotes_data/all.php';
+        if (is_file($corpusFile)) {
+            /** @var array<int, array<string, mixed>> $batch */
+            $batch = require $corpusFile;
+            if (is_array($batch)) {
+                foreach ($batch as $row) {
+                    $all[] = $row;
+                }
+            }
+        }
+
+        // Detect whether the schema has a user_id column. Another agent may
+        // add it at any point — guard so we don't break either side. When
+        // present we set NULL on every seeded row (admin pool / global).
+        $hasUserId = Schema::hasColumn('quotes', 'user_id');
+
+        // Process in chunks of 500 inside a single transaction per chunk
+        // so we don't hold one massive transaction across all 5k rows
+        // and risk hitting MySQL's max_allowed_packet / lock-wait limits.
+        $chunks = array_chunk($all, 500);
+        foreach ($chunks as $chunk) {
+            DB::transaction(function () use ($chunk, $hasUserId): void {
+                foreach ($chunk as $q) {
+                    if (! isset($q['text']) || ! is_string($q['text'])) {
+                        continue;
+                    }
+                    // Trim and clamp to the column's safe ceiling. Quote.text
+                    // is VARCHAR(500); we cap at 280 so it fits any tooltip /
+                    // bubble layout and to keep keys stable across the seeder
+                    // and future imports.
+                    $text = trim($q['text']);
+                    if ($text === '') {
+                        continue;
+                    }
+                    if (mb_strlen($text) > 280) {
+                        // No ellipsis — clean word-boundary truncate.
+                        $text = (string) Str::limit($text, 280, '');
+                    }
+
+                    $author = isset($q['author']) && is_string($q['author']) && $q['author'] !== ''
+                        ? mb_substr($q['author'], 0, 120)
+                        : null;
+                    $source = isset($q['source']) && is_string($q['source']) && $q['source'] !== ''
+                        ? mb_substr($q['source'], 0, 120)
+                        : null;
+                    $category = isset($q['category']) && in_array($q['category'], Quote::ALLOWED_CATEGORIES, true)
+                        ? $q['category']
+                        : 'other';
+
+                    $attrs = [
+                        'author' => $author,
+                        'source' => $source,
+                        'category' => $category,
+                        'is_active' => true,
+                    ];
+                    if ($hasUserId) {
+                        $attrs['user_id'] = null;
+                    }
+
+                    Quote::updateOrCreate(['text' => $text], $attrs);
+                }
+            });
         }
     }
 }

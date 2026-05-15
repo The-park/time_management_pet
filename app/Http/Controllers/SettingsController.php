@@ -53,11 +53,19 @@ class SettingsController extends Controller
             'wake_up_time' => ['required', 'date_format:H:i', 'after_or_equal:04:00', 'before_or_equal:11:00'],
             'gap_threshold_minutes' => ['required', 'integer', 'min:15', 'max:240'],
             'flying_quotes_enabled' => ['sometimes', 'boolean'],
+            'quote_source' => ['sometimes', 'string', 'in:admin,mine,mixed'],
         ]);
 
         // HTML checkboxes don't post when unchecked, so an absent value
         // means the user disabled the toggle.
         $data['flying_quotes_enabled'] = $request->boolean('flying_quotes_enabled');
+
+        // Explicit read so a missing radio value falls back to 'mixed'
+        // (sensible default — gives the widest pool).
+        $data['quote_source'] = $request->input('quote_source', 'mixed');
+        if (! in_array($data['quote_source'], ['admin', 'mine', 'mixed'], true)) {
+            $data['quote_source'] = 'mixed';
+        }
 
         $user->forceFill($data)->save();
 

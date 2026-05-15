@@ -89,6 +89,25 @@
                 </div>
             </section>
 
+            {{-- ─── Motivation ──────────────────────────────────────────── --}}
+            <section class="chrono-panel rounded-2xl p-6 md:p-8">
+                <h2 class="font-display text-sm uppercase tracking-[0.3em] text-slate-300 mb-1">Motivation</h2>
+                <p class="text-xs text-slate-500 mb-5">Floating quote bubbles that drift up the screen with rotating quotes from anime, movies, and elsewhere.</p>
+
+                <label class="inline-flex items-start gap-2.5 cursor-pointer">
+                    <input type="checkbox" name="flying_quotes_enabled" value="1"
+                        @checked(old('flying_quotes_enabled', $user?->flying_quotes_enabled ?? true))
+                        class="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-950 text-emerald-500 focus:ring-emerald-500/40">
+                    <span class="text-sm text-slate-200">
+                        Show motivational quotes
+                        <span class="block text-xs text-slate-500 mt-0.5">
+                            A small quote bubble floats from the bottom of the screen to the top every few seconds.
+                        </span>
+                    </span>
+                </label>
+                @error('flying_quotes_enabled')<p class="mt-2 text-xs text-rose-400">{{ $message }}</p>@enderror
+            </section>
+
             {{-- ─── Detection ───────────────────────────────────────────── --}}
             <section class="chrono-panel rounded-2xl p-6 md:p-8">
                 <h2 class="font-display text-sm uppercase tracking-[0.3em] text-slate-300 mb-1">Gap detection</h2>

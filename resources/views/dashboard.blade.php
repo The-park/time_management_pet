@@ -413,6 +413,7 @@
                 <div class="h-2 rounded-full bg-slate-800/80 overflow-hidden flex">
                     <div class="h-full bg-emerald-400 transition-[width] duration-500" data-day-productive-bar style="width: 0%"></div>
                     <div class="h-full bg-rose-400 transition-[width] duration-500" data-day-wasted-bar style="width: 0%"></div>
+                    <div class="h-full bg-slate-400 transition-[width] duration-500" data-day-neutral-bar style="width: 0%"></div>
                     <div class="h-full bg-yellow-400 transition-[width] duration-500" data-day-unlogged-bar style="width: 0%"></div>
                 </div>
                 <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[0.65rem] uppercase tracking-wider text-slate-500">
@@ -425,10 +426,18 @@
                         Wasted <span data-day-wasted-time class="text-rose-300 normal-case font-digital">—</span>
                     </span>
                     <span class="inline-flex items-center gap-1.5">
+                        <span class="inline-block h-2 w-2 rounded-full bg-slate-400"></span>
+                        Neutral <span data-day-neutral-time class="text-slate-200 normal-case font-digital">—</span>
+                    </span>
+                    <span class="inline-flex items-center gap-1.5">
                         <span class="inline-block h-2 w-2 rounded-full bg-yellow-400"></span>
                         Unlogged <span data-day-unlogged-time class="text-yellow-300 normal-case font-digital">—</span>
                     </span>
                     <span class="inline-flex items-center gap-1.5 ml-auto">
+                        <span class="text-slate-400">Wasted + Neutral</span>
+                        <span data-day-wasted-plus-neutral-time class="text-slate-100 normal-case font-digital">—</span>
+                    </span>
+                    <span class="inline-flex items-center gap-1.5">
                         <span class="text-slate-400">Non-productive</span>
                         <span data-day-nonproductive-time class="text-slate-200 normal-case font-digital">—</span>
                     </span>
@@ -902,6 +911,8 @@
                             class="rounded-lg border border-slate-600 px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed">Pause</button>
                         <button type="button" data-cc-reset
                             class="rounded-lg border border-slate-600 px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed">Reset</button>
+                        <button type="button" data-cc-save-reset
+                            class="rounded-lg bg-[var(--chrono-orange)] text-slate-950 font-semibold px-4 py-2 hidden disabled:opacity-50 disabled:cursor-not-allowed">Save block &amp; reset</button>
                     </div>
                     <p class="mt-3 text-xs text-slate-400">
                         Each countdown logs a block in <em>Today's time blocks</em>. Maximum duration is <strong>1 hour</strong>.
@@ -3401,6 +3412,7 @@
 
                 window.ChronoBlocks = {
                     add, addWithSplit, update, remove, render, get, dateToHHMM,
+                    showConfirmModal,
                     setStartEnd: publicSetStartEnd,
                     setReason:   publicSetReason,
                     focusReason: publicFocusReason,
@@ -4251,6 +4263,7 @@
                 const startBtn = document.querySelector('[data-cc-start]');
                 const pauseBtn = document.querySelector('[data-cc-pause]');
                 const resetBtn = document.querySelector('[data-cc-reset]');
+                const saveResetBtn = document.querySelector('[data-cc-save-reset]');
                 const timeEl = document.querySelector('[data-cc-time]');
                 const statusEl = document.querySelector('[data-cc-status]');
                 const labelDisplay = document.querySelector('[data-cc-display-label]');
@@ -4359,7 +4372,7 @@
                 // pausedAt = wall-clock ms when handlePause fired; cleared on
                 // resume. Used to build a "what did you do during the gap?"
                 // prompt when the user resumes after a non-trivial pause.
-                let state = { mode: 'idle', deadline: null, remainingMs: 0, label: '', blockId: null, pausedAt: null };
+                let state = { mode: 'idle', deadline: null, remainingMs: 0, label: '', blockId: null, pausedAt: null, originalDurationMs: 0 };
                 let tickHandle = null;
 
                 // Pause-gap modal — surfaced on Resume after >= 60s pause.
@@ -4524,6 +4537,21 @@
                     return readInputDuration();
                 };
 
+                const getElapsedMs = () => {
+                    // Use the original duration captured at Start time (not
+                    // readInputDuration) so a page refresh — which doesn't
+                    // restore the duration input fields — can still compute
+                    // elapsed correctly from persisted state.
+                    const original = state.originalDurationMs || 0;
+                    if (state.mode === 'running') {
+                        return Math.max(0, original - Math.max(0, state.deadline - Date.now()));
+                    }
+                    if (state.mode === 'paused') {
+                        return Math.max(0, original - Math.max(0, state.remainingMs));
+                    }
+                    return 0;
+                };
+
                 const render = () => {
                     const remaining = getRemainingMs();
                     timeEl.textContent = formatDuration(remaining);
@@ -4557,6 +4585,12 @@
                     pauseBtn.disabled = state.mode !== 'running';
                     resetBtn.disabled = state.mode === 'idle';
                     resetBtn.textContent = state.mode === 'finished' ? 'Stop' : 'Reset';
+
+                    if (saveResetBtn) {
+                        const showSave = (state.mode === 'running' || state.mode === 'paused')
+                            && getElapsedMs() > 0;
+                        saveResetBtn.classList.toggle('hidden', !showSave);
+                    }
 
                     const lock = state.mode === 'running' || state.mode === 'paused';
                     for (const el of numericInputs) el.disabled = lock;
@@ -4613,6 +4647,9 @@
                     let durationMs;
                     let label;
                     let blockId = state.blockId;
+                    // Preserve across resume so getElapsedMs() still works
+                    // after refresh; set from input when starting fresh.
+                    let originalDurationMs = state.originalDurationMs || 0;
                     // Capture the pause window before we clear state.pausedAt
                     // so we can prompt the user about that gap after resume.
                     let gapStartMs = null;
@@ -4644,6 +4681,7 @@
                         }
                         clearCcError();
                         label = (labelInput.value || '').trim();
+                        originalDurationMs = durationMs;
                         if (window.ChronoBlocks) {
                             const startDate = new Date();
                             const endDate = new Date(startDate.getTime() + durationMs);
@@ -4667,6 +4705,7 @@
                         label,
                         blockId,
                         pausedAt: null,
+                        originalDurationMs,
                     };
                     saveState();
                     startTicking();
@@ -4692,6 +4731,7 @@
                         label: state.label,
                         blockId: state.blockId,
                         pausedAt: Date.now(),
+                        originalDurationMs: state.originalDurationMs || 0,
                     };
                     saveState();
                     stopTicking();
@@ -4710,9 +4750,60 @@
                     render();
                 };
 
+                const performSaveAndReset = () => {
+                    const elapsedMs = getElapsedMs();
+                    if (elapsedMs <= 0) return;
+                    const labelText = (state.label || '').trim() || 'Custom countdown';
+                    const endDate = new Date();
+                    const startDate = new Date(endDate.getTime() - elapsedMs);
+                    if (window.ChronoBlocks?.addWithSplit) {
+                        window.ChronoBlocks.addWithSplit({
+                            source: 'countdown',
+                            start: dateToHHMM(startDate),
+                            end: dateToHHMM(endDate),
+                            durationMs: elapsedMs,
+                            label: labelText,
+                            status: 'completed',
+                            allowSplit: true,
+                        });
+                    } else if (window.ChronoBlocks?.add) {
+                        window.ChronoBlocks.add({
+                            source: 'countdown',
+                            start: dateToHHMM(startDate),
+                            end: dateToHHMM(endDate),
+                            durationMs: elapsedMs,
+                            label: labelText,
+                            status: 'completed',
+                        });
+                    }
+                    handleReset();
+                };
+
+                const handleSaveAndReset = async () => {
+                    if (state.mode !== 'running' && state.mode !== 'paused') return;
+                    const elapsedMs = getElapsedMs();
+                    if (elapsedMs <= 0) return;
+                    if (elapsedMs < 60_000 && window.ChronoBlocks?.showConfirmModal) {
+                        const seconds = Math.max(1, Math.round(elapsedMs / 1000));
+                        const ok = await window.ChronoBlocks.showConfirmModal({
+                            title: 'Save this short block?',
+                            lines: [
+                                { text: `Only ${seconds} second${seconds === 1 ? '' : 's'} have elapsed.`, muted: true },
+                                { text: 'It will be logged as a completed block and the timer will reset.', muted: true },
+                            ],
+                            confirmText: 'Save block & reset',
+                            cancelText: 'Cancel',
+                            tone: 'orange',
+                        });
+                        if (!ok) return;
+                    }
+                    performSaveAndReset();
+                };
+
                 startBtn.addEventListener('click', handleStart);
                 pauseBtn.addEventListener('click', handlePause);
                 resetBtn.addEventListener('click', handleReset);
+                saveResetBtn?.addEventListener('click', handleSaveAndReset);
 
                 for (const el of numericInputs) {
                     el.addEventListener('input', () => {
@@ -4731,7 +4822,7 @@
                                 end: dateToHHMM(new Date(stored.deadline)),
                             });
                         }
-                        state = { mode: 'finished', deadline: null, remainingMs: 0, label: stored.label || '', blockId: stored.blockId || null };
+                        state = { mode: 'finished', deadline: null, remainingMs: 0, label: stored.label || '', blockId: stored.blockId || null, originalDurationMs: stored.originalDurationMs || 0 };
                         saveState();
                     } else {
                         state = {
@@ -4740,6 +4831,7 @@
                             remainingMs: 0,
                             label: stored.label || '',
                             blockId: stored.blockId || null,
+                            originalDurationMs: stored.originalDurationMs || 0,
                         };
                         startTicking();
                     }
@@ -4750,9 +4842,10 @@
                         remainingMs: Math.max(0, stored.remainingMs),
                         label: stored.label || '',
                         blockId: stored.blockId || null,
+                        originalDurationMs: stored.originalDurationMs || 0,
                     };
                 } else if (stored && stored.mode === 'finished') {
-                    state = { mode: 'finished', deadline: null, remainingMs: 0, label: stored.label || '', blockId: stored.blockId || null };
+                    state = { mode: 'finished', deadline: null, remainingMs: 0, label: stored.label || '', blockId: stored.blockId || null, originalDurationMs: stored.originalDurationMs || 0 };
                 }
 
                 render();
@@ -6077,7 +6170,10 @@
                         const wastedHtml = wastedTodayMs > 0
                             ? ` · <span class="text-rose-300">${escapeHtml(formatDuration(wastedTodayMs))} wasted</span>`
                             : '';
-                        loggedCountEl.innerHTML = `${escapeHtml(blockText)}${wastedHtml}`;
+                        const neutralHtml = neutralTodayMs > 0
+                            ? ` · <span class="text-slate-300">${escapeHtml(formatDuration(neutralTodayMs))} neutral</span>`
+                            : '';
+                        loggedCountEl.innerHTML = `${escapeHtml(blockText)}${wastedHtml}${neutralHtml}`;
                     }
 
                     const wakeMins = hhmmToMins(wakeTime);
@@ -6119,14 +6215,18 @@
 
                     // ── Day efficiency ────────────────────────────────────
                     // Productive% = productive ÷ (productive + wasted + unlogged).
-                    // Wasted AND unlogged time both count against the user, so
-                    // the only way to reach 100% is logging productive blocks
-                    // across the full waking window so far.
+                    // Wasted AND unlogged time both count against the user; the
+                    // efficiency formula deliberately excludes neutral so the
+                    // user isn't penalised for time spent eating / commuting /
+                    // doing chores. Neutral IS visualised on the segmented bar
+                    // and called out in a Wasted + Neutral total so the user
+                    // can see what slice of their day was non-productive
+                    // without being either active waste or unaccounted-for time.
                     const productiveTodayMs = Math.max(0, loggedTodayMs - wastedTodayMs - neutralTodayMs);
                     const elapsedMs = Math.max(0, elapsedActiveMs);
-                    // Unlogged = elapsed-since-wake minus EVERYTHING logged (incl.
-                    // neutral). So neutral time eats into the unlogged window
-                    // without being counted as either positive or negative.
+                    // Unlogged = elapsed-since-wake minus EVERYTHING logged
+                    // (incl. neutral). So neutral time consumes the unlogged
+                    // window without changing efficiency.
                     const unloggedTodayMs = Math.max(0, elapsedMs - loggedTodayMs);
                     const dayDenomMs = productiveTodayMs + wastedTodayMs + unloggedTodayMs;
                     const productivePct = dayDenomMs > 0
@@ -6136,23 +6236,46 @@
                         ? Math.min(100 - productivePct, Math.round((wastedTodayMs / dayDenomMs) * 100))
                         : 0;
                     const unloggedBarPct = Math.max(0, 100 - productivePct - wastedPct);
+                    // Neutral bar is rendered against the FULL elapsed window
+                    // (incl. neutral) so the four segments visually account
+                    // for every minute of the day. The productive/wasted/
+                    // unlogged segments stay sized against dayDenomMs (which
+                    // is what efficiency uses), and the neutral segment is
+                    // overlaid on top — totalling 100% of the visual bar.
+                    const fullDenomMs = dayDenomMs + neutralTodayMs;
+                    const neutralBarPct = fullDenomMs > 0
+                        ? Math.round((neutralTodayMs / fullDenomMs) * 100)
+                        : 0;
+                    // Re-scale the other three segments to share the remaining
+                    // 100 - neutralBarPct percent so the bar always fills.
+                    const visibleRest = Math.max(0, 100 - neutralBarPct);
+                    const prodBarPct = Math.round((productivePct / 100) * visibleRest);
+                    const wastedBarPct = Math.round((wastedPct / 100) * visibleRest);
+                    const unloggedBarPctFinal = Math.max(0, 100 - prodBarPct - wastedBarPct - neutralBarPct);
                     const nonProductiveMs = wastedTodayMs + unloggedTodayMs;
+                    const wastedPlusNeutralMs = wastedTodayMs + neutralTodayMs;
                     const dayPctEl = document.querySelector('[data-day-effective-pct]');
                     const dayProdBar = document.querySelector('[data-day-productive-bar]');
                     const dayWastedBar = document.querySelector('[data-day-wasted-bar]');
+                    const dayNeutralBar = document.querySelector('[data-day-neutral-bar]');
                     const dayUnloggedBar = document.querySelector('[data-day-unlogged-bar]');
                     const dayProdTime = document.querySelector('[data-day-productive-time]');
                     const dayWastedTime = document.querySelector('[data-day-wasted-time]');
+                    const dayNeutralTime = document.querySelector('[data-day-neutral-time]');
                     const dayUnloggedTime = document.querySelector('[data-day-unlogged-time]');
                     const dayNonProdTime = document.querySelector('[data-day-nonproductive-time]');
+                    const dayWastedPlusNeutralTime = document.querySelector('[data-day-wasted-plus-neutral-time]');
                     if (dayPctEl) dayPctEl.textContent = dayDenomMs > 0 ? `${productivePct}%` : '—';
-                    if (dayProdBar) dayProdBar.style.width = `${productivePct}%`;
-                    if (dayWastedBar) dayWastedBar.style.width = `${wastedPct}%`;
-                    if (dayUnloggedBar) dayUnloggedBar.style.width = `${unloggedBarPct}%`;
+                    if (dayProdBar) dayProdBar.style.width = `${prodBarPct}%`;
+                    if (dayWastedBar) dayWastedBar.style.width = `${wastedBarPct}%`;
+                    if (dayNeutralBar) dayNeutralBar.style.width = `${neutralBarPct}%`;
+                    if (dayUnloggedBar) dayUnloggedBar.style.width = `${unloggedBarPctFinal}%`;
                     if (dayProdTime) dayProdTime.textContent = formatDuration(productiveTodayMs);
                     if (dayWastedTime) dayWastedTime.textContent = formatDuration(wastedTodayMs);
+                    if (dayNeutralTime) dayNeutralTime.textContent = formatDuration(neutralTodayMs);
                     if (dayUnloggedTime) dayUnloggedTime.textContent = formatDuration(unloggedMins * 60000);
                     if (dayNonProdTime) dayNonProdTime.textContent = formatDuration(nonProductiveMs);
+                    if (dayWastedPlusNeutralTime) dayWastedPlusNeutralTime.textContent = formatDuration(wastedPlusNeutralMs);
 
                     renderTopBlocks(todayBlocks);
 

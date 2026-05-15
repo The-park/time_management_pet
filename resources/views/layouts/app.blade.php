@@ -282,5 +282,7 @@
 
         @livewireScripts
         @stack('scripts')
+
+        @include('partials.flying-quote')
     </body>
 </html>

@@ -4,6 +4,7 @@ use App\Http\Controllers\Admin\AdminAuditController;
 use App\Http\Controllers\Admin\AdminAuthController;
 use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\Admin\AdminDomainController;
+use App\Http\Controllers\Admin\AdminQuoteController;
 use App\Http\Controllers\Admin\AdminUserController;
 use App\Http\Controllers\Admin\AdministratorController;
 use App\Http\Controllers\ActivityClassifierController;
@@ -12,6 +13,7 @@ use App\Http\Controllers\ContactController;
 use App\Http\Controllers\GoalController;
 use App\Http\Controllers\HistoryController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\QuoteController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\TimeBlockSyncController;
 use Illuminate\Support\Facades\Route;
@@ -78,6 +80,14 @@ Route::prefix('admin')->name('admin.')->group(function () {
         Route::post('domains', [AdminDomainController::class, 'store'])->name('domains.store');
         Route::post('domains/refresh', [AdminDomainController::class, 'refresh'])->name('domains.refresh');
         Route::delete('domains/{id}', [AdminDomainController::class, 'destroy'])->whereNumber('id')->name('domains.destroy');
+
+        Route::get('quotes', [AdminQuoteController::class, 'index'])->name('quotes.index');
+        Route::get('quotes/create', [AdminQuoteController::class, 'create'])->name('quotes.create');
+        Route::post('quotes', [AdminQuoteController::class, 'store'])->name('quotes.store');
+        Route::get('quotes/{id}/edit', [AdminQuoteController::class, 'edit'])->whereNumber('id')->name('quotes.edit');
+        Route::put('quotes/{id}', [AdminQuoteController::class, 'update'])->whereNumber('id')->name('quotes.update');
+        Route::post('quotes/{id}/toggle', [AdminQuoteController::class, 'toggleActive'])->whereNumber('id')->name('quotes.toggle');
+        Route::delete('quotes/{id}', [AdminQuoteController::class, 'destroy'])->whereNumber('id')->name('quotes.destroy');
     });
 });
 
@@ -126,4 +136,6 @@ Route::middleware(['auth'])->group(function () {
     // POST /classify/feedback  → record a user correction & retrain
     Route::post('/classify',          [ActivityClassifierController::class, 'classify'])->name('classify');
     Route::post('/classify/feedback', [ActivityClassifierController::class, 'feedback'])->name('classify.feedback');
+
+    Route::get('/quotes/random', [QuoteController::class, 'random'])->name('quotes.random');
 });

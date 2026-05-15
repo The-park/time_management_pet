@@ -18,16 +18,16 @@
         @if ($initial)
             <style>
                 @keyframes chrono-quote-rise {
-                    0%   { transform: translate(-50%, 110vh); opacity: 0; }
-                    8%   { opacity: 1; }
-                    92%  { opacity: 1; }
-                    100% { transform: translate(-50%, -25vh); opacity: 0; }
+                    0%   { transform: translate(-50%, 10vh);  opacity: 0; }
+                    8%   { transform: translate(-50%, 0);     opacity: 1; }
+                    92%  { transform: translate(-50%, -100vh); opacity: 1; }
+                    100% { transform: translate(-50%, -110vh); opacity: 0; }
                 }
                 .chrono-flying-quote {
                     position: fixed;
                     left: 50%;
                     bottom: 0;
-                    transform: translate(-50%, 110vh);
+                    transform: translate(-50%, 10vh);
                     z-index: 5;
                     pointer-events: none;
                     max-width: min(360px, 80vw);

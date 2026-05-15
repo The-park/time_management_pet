@@ -1298,8 +1298,10 @@
             </div>
 
             <p class="mt-2 text-xs text-slate-400">
-                A guess at the rest of your day from your past patterns. Click <strong>Use</strong> on any row
-                to drop it into the log form above.
+                A guess at your whole day from your past patterns — wake-up through end-of-day.
+                Click <strong>Use</strong> on a future row to drop it into the log form above.
+                Use <span class="text-emerald-300">👍</span> / <span class="text-rose-300">👎</span> on any row
+                to teach the model what was right.
             </p>
 
             {{-- Status row: shown while the model is cold-starting, when
@@ -1338,7 +1340,14 @@
                  so the user can verify it's eating their full history (not
                  just today's logs). Also surfaces a "Learning" badge while
                  the dataset is small. --}}
-            <p class="mt-3 text-[0.65rem] uppercase tracking-[0.2em] text-slate-500 hidden" data-predict-trained></p>
+            <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
+                <p class="text-[0.65rem] uppercase tracking-[0.2em] text-slate-500 hidden" data-predict-trained></p>
+                <button type="button" data-predict-reset-feedback
+                    class="hidden ml-auto text-[0.6rem] uppercase tracking-[0.2em] text-slate-500 hover:text-rose-300 underline-offset-2 hover:underline transition-colors"
+                    title="Wipe all useful / not-useful votes so the model relearns from raw history">
+                    Reset feedback
+                </button>
+            </div>
         </section>
     </div>
 
@@ -3510,6 +3519,19 @@
             (() => {
                 const STATE_KEY  = 'chrono.predict.v1';
                 const BLOCKS_KEY = 'chrono.timeBlocks.v1';
+                const FEEDBACK_KEY = 'chrono.predictFeedback.v1';
+                const FEEDBACK_MAX = 1000;
+                // Per-vote multiplicative adjustments and saturation caps.
+                // "useful" pushes the (slotKey,label) pair up; "not_useful"
+                // pushes it down — both cap so a single hot streak can't
+                // permanently nail an activity to the top (or floor it
+                // off the table). Floor keeps any flagged activity at >=0.05
+                // so it can still surface if literally nothing else fits.
+                const FEEDBACK_USEFUL_STEP    = 0.15;
+                const FEEDBACK_USEFUL_CAP     = 0.60;
+                const FEEDBACK_NOT_USEFUL_STEP = 0.20;
+                const FEEDBACK_NOT_USEFUL_CAP  = 0.80;
+                const FEEDBACK_FLOOR           = 0.05;
                 // Gate thresholds. Tuned so 2+ days of light logging unlocks
                 // predictions — early predictions are obviously rougher, which
                 // is why renderTable shows a "Learning mode" footer until the
@@ -3518,7 +3540,11 @@
                 const MIN_BLOCKS = 4;
                 const MIN_DAYS   = 2;
                 const LEARNING_BLOCKS = 20;
-                const MAX_SLOTS  = 12;
+                // Hard ceiling on rows generated in a single render. The
+                // whole-day predictor needs more headroom than the old
+                // rest-of-day loop (wake-7 to end-23 ~ 16 hour-slots),
+                // so this is just a safety belt against runaway loops.
+                const MAX_SLOTS  = 32;
                 const ALPHA      = 0.5;          // Laplace smoothing prior
                 const DECAY_TAU  = 30;           // Days. weight = exp(-daysSince / tau)
                 const RECENCY_TAU = 7;           // Days. Gentler than 1/(1+d) so old patterns aren't crushed.
@@ -3587,6 +3613,18 @@
                     const day = new Date(y, m - 1, d).getDay();
                     return (day === 0 || day === 6) ? 1 : 0;
                 };
+                // Feedback slotKey uses 3-letter weekday + hour. Mirrors the
+                // human-readable contract the spec asks for ("Mon-13"). Used
+                // both for storage (chrono.predictFeedback.v1) and for the
+                // ranking multiplier lookup at predict() time.
+                const DOW_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                const dowNameOf = (yyyymmdd) => {
+                    if (!yyyymmdd) return 'Mon';
+                    const [y, m, d] = yyyymmdd.split('-').map(Number);
+                    if (!Number.isFinite(y)) return 'Mon';
+                    return DOW_NAMES[new Date(y, m - 1, d).getDay()] || 'Mon';
+                };
+                const slotKeyFor = (dowName, hour) => `${dowName}-${hour}`;
                 // Weighted bump. Counts are floats — exponential decay means
                 // a 30-day-old block contributes ~0.37, a 90-day-old ~0.05,
                 // so the model tracks the user's *current* routine, not what
@@ -3626,6 +3664,55 @@
                         }
                     }
                     return String(h);
+                };
+
+                // ── Feedback store (the learning loop).
+                //
+                // Each entry: { slotKey, predicted: {label, category},
+                //   verdict: 'useful'|'not_useful', actualLabel: string|null,
+                //   ts: epoch_ms }. FIFO eviction once the array hits
+                // FEEDBACK_MAX so localStorage stays bounded.
+                const loadFeedback = () => {
+                    try {
+                        const raw = localStorage.getItem(FEEDBACK_KEY);
+                        if (!raw) return [];
+                        const arr = JSON.parse(raw);
+                        return Array.isArray(arr) ? arr : [];
+                    } catch { return []; }
+                };
+                const saveFeedback = (arr) => {
+                    try {
+                        const trimmed = arr.length > FEEDBACK_MAX
+                            ? arr.slice(arr.length - FEEDBACK_MAX)
+                            : arr;
+                        localStorage.setItem(FEEDBACK_KEY, JSON.stringify(trimmed));
+                    } catch (err) {
+                        console.warn('chrono.predictFeedback: save failed', err);
+                    }
+                };
+                // Pre-compute a (slotKey, labelKey) -> multiplier table from
+                // the raw feedback array. Called once per render so the
+                // inner rankCandidates loop stays O(1) per candidate.
+                const buildFeedbackIndex = (entries) => {
+                    const idx = {};   // slotKey -> labelKey -> { useful, notUseful }
+                    for (const e of entries) {
+                        if (!e || !e.slotKey) continue;
+                        const labelKey = activityKey(e.predicted?.label || '');
+                        if (!labelKey) continue;
+                        if (!idx[e.slotKey]) idx[e.slotKey] = {};
+                        const row = idx[e.slotKey][labelKey] || (idx[e.slotKey][labelKey] = { useful: 0, notUseful: 0 });
+                        if (e.verdict === 'useful') row.useful += 1;
+                        else if (e.verdict === 'not_useful') row.notUseful += 1;
+                    }
+                    return idx;
+                };
+                // Multiplier in (0, ~1.6]. >1 boosts the score, <1 demotes.
+                const feedbackMultiplier = (feedbackIdx, slotKey, labelKey) => {
+                    const row = feedbackIdx?.[slotKey]?.[labelKey];
+                    if (!row) return 1;
+                    const upBoost = Math.min(FEEDBACK_USEFUL_CAP,    row.useful    * FEEDBACK_USEFUL_STEP);
+                    const dnHit   = Math.min(FEEDBACK_NOT_USEFUL_CAP, row.notUseful * FEEDBACK_NOT_USEFUL_STEP);
+                    return 1 + upBoost - dnHit;
                 };
 
                 // ── Model construction.
@@ -3749,7 +3836,7 @@
                 // SCHEDULE_DIVERSITY_PENALTY exponent so the predictor can't
                 // collapse into a 2-activity ping-pong even when two
                 // activities heavily dominate freq/recency.
-                const rankCandidates = (state, prevKey, bucket, dowClass, usedInSchedule = null) => {
+                const rankCandidates = (state, prevKey, bucket, dowClass, usedInSchedule = null, feedbackIdx = null, slotKey = null) => {
                     const keys = Object.keys(state.freq);
                     const V = keys.length;
                     if (!V) return [];
@@ -3810,20 +3897,59 @@
                             score *= DISMISS_PENALTY;
                         }
 
+                        // Feedback multiplier — explicit user verdicts about
+                        // *this slot, this activity*. 👍 boosts up to +60%,
+                        // 👎 demotes up to ×0.20. Floor at FEEDBACK_FLOOR so
+                        // even a hated candidate can still surface if it's
+                        // the only thing left in the vocabulary.
+                        if (feedbackIdx && slotKey) {
+                            const mult = feedbackMultiplier(feedbackIdx, slotKey, k);
+                            score *= mult;
+                            if (score < FEEDBACK_FLOOR && (feedbackIdx[slotKey]?.[k]?.notUseful || 0) > 0) {
+                                score = FEEDBACK_FLOOR;
+                            }
+                        }
+
                         out.push({ key: k, score });
                     }
                     out.sort((a, b) => b.score - a.score);
                     return out;
                 };
 
-                // ── Schedule generation. Walks forward from the latest known
-                //    boundary, picking the top-ranked activity for each slot,
-                //    until end-of-day or MAX_SLOTS.
-                const predictRestOfDay = (state) => {
+                // ── Schedule generation.
+                //
+                // Whole-day predictor: emits one row per HOUR_STEP from the
+                // user's wake-up time through end-of-day, regardless of
+                // whether each slot is in the past, present, or future.
+                //
+                // The row kind is one of:
+                //   'logged'    — a logged block from today already overlaps
+                //                 this slot. We surface the *actual* label
+                //                 and category so the user can verify the
+                //                 prediction against reality (and we still
+                //                 attach a predicted shadow so feedback can
+                //                 learn "you predicted X but I did Y").
+                //   'past'      — slot is before now and has no logged block
+                //                 covering it. Prediction still shown.
+                //   'now'       — the slot containing the current minute.
+                //                 Same as 'future' but flagged for the
+                //                 "← you are here" badge.
+                //   'future'    — slot is entirely after now.
+                //
+                // Markov chains forward through *predicted* picks, but a
+                // logged-row anchors prevKey to the real activity for the
+                // next slot's chaining (so a prediction after a logged block
+                // is informed by what actually happened, not the previous
+                // guess).
+                const HOUR_STEP_MIN = 60;
+                const predictWholeDay = (state) => {
                     const cfg = window.ChronoDashboardConfig || {};
-                    const wakeMin = hhmmToMin(cfg.wakeTime || '07:00');
-                    const endMin  = hhmmToMin(cfg.endTime  || '22:00');
-                    if (!Number.isFinite(wakeMin) || !Number.isFinite(endMin)) return [];
+                    let wakeMin = hhmmToMin(cfg.wakeTime || '07:00');
+                    let endMin  = hhmmToMin(cfg.endTime  || '22:00');
+                    if (!Number.isFinite(wakeMin)) wakeMin = 7 * 60;
+                    if (!Number.isFinite(endMin))  endMin  = 22 * 60;
+                    // Defensive: if end <= wake (config typo), bail.
+                    if (endMin <= wakeMin) return [];
 
                     const blocks = loadBlocksLocal();
                     const today = todayKey();
@@ -3835,55 +3961,126 @@
 
                     const now = new Date();
                     const nowMin = now.getHours() * 60 + now.getMinutes();
-
-                    let cursor;
-                    let prevKey = null;
-                    if (todays.length) {
-                        const last = todays[todays.length - 1];
-                        const lastEnd = hhmmToMin(last.end || '00:00');
-                        // Cursor = max(last block's end, now). Past gaps aren't
-                        // retroactively predicted.
-                        cursor = Math.max(lastEnd, nowMin);
-                        prevKey = activityKey(last.label);
-                    } else {
-                        // Before-day-starts case: anchor to wake-up time but
-                        // never predict the past.
-                        cursor = Math.max(wakeMin, nowMin);
-                    }
-
                     const dowClass = dowClassOf(today);
+                    const dowName  = dowNameOf(today);
+
+                    // Pre-build feedback index so each rankCandidates call is
+                    // a cheap dictionary lookup, not an array re-scan.
+                    const feedbackIdx = buildFeedbackIndex(loadFeedback());
+
+                    // For each hourly slot we check whether any logged block
+                    // covers its midpoint; if so, we tag the slot as 'logged'.
+                    const findLoggedAt = (slotStartMin, slotEndMin) => {
+                        const mid = (slotStartMin + slotEndMin) / 2;
+                        for (const b of todays) {
+                            const s = hhmmToMin(b.start || '00:00');
+                            const e = hhmmToMin(b.end   || '00:00');
+                            if (!Number.isFinite(s) || !Number.isFinite(e)) continue;
+                            if (mid >= s && mid < e) return b;
+                            // Also catch tiny blocks fully inside the slot.
+                            if (s >= slotStartMin && e <= slotEndMin) return b;
+                        }
+                        return null;
+                    };
+
                     const slots = [];
-                    // Track every key already chosen in this schedule so the
-                    // diversity penalty inside rankCandidates can compound on
-                    // repeats. This is the single biggest fix for the
-                    // "only 2 activities rotating" bug.
                     const usedInSchedule = new Map();
+                    let prevKey = null;
+                    let cursor = wakeMin;
                     let safety = MAX_SLOTS;
+
                     while (cursor < endMin && safety-- > 0) {
-                        const bucket = bucketOf(Math.floor(cursor / 60));
-                        const ranked = rankCandidates(state, prevKey, bucket, dowClass, usedInSchedule);
-                        if (!ranked.length) break;
-                        const pick = ranked[0];
-                        // Floor at 15 min so a single-occurrence outlier (e.g. a
-                        // 4-minute test block) doesn't generate a 16-row table.
-                        const durMin = Math.max(15, Math.round(avgDuration(state, pick.key) || 60));
-                        const slotEnd = Math.min(cursor + durMin, endMin);
+                        const slotEnd = Math.min(cursor + HOUR_STEP_MIN, endMin);
                         if (slotEnd <= cursor) break;
-                        slots.push({
-                            startHHMM: minToHHMM(cursor),
-                            endHHMM:   minToHHMM(slotEnd),
-                            durationMin: slotEnd - cursor,
-                            key:       pick.key,
-                            label:     state.labelDisplay[pick.key] || pick.key,
-                            category:  modalCategory(state, pick.key),
+                        const hour = Math.floor(cursor / 60);
+                        const bucket = bucketOf(hour);
+                        const slotKey = slotKeyFor(dowName, hour);
+
+                        const logged = findLoggedAt(cursor, slotEnd);
+                        const ranked = rankCandidates(state, prevKey, bucket, dowClass, usedInSchedule, feedbackIdx, slotKey);
+                        const pick = ranked[0] || null;
+
+                        let kind;
+                        if (logged) kind = 'logged';
+                        else if (cursor <= nowMin && nowMin < slotEnd) kind = 'now';
+                        else if (slotEnd <= nowMin) kind = 'past';
+                        else kind = 'future';
+
+                        // Build the row. For 'logged' rows we show the real
+                        // block but keep the predicted shadow so feedback
+                        // buttons know what was predicted.
+                        const predicted = pick ? {
+                            key:        pick.key,
+                            label:      state.labelDisplay[pick.key] || pick.key,
+                            category:   modalCategory(state, pick.key),
                             confidence: pick.score,
-                        });
-                        usedInSchedule.set(pick.key, (usedInSchedule.get(pick.key) || 0) + 1);
-                        prevKey = pick.key;
+                        } : null;
+
+                        if (kind === 'logged') {
+                            const realLabel = String(logged.label || '').trim() || '—';
+                            const realCat = logged.category === 'wasted'  ? 'wasted'
+                                          : logged.category === 'neutral' ? 'neutral'
+                                          :                                 'productive';
+                            slots.push({
+                                kind,
+                                slotKey,
+                                startHHMM:  minToHHMM(cursor),
+                                endHHMM:    minToHHMM(slotEnd),
+                                durationMin: slotEnd - cursor,
+                                key:        activityKey(realLabel) || pick?.key || 'logged',
+                                label:      realLabel,
+                                category:   realCat,
+                                confidence: predicted?.confidence || 0,
+                                logged:     {
+                                    label: realLabel,
+                                    category: realCat,
+                                    start: logged.start,
+                                    end:   logged.end,
+                                },
+                                predicted,
+                            });
+                            // Chain Markov off what actually happened.
+                            prevKey = activityKey(realLabel) || prevKey;
+                        } else if (predicted) {
+                            slots.push({
+                                kind,
+                                slotKey,
+                                startHHMM:  minToHHMM(cursor),
+                                endHHMM:    minToHHMM(slotEnd),
+                                durationMin: slotEnd - cursor,
+                                key:        predicted.key,
+                                label:      predicted.label,
+                                category:   predicted.category,
+                                confidence: predicted.confidence,
+                                predicted,
+                            });
+                            usedInSchedule.set(predicted.key, (usedInSchedule.get(predicted.key) || 0) + 1);
+                            prevKey = predicted.key;
+                        } else {
+                            // No vocabulary at all (extreme cold start). Emit
+                            // a stub so the row still appears in the table
+                            // but contains no prediction.
+                            slots.push({
+                                kind,
+                                slotKey,
+                                startHHMM:  minToHHMM(cursor),
+                                endHHMM:    minToHHMM(slotEnd),
+                                durationMin: slotEnd - cursor,
+                                key:        null,
+                                label:      '—',
+                                category:   'neutral',
+                                confidence: 0,
+                                predicted: null,
+                            });
+                        }
                         cursor = slotEnd;
                     }
                     return slots;
                 };
+
+                // Back-compat alias — callers (incl. window.ChronoPredict.predict
+                // and any external usage) keep working unchanged.
+                const predictRestOfDay = predictWholeDay;
 
                 // ── DOM rendering.
                 const section = document.querySelector('[data-predict-section]');
@@ -3893,6 +4090,7 @@
                 const tbody     = section.querySelector('[data-predict-tbody]');
                 const countEl   = section.querySelector('[data-predict-count]');
                 const trainedEl = section.querySelector('[data-predict-trained]');
+                const resetFeedbackBtn = section.querySelector('[data-predict-reset-feedback]');
 
                 let lastRenderedSlots = [];
 
@@ -3920,6 +4118,13 @@
 
                 const renderTable = (state) => {
                     renderTrainedFooter(state);
+                    // Show/hide the reset-feedback control based on whether
+                    // any feedback exists. Avoids a useless button on a
+                    // first-time user's screen.
+                    if (resetFeedbackBtn) {
+                        const hasFeedback = loadFeedback().length > 0;
+                        resetFeedbackBtn.classList.toggle('hidden', !hasFeedback);
+                    }
                     if (state.totalBlocks < MIN_BLOCKS || state.distinctDays < MIN_DAYS) {
                         // Data-sparse mode — placeholder, no fake predictions.
                         statusEl.classList.remove('hidden');
@@ -3935,14 +4140,15 @@
                         return;
                     }
 
-                    const slots = predictRestOfDay(state);
+                    const slots = predictWholeDay(state);
                     lastRenderedSlots = slots;
 
                     if (!slots.length) {
                         const cfg = window.ChronoDashboardConfig || {};
                         statusEl.classList.remove('hidden');
                         statusEl.textContent =
-                            `Nothing more to predict — your day is full (past ${fmt12(cfg.endTime || '22:00')}).`;
+                            `Couldn't build a schedule — check that your wake-up time is before your end-of-day ` +
+                            `(currently ${fmt12(cfg.wakeTime || '07:00')} → ${fmt12(cfg.endTime || '22:00')}).`;
                         tableWrap.classList.add('hidden');
                         tbody.innerHTML = '';
                         if (countEl) countEl.textContent = '';
@@ -3952,7 +4158,8 @@
                     statusEl.classList.add('hidden');
                     tableWrap.classList.remove('hidden');
                     if (countEl) {
-                        countEl.textContent = `${slots.length} ${slots.length === 1 ? 'slot' : 'slots'}`;
+                        const futureCount = slots.filter((s) => s.kind === 'future' || s.kind === 'now').length;
+                        countEl.textContent = `${slots.length} hour${slots.length === 1 ? '' : 's'} · ${futureCount} ahead`;
                     }
 
                     const chipStyles = {
@@ -3968,17 +4175,132 @@
                     const catLabel = (c) =>
                         c === 'wasted' ? 'Wasted' : (c === 'neutral' ? 'Neutral' : 'Productive');
 
+                    const feedbackEntries = loadFeedback();
+                    // A slotKey is "answered" if there's any feedback row
+                    // referencing this exact slot today — used to collapse
+                    // the row to a "Thanks" line.
+                    const answeredSlotKeys = new Set();
+                    for (const e of feedbackEntries) {
+                        if (!e || !e.slotKey || !e.ts) continue;
+                        // Only collapse for *today's* feedback so tomorrow's
+                        // matching slotKey isn't pre-collapsed.
+                        if (Date.now() - e.ts < 24 * 60 * 60 * 1000) {
+                            answeredSlotKeys.add(e.slotKey);
+                        }
+                    }
+
                     tbody.innerHTML = '';
                     slots.forEach((slot, i) => {
                         const tr = document.createElement('tr');
-                        tr.className = 'hover:bg-slate-900/40 transition-colors align-top';
                         tr.dataset.slotIndex = String(i);
+                        tr.dataset.slotKey = slot.slotKey;
                         const cat = (slot.category in chipStyles) ? slot.category : 'productive';
                         const conf = Math.max(0, Math.min(1, slot.confidence || 0));
                         const confLabel = `${Math.round(conf * 100)}%`;
-                        // Fade rows that are clearly low-confidence so the eye
-                        // naturally trusts the top picks more.
-                        const fade = conf < 0.15 ? 'opacity-70' : '';
+                        const kind = slot.kind || 'future';
+                        const answered = answeredSlotKeys.has(slot.slotKey);
+
+                        // Per-kind row styling. Past/logged rows are
+                        // desaturated, the "now" row gets a subtle cyan tint
+                        // and indicator badge.
+                        let rowCls = 'align-top transition-colors';
+                        if (kind === 'logged' || kind === 'past') rowCls += ' opacity-60';
+                        if (kind === 'now') rowCls += ' bg-cyan-500/[0.05] border-l-2 border-cyan-400/70';
+                        if (answered) rowCls += ' opacity-50';
+                        rowCls += ' hover:bg-slate-900/40';
+                        tr.className = rowCls;
+
+                        // If the user already gave feedback on this slotKey
+                        // today, collapse to a tiny ack row. Keep the time
+                        // cells so the timeline still reads top-to-bottom.
+                        if (answered) {
+                            tr.innerHTML = `
+                                <td class="px-4 py-3 font-digital text-slate-500 whitespace-nowrap">
+                                    ${escapeHtml(fmt12(slot.startHHMM))}
+                                </td>
+                                <td class="px-4 py-3 font-digital text-slate-500 whitespace-nowrap">
+                                    ${escapeHtml(fmt12(slot.endHHMM))}
+                                </td>
+                                <td class="px-4 py-3 text-slate-500" colspan="4">
+                                    <span class="text-xs italic">Thanks — recorded. The model will weight this slot next time.</span>
+                                </td>
+                            `;
+                            tbody.appendChild(tr);
+                            return;
+                        }
+
+                        // Confidence fade only meaningful for predicted rows.
+                        const fade = (kind !== 'logged' && conf < 0.15) ? 'opacity-70' : '';
+
+                        // Build the activity cell. Logged rows show a small
+                        // "Logged" chip above the label so it's unmistakable
+                        // that this is reality, not a guess. The predicted
+                        // shadow goes underneath in muted text.
+                        let activityCellHtml;
+                        if (kind === 'logged') {
+                            const predShadow = slot.predicted
+                                ? `<span class="mt-1 inline-block text-[0.6rem] uppercase tracking-wider text-slate-500">
+                                       predicted: ${escapeHtml(slot.predicted.label)}
+                                   </span>`
+                                : '';
+                            activityCellHtml = `
+                                <span class="inline-flex items-center rounded-md bg-slate-700/40 px-1.5 py-0.5 text-[0.55rem] uppercase tracking-[0.15em] text-slate-300 mb-1">
+                                    Logged
+                                </span>
+                                <p class="break-words leading-relaxed text-slate-100">${escapeHtml(slot.label)}</p>
+                                ${predShadow}
+                            `;
+                        } else {
+                            const nowBadge = kind === 'now'
+                                ? `<span class="ml-2 align-middle inline-flex items-center rounded-full bg-cyan-500/15 text-cyan-200 border border-cyan-400/40 px-1.5 py-0.5 text-[0.55rem] uppercase tracking-[0.15em]">← you are here</span>`
+                                : '';
+                            activityCellHtml = `
+                                <p class="break-words leading-relaxed">${escapeHtml(slot.label)}${nowBadge}</p>
+                                <span class="mt-1 inline-block text-[0.6rem] uppercase tracking-wider text-slate-500">
+                                    ${confLabel} confidence${kind === 'past' ? ' · missed slot' : ''}
+                                </span>
+                            `;
+                        }
+
+                        // Action cell varies by kind:
+                        //   - future / now: Use + Dismiss + feedback buttons
+                        //   - past / logged: feedback buttons only (no Use,
+                        //     no Dismiss — you can't act on a past slot but
+                        //     feedback on logged slots IS how the model
+                        //     learns what was right).
+                        const feedbackBtns = `
+                            <button type="button" data-predict-feedback="useful"
+                                class="rounded-md border border-slate-700 hover:border-emerald-400/60 hover:text-emerald-300 text-xs px-2 py-1 text-slate-300 transition-colors"
+                                title="Mark this prediction as useful — boost it for this slot in future">
+                                👍
+                            </button>
+                            <button type="button" data-predict-feedback="not_useful"
+                                class="rounded-md border border-slate-700 hover:border-rose-400/60 hover:text-rose-300 text-xs px-2 py-1 text-slate-400 transition-colors"
+                                title="Mark this prediction as wrong — demote it for this slot">
+                                👎
+                            </button>
+                        `;
+                        let actionHtml;
+                        if (kind === 'future' || kind === 'now') {
+                            actionHtml = `
+                                <button type="button" data-predict-use
+                                    class="rounded-md border border-slate-700 hover:border-[var(--chrono-blue)]/60 hover:text-[var(--chrono-blue)] text-xs px-2 py-1 text-slate-300 transition-colors"
+                                    title="Drop this slot into the log form above">
+                                    Use
+                                </button>
+                                <button type="button" data-predict-dismiss
+                                    data-predict-key="${escapeHtml(slot.key || '')}"
+                                    data-predict-label="${escapeHtml(slot.label)}"
+                                    class="rounded-md border border-slate-700 hover:border-rose-400/60 hover:text-rose-300 text-xs px-2 py-1 text-slate-400 transition-colors"
+                                    title="Not this — demote for a few hours">
+                                    ×
+                                </button>
+                                ${feedbackBtns}
+                            `;
+                        } else {
+                            actionHtml = feedbackBtns;
+                        }
+
                         tr.innerHTML = `
                             <td class="relative px-4 py-3 font-digital text-slate-100 whitespace-nowrap before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[3px] before:rounded-full ${accentMap[cat]} ${fade}">
                                 ${escapeHtml(fmt12(slot.startHHMM))}
@@ -3992,10 +4314,7 @@
                                 </span>
                             </td>
                             <td class="px-4 py-3 text-slate-100 ${fade}">
-                                <p class="break-words leading-relaxed">${escapeHtml(slot.label)}</p>
-                                <span class="mt-1 inline-block text-[0.6rem] uppercase tracking-wider text-slate-500">
-                                    ${confLabel} confidence
-                                </span>
+                                ${activityCellHtml}
                             </td>
                             <td class="px-4 py-3 ${fade}">
                                 <span class="inline-flex items-center rounded-full border px-2 py-0.5 text-[0.6rem] uppercase tracking-[0.15em] ${chipStyles[cat]}">
@@ -4003,19 +4322,8 @@
                                 </span>
                             </td>
                             <td class="px-4 py-3">
-                                <div class="flex justify-end gap-1.5">
-                                    <button type="button" data-predict-use
-                                        class="rounded-md border border-slate-700 hover:border-[var(--chrono-blue)]/60 hover:text-[var(--chrono-blue)] text-xs px-2 py-1 text-slate-300 transition-colors"
-                                        title="Drop this slot into the log form above">
-                                        Use
-                                    </button>
-                                    <button type="button" data-predict-dismiss
-                                        data-predict-key="${escapeHtml(slot.key)}"
-                                        data-predict-label="${escapeHtml(slot.label)}"
-                                        class="rounded-md border border-slate-700 hover:border-rose-400/60 hover:text-rose-300 text-xs px-2 py-1 text-slate-400 transition-colors"
-                                        title="Not this — demote for a few hours">
-                                        ×
-                                    </button>
+                                <div class="flex flex-wrap justify-end gap-1.5">
+                                    ${actionHtml}
                                 </div>
                             </td>
                         `;
@@ -4082,8 +4390,101 @@
                     if (modelState) renderTable(modelState);
                 }, 5 * 60 * 1000);
 
-                // Single delegated click handler for both row actions.
+                // ── Feedback persistence. Appends a single entry and
+                // FIFO-trims to FEEDBACK_MAX. Returns the saved entry so
+                // the caller can re-render without re-reading from disk.
+                const recordFeedback = ({ slotKey, label, category, verdict, actualLabel }) => {
+                    if (!slotKey || !verdict) return null;
+                    if (verdict !== 'useful' && verdict !== 'not_useful') return null;
+                    const arr = loadFeedback();
+                    const entry = {
+                        slotKey,
+                        predicted: {
+                            label: String(label || ''),
+                            category: category || 'productive',
+                        },
+                        verdict,
+                        actualLabel: actualLabel || null,
+                        ts: Date.now(),
+                    };
+                    arr.push(entry);
+                    saveFeedback(arr);
+                    return entry;
+                };
+
+                // Single delegated click handler for all row actions.
                 tbody?.addEventListener('click', (e) => {
+                    // ── Feedback buttons: record verdict for (slotKey, label).
+                    const fbBtn = e.target.closest('[data-predict-feedback]');
+                    if (fbBtn) {
+                        const verdict = fbBtn.dataset.predictFeedback;
+                        const tr = fbBtn.closest('tr[data-slot-index]');
+                        if (!tr) return;
+                        const idx = Number(tr.dataset.slotIndex);
+                        const slot = lastRenderedSlots[idx];
+                        if (!slot || !slot.slotKey) return;
+
+                        // For "not_useful" we surface a tiny inline input so
+                        // the user can optionally tell us what they actually
+                        // did. Enter saves, Escape (or blur) saves without
+                        // an actualLabel. We never block the verdict on the
+                        // text — pressing the button alone is enough.
+                        if (verdict === 'not_useful' && !fbBtn.dataset.expanded) {
+                            fbBtn.dataset.expanded = '1';
+                            const cell = fbBtn.closest('td');
+                            if (cell) {
+                                const inputWrap = document.createElement('div');
+                                inputWrap.className = 'mt-2 w-full';
+                                inputWrap.innerHTML = `
+                                    <input type="text" maxlength="80"
+                                        data-predict-feedback-input
+                                        placeholder="What did you actually do? (optional)"
+                                        class="w-full rounded-md border border-slate-700 bg-slate-900/60 px-2 py-1 text-xs text-slate-200 placeholder:text-slate-500 focus:border-rose-400/60 focus:outline-none">
+                                `;
+                                cell.appendChild(inputWrap);
+                                const input = inputWrap.querySelector('input');
+                                const commit = (actualLabel) => {
+                                    recordFeedback({
+                                        slotKey:  slot.slotKey,
+                                        label:    slot.predicted?.label || slot.label,
+                                        category: slot.predicted?.category || slot.category,
+                                        verdict:  'not_useful',
+                                        actualLabel,
+                                    });
+                                    renderTable(modelState);
+                                };
+                                input.addEventListener('keydown', (ev) => {
+                                    if (ev.key === 'Enter') {
+                                        ev.preventDefault();
+                                        commit(input.value.trim() || null);
+                                    } else if (ev.key === 'Escape') {
+                                        ev.preventDefault();
+                                        commit(null);
+                                    }
+                                });
+                                input.addEventListener('blur', () => {
+                                    // Only commit on blur if the user typed
+                                    // something — otherwise let them click
+                                    // 👎 again to re-open / cancel.
+                                    if (input.value.trim()) commit(input.value.trim());
+                                    else commit(null);
+                                });
+                                setTimeout(() => input.focus(), 0);
+                            }
+                            return;
+                        }
+
+                        recordFeedback({
+                            slotKey:  slot.slotKey,
+                            label:    slot.predicted?.label || slot.label,
+                            category: slot.predicted?.category || slot.category,
+                            verdict,
+                            actualLabel: null,
+                        });
+                        renderTable(modelState);
+                        return;
+                    }
+
                     // ── × button: soft-dismiss this activity for a cool-down
                     // window. It still exists in the model — just demoted in
                     // ranking — so a one-off "not this" doesn't unlearn the
@@ -4163,12 +4564,43 @@
                     );
                 });
 
+                // Reset-feedback button: wipes the entire feedback array
+                // after explicit confirmation. Useful when a user's routine
+                // shifts (e.g. new job) and old votes are no longer accurate.
+                resetFeedbackBtn?.addEventListener('click', () => {
+                    if (!loadFeedback().length) return;
+                    if (!window.confirm('Wipe all prediction feedback? This will reset the 👍 / 👎 votes the model has learned from.')) {
+                        return;
+                    }
+                    try { localStorage.removeItem(FEEDBACK_KEY); }
+                    catch (err) { console.warn('chrono.predictFeedback: reset failed', err); }
+                    renderTable(modelState);
+                    window.showToast?.(
+                        'Feedback reset. The predictor is back to raw history.',
+                        { tone: 'info', duration: 2400 }
+                    );
+                });
+
                 // Expose a tiny debug surface — handy when iterating on the
-                // algorithm. Never relied on by other modules.
+                // algorithm. Never relied on by other modules. The shape
+                // matches the previous version (getState/predict/rebuild)
+                // plus the two new feedback helpers.
                 window.ChronoPredict = {
-                    getState: () => modelState,
-                    predict:  () => modelState ? predictRestOfDay(modelState) : [],
-                    rebuild:  refresh,
+                    getState:       () => modelState,
+                    predict:        () => modelState ? predictWholeDay(modelState) : [],
+                    rebuild:        refresh,
+                    recordFeedback: ({ slotKey, label, verdict, actualLabel } = {}) => {
+                        const entry = recordFeedback({
+                            slotKey,
+                            label,
+                            category: 'productive',
+                            verdict,
+                            actualLabel,
+                        });
+                        if (entry && modelState) renderTable(modelState);
+                        return entry;
+                    },
+                    getFeedback: () => loadFeedback(),
                 };
             })();
         </script>

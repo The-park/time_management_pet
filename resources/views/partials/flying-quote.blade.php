@@ -42,7 +42,7 @@
                     border: 1px solid rgba(16, 185, 129, 0.28);
                     box-shadow: 0 0 18px rgba(16, 185, 129, 0.22),
                                 0 0 36px rgba(0, 224, 255, 0.15);
-                    animation: chrono-quote-rise 15s ease-in-out forwards;
+                    animation: chrono-quote-rise 28s linear forwards;
                 }
                 .chrono-flying-quote .chrono-flying-quote-meta {
                     display: block;
@@ -65,8 +65,8 @@
                     if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
                     const ENDPOINT = @json(route('quotes.random'));
-                    const ANIM_MS = 15000;
-                    const GAP_MS = 12000;
+                    const ANIM_MS = 28000;
+                    const GAP_MS = 22000;
 
                     const initial = @json($initialPayload);
 

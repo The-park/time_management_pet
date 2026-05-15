@@ -24,6 +24,43 @@
         </div>
     </div>
 
+    {{-- Quick-jump shortcuts (moved out of the header to keep the top nav tight). --}}
+    <section class="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <a href="{{ route('profile.show') }}"
+           class="group flex items-center justify-between rounded-xl border border-slate-800/60 bg-slate-900/40 hover:border-[var(--chrono-blue)]/60 hover:bg-slate-900/60 transition-colors px-4 py-3">
+            <div class="flex items-center gap-3">
+                <span class="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--chrono-blue)]/15 text-[var(--chrono-blue)]">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" class="h-5 w-5">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
+                              d="M15.75 7.5a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.5 20.25a7.5 7.5 0 0115 0"/>
+                    </svg>
+                </span>
+                <div>
+                    <p class="text-sm font-semibold text-slate-100">Profile</p>
+                    <p class="text-xs text-slate-400">Name, email, password</p>
+                </div>
+            </div>
+            <span class="text-slate-500 group-hover:text-[var(--chrono-blue)] transition-colors">→</span>
+        </a>
+
+        <a href="{{ route('rules.index') }}"
+           class="group flex items-center justify-between rounded-xl border border-slate-800/60 bg-slate-900/40 hover:border-emerald-400/60 hover:bg-slate-900/60 transition-colors px-4 py-3">
+            <div class="flex items-center gap-3">
+                <span class="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-300">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" class="h-5 w-5">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
+                              d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                </span>
+                <div>
+                    <p class="text-sm font-semibold text-slate-100">Rules</p>
+                    <p class="text-xs text-slate-400">Habits you want to keep</p>
+                </div>
+            </div>
+            <span class="text-slate-500 group-hover:text-emerald-300 transition-colors">→</span>
+        </a>
+    </section>
+
     <div class="space-y-6">
         <form method="POST" action="{{ route('settings.update') }}" class="space-y-6">
             @csrf

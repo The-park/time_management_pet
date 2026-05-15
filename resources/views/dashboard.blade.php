@@ -482,38 +482,67 @@
                     ->limit(5)
                     ->get(['id', 'text']);
                 $dashboardHasAnyRule = \App\Models\Rule::query()->count() > 0;
+                // Same palette as the /rules page so the visual language is
+                // consistent across surfaces. Keep these as literal class
+                // strings — Tailwind JIT scans for them in this file.
+                $dashRulePalette = [
+                    ['border' => 'border-emerald-400/40', 'soft' => 'bg-emerald-400/10', 'dot' => 'bg-emerald-400', 'text' => 'text-emerald-100', 'glow' => 'shadow-emerald-500/20'],
+                    ['border' => 'border-sky-400/40',     'soft' => 'bg-sky-400/10',     'dot' => 'bg-sky-400',     'text' => 'text-sky-100',     'glow' => 'shadow-sky-500/20'],
+                    ['border' => 'border-violet-400/40',  'soft' => 'bg-violet-400/10',  'dot' => 'bg-violet-400',  'text' => 'text-violet-100',  'glow' => 'shadow-violet-500/20'],
+                    ['border' => 'border-amber-400/40',   'soft' => 'bg-amber-400/10',   'dot' => 'bg-amber-400',   'text' => 'text-amber-100',   'glow' => 'shadow-amber-500/20'],
+                    ['border' => 'border-rose-400/40',    'soft' => 'bg-rose-400/10',    'dot' => 'bg-rose-400',    'text' => 'text-rose-100',    'glow' => 'shadow-rose-500/20'],
+                    ['border' => 'border-teal-400/40',    'soft' => 'bg-teal-400/10',    'dot' => 'bg-teal-400',    'text' => 'text-teal-100',    'glow' => 'shadow-teal-500/20'],
+                ];
             @endphp
-            <section class="chrono-panel rounded-2xl p-6 md:p-8">
-                <div class="flex items-baseline justify-between gap-4 mb-4">
-                    <h2 class="font-display text-sm uppercase tracking-[0.3em] text-slate-300">Rules I follow</h2>
-                    <a href="{{ route('rules.index') }}" class="text-xs uppercase tracking-[0.2em] text-slate-400 hover:text-[var(--chrono-blue)] transition-colors">Manage →</a>
-                </div>
+            <section class="chrono-panel rounded-2xl p-6 md:p-8 relative overflow-hidden">
+                {{-- Soft multi-stop tint in the background so the panel feels alive without being loud. --}}
+                <div class="pointer-events-none absolute inset-0 opacity-60
+                            bg-[radial-gradient(circle_at_10%_0%,_rgba(52,211,153,0.10),_transparent_40%),radial-gradient(circle_at_90%_0%,_rgba(167,139,250,0.10),_transparent_40%)]"></div>
 
-                @if ($dashboardRules->isEmpty())
-                    <div class="rounded-xl border border-dashed border-slate-700/60 bg-slate-900/30 p-5 text-center">
-                        <p class="text-slate-300 text-sm">
-                            Add the principles you want to live by — they'll surface as gentle reminders.
-                        </p>
+                <div class="relative">
+                    <div class="flex items-center justify-between gap-4 mb-5">
+                        <div class="flex items-center gap-2.5">
+                            <span class="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-400/15 text-emerald-300">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" class="h-4 w-4" stroke-width="1.8">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                            </span>
+                            <h2 class="font-display text-sm uppercase tracking-[0.3em] text-slate-200">Rules I follow</h2>
+                        </div>
                         <a href="{{ route('rules.index') }}"
-                            class="mt-3 inline-flex items-center gap-1.5 rounded-md border border-[var(--chrono-blue)]/40 hover:border-[var(--chrono-blue)] hover:bg-[var(--chrono-blue)]/10 px-3 py-1.5 text-xs uppercase tracking-[0.2em] text-[var(--chrono-blue)] transition-colors">
-                            + Add your first rule
+                           class="inline-flex items-center gap-1 text-xs uppercase tracking-[0.2em] text-slate-400 hover:text-emerald-300 transition-colors">
+                            Manage <span aria-hidden="true">→</span>
                         </a>
                     </div>
-                @else
-                    <ul class="flex flex-wrap gap-2">
-                        @foreach ($dashboardRules as $r)
-                            <li class="group">
-                                <span class="inline-flex items-center gap-2 rounded-full border border-[var(--chrono-blue)]/30 bg-[var(--chrono-blue)]/5 px-3.5 py-1.5 text-sm text-slate-100 shadow-[0_0_18px_-8px_rgba(0,224,255,0.4)] hover:border-emerald-400/40 hover:bg-emerald-400/5 hover:text-emerald-100 hover:-translate-y-0.5 hover:shadow-[0_0_22px_-6px_rgba(52,211,153,0.45)] transition-all duration-200">
-                                    <span class="h-1.5 w-1.5 rounded-full bg-[var(--chrono-blue)] group-hover:bg-emerald-300"></span>
-                                    {{ $r->text }}
-                                </span>
-                            </li>
-                        @endforeach
-                    </ul>
-                    @if ($dashboardHasAnyRule && $dashboardRules->count() >= 5)
-                        <p class="mt-3 text-[0.65rem] uppercase tracking-[0.2em] text-slate-500">Showing 5 — view all on the Rules page.</p>
+
+                    @if ($dashboardRules->isEmpty())
+                        <div class="rounded-2xl border border-dashed border-slate-700/60 bg-slate-900/30 p-6 text-center">
+                            <p class="text-slate-200 text-sm">
+                                Add the principles you want to live by — they'll surface as gentle reminders.
+                            </p>
+                            <a href="{{ route('rules.index') }}"
+                               class="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-emerald-400/40 hover:border-emerald-300 hover:bg-emerald-400/10 px-4 py-2 text-xs uppercase tracking-[0.2em] text-emerald-200 transition-colors">
+                                <span class="text-base leading-none">+</span> Add your first rule
+                            </a>
+                        </div>
+                    @else
+                        <ul class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                            @foreach ($dashboardRules as $i => $r)
+                                @php $p = $dashRulePalette[$i % count($dashRulePalette)]; @endphp
+                                <li class="group flex items-start gap-3 rounded-xl border {{ $p['border'] }} {{ $p['soft'] }}
+                                           px-3.5 py-2.5 shadow-sm {{ $p['glow'] }} hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
+                                    <span class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-slate-950/30">
+                                        <span class="h-2 w-2 rounded-full {{ $p['dot'] }}"></span>
+                                    </span>
+                                    <span class="text-sm leading-snug {{ $p['text'] }} break-words">{{ $r->text }}</span>
+                                </li>
+                            @endforeach
+                        </ul>
+                        @if ($dashboardHasAnyRule && $dashboardRules->count() >= 5)
+                            <p class="mt-4 text-[0.65rem] uppercase tracking-[0.2em] text-slate-500">Showing 5 — view all on the Rules page.</p>
+                        @endif
                     @endif
-                @endif
+                </div>
             </section>
         @endauth
 
@@ -1381,15 +1410,31 @@
             @auth
                 @php
                     $hourlyModalRules = auth()->user()->rules()->active()->ordered()->get(['id', 'text']);
+                    $popupRulePalette = [
+                        ['border' => 'border-emerald-400/40', 'soft' => 'bg-emerald-400/10', 'dot' => 'bg-emerald-400', 'text' => 'text-emerald-100'],
+                        ['border' => 'border-sky-400/40',     'soft' => 'bg-sky-400/10',     'dot' => 'bg-sky-400',     'text' => 'text-sky-100'],
+                        ['border' => 'border-violet-400/40',  'soft' => 'bg-violet-400/10',  'dot' => 'bg-violet-400',  'text' => 'text-violet-100'],
+                        ['border' => 'border-amber-400/40',   'soft' => 'bg-amber-400/10',   'dot' => 'bg-amber-400',   'text' => 'text-amber-100'],
+                        ['border' => 'border-rose-400/40',    'soft' => 'bg-rose-400/10',    'dot' => 'bg-rose-400',    'text' => 'text-rose-100'],
+                        ['border' => 'border-teal-400/40',    'soft' => 'bg-teal-400/10',    'dot' => 'bg-teal-400',    'text' => 'text-teal-100'],
+                    ];
                 @endphp
                 @if ($hourlyModalRules->isNotEmpty())
-                    <div class="mt-3 rounded-lg border border-slate-700/50 bg-slate-900/50 px-3 py-2.5">
-                        <div class="text-[0.6rem] uppercase tracking-[0.2em] text-slate-500 mb-1.5">Your rules</div>
-                        <ul class="space-y-1 text-xs text-slate-200">
-                            @foreach ($hourlyModalRules as $r)
-                                <li class="flex items-start gap-2 leading-snug">
-                                    <span class="text-[var(--chrono-blue)] mt-0.5">‣</span>
-                                    <span>{{ $r->text }}</span>
+                    <div class="mt-4 rounded-xl border border-slate-700/50 bg-slate-900/40 px-4 py-3.5">
+                        <div class="flex items-center gap-2 mb-2.5">
+                            <span class="inline-flex h-5 w-5 items-center justify-center rounded-md bg-emerald-400/15 text-emerald-300">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" class="h-3 w-3">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                            </span>
+                            <span class="text-[0.65rem] uppercase tracking-[0.25em] text-slate-300 font-semibold">Your rules</span>
+                        </div>
+                        <ul class="grid grid-cols-1 gap-1.5">
+                            @foreach ($hourlyModalRules as $i => $r)
+                                @php $p = $popupRulePalette[$i % count($popupRulePalette)]; @endphp
+                                <li class="flex items-start gap-2.5 rounded-lg border {{ $p['border'] }} {{ $p['soft'] }} px-3 py-2 leading-snug">
+                                    <span class="mt-1 h-1.5 w-1.5 shrink-0 rounded-full {{ $p['dot'] }}"></span>
+                                    <span class="text-xs {{ $p['text'] }} break-words">{{ $r->text }}</span>
                                 </li>
                             @endforeach
                         </ul>

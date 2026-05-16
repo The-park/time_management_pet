@@ -112,8 +112,6 @@
                 class="w-full rounded-md bg-slate-900 border border-slate-700 px-3 py-2">
         </div>
 
-        @include('partials.captcha')
-
         <button id="register_button" type="submit" data-time12-gate="register"
             class="w-full rounded-md bg-blue-500 text-slate-950 font-semibold py-2 disabled:opacity-50 disabled:cursor-not-allowed">
             Register

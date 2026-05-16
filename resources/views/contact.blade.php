@@ -85,8 +85,6 @@
                 @error('message')<p class="mt-1 text-xs text-rose-400">{{ $message }}</p>@enderror
             </div>
 
-            @include('partials.captcha')
-
             <div class="flex items-center justify-between gap-3 pt-2">
                 <p class="text-xs text-slate-500">
                     We never share your details. Submissions are rate-limited to keep bots out.

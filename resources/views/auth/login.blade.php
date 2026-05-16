@@ -26,8 +26,6 @@
             @enderror
         </div>
 
-        @include('partials.captcha')
-
         <button type="submit" class="w-full rounded-md bg-blue-500 text-slate-950 font-semibold py-2">Log in</button>
     </form>
 

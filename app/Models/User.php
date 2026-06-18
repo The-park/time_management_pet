@@ -34,6 +34,7 @@ class User extends Authenticatable implements MustVerifyEmail
         'backup_last_sent_at',
         'backup_count',
         'flying_quotes_enabled',
+        'last_log_timer_enabled',
         'quote_source',
     ];
 
@@ -62,6 +63,7 @@ class User extends Authenticatable implements MustVerifyEmail
             'backup_last_sent_at' => 'datetime',
             'backup_count' => 'integer',
             'flying_quotes_enabled' => 'boolean',
+            'last_log_timer_enabled' => 'boolean',
         ];
     }
 

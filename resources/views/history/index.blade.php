@@ -151,6 +151,10 @@
                     const m = totalMin % 60;
                     return m === 0 ? `${h}h` : `${h}h ${m}m`;
                 };
+                const blockCategory = (block) =>
+                    block?.category === 'wasted'
+                        ? 'wasted'
+                        : (block?.category === 'neutral' ? 'neutral' : 'productive');
                 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
                     'July', 'August', 'September', 'October', 'November', 'December'];
                 const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -194,17 +198,22 @@
                     const inMonth = blocks.filter((b) =>
                         b.status === 'completed' && b.date && b.date.startsWith(prefix)
                     );
-                    let productive = 0, wasted = 0;
-                    const dayMap = new Map();   // date → { productive, wasted, blocks: [] }
+                    let productive = 0, wasted = 0, neutral = 0;
+                    const dayMap = new Map();   // date -> { productive, wasted, neutral, blocks: [] }
                     for (const b of inMonth) {
                         const ms = b.durationMs || 0;
-                        if (b.category === 'wasted') wasted += ms; else productive += ms;
-                        if (!dayMap.has(b.date)) dayMap.set(b.date, { productive: 0, wasted: 0, blocks: [] });
+                        const cat = blockCategory(b);
+                        if (cat === 'wasted') wasted += ms;
+                        else if (cat === 'neutral') neutral += ms;
+                        else productive += ms;
+                        if (!dayMap.has(b.date)) dayMap.set(b.date, { productive: 0, wasted: 0, neutral: 0, blocks: [] });
                         const d = dayMap.get(b.date);
-                        if (b.category === 'wasted') d.wasted += ms; else d.productive += ms;
+                        if (cat === 'wasted') d.wasted += ms;
+                        else if (cat === 'neutral') d.neutral += ms;
+                        else d.productive += ms;
                         d.blocks.push(b);
                     }
-                    return { productive, wasted, dayMap, total: productive + wasted };
+                    return { productive, wasted, neutral, dayMap, total: productive + wasted + neutral };
                 };
 
                 const aggregateYearBlocks = (blocks, year) => {
@@ -221,14 +230,17 @@
                     const totalDays = totalDaysInYear(year);
                     const totalHoursMs = totalDays * 24 * 3600 * 1000;
                     const prefix = `${year}-`;
-                    let productive = 0, wasted = 0;
+                    let productive = 0, wasted = 0, neutral = 0;
                     const daySet = new Set();
                     const monthSet = new Set();
                     for (const b of blocks) {
                         if (b.status !== 'completed') continue;
                         if (!b.date || !b.date.startsWith(prefix)) continue;
                         const ms = b.durationMs || 0;
-                        if (b.category === 'wasted') wasted += ms; else productive += ms;
+                        const cat = blockCategory(b);
+                        if (cat === 'wasted') wasted += ms;
+                        else if (cat === 'neutral') neutral += ms;
+                        else productive += ms;
                         daySet.add(b.date);
                         monthSet.add(b.date.slice(0, 7));
                     }
@@ -237,7 +249,8 @@
                         totalHoursMs,
                         productive,
                         wasted,
-                        logged: productive + wasted,
+                        neutral,
+                        logged: productive + wasted + neutral,
                         daysLogged: daySet.size,
                         monthsLogged: monthSet.size,
                     };
@@ -352,12 +365,14 @@
                     // (data exists, so prioritise showing it).
                     const productivePct = total > 0 ? (agg.productive / total) * 100 : 0;
                     const wastedPct = total > 0 ? (agg.wasted / total) * 100 : 0;
+                    const neutralPct = total > 0 ? (agg.neutral / total) * 100 : 0;
                     const loggedShare = calendarHoursMs > 0 ? (total / calendarHoursMs) * 100 : 0;
                     const calendarHoursLabel = `${daysInMonth(year, month) * 24}h`;
 
                     const bar = `<div class="mt-3 flex h-1.5 rounded-full bg-slate-800 overflow-hidden">` +
                         `<div class="bg-emerald-400" style="width: ${productivePct.toFixed(2)}%"></div>` +
                         `<div class="bg-rose-400" style="width: ${wastedPct.toFixed(2)}%"></div>` +
+                        `<div class="bg-slate-400" style="width: ${neutralPct.toFixed(2)}%"></div>` +
                         `</div>`;
 
                     const note = isPreSignup
@@ -375,6 +390,7 @@
                         <div class="text-xs text-slate-500 mt-1">
                             <span class="text-emerald-300">${escapeHtml(formatHours(agg.productive))}</span> productive ·
                             <span class="text-rose-300">${escapeHtml(formatHours(agg.wasted))}</span> wasted ·
+                            <span class="text-slate-300">${escapeHtml(formatHours(agg.neutral))}</span> neutral -
                             ${days} ${days === 1 ? 'day' : 'days'}
                         </div>
                         ${bar}
@@ -390,13 +406,16 @@
                         ? Math.round((overview.productive / overview.logged) * 100)
                         : 0;
                     const wastedPct = overview.logged > 0
-                        ? 100 - productivePct
+                        ? Math.round((overview.wasted / overview.logged) * 100)
+                        : 0;
+                    const neutralPct = overview.logged > 0
+                        ? Math.max(0, 100 - productivePct - wastedPct)
                         : 0;
 
                     return `
                         <div class="rounded-xl border border-slate-800/60 bg-slate-900/30 p-4 mb-4">
                             <div class="text-xs uppercase tracking-[0.2em] text-slate-400 mb-3">${year} at a glance</div>
-                            <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+                            <div class="grid grid-cols-2 md:grid-cols-6 gap-3">
                                 <div class="rounded-lg bg-slate-900/40 border border-slate-800/40 p-3">
                                     <div class="text-[0.65rem] uppercase tracking-wider text-slate-500">Calendar</div>
                                     <div class="mt-1 text-lg text-slate-100">${overview.totalDays * 24}h</div>
@@ -416,6 +435,11 @@
                                     <div class="text-[0.65rem] uppercase tracking-wider text-slate-500">Wasted</div>
                                     <div class="mt-1 text-lg text-rose-300">${escapeHtml(formatHours(overview.wasted))}</div>
                                     <div class="text-xs text-slate-500">${overview.logged > 0 ? wastedPct + '% of logged' : '—'}</div>
+                                </div>
+                                <div class="rounded-lg bg-slate-900/40 border border-slate-800/40 p-3">
+                                    <div class="text-[0.65rem] uppercase tracking-wider text-slate-500">Neutral</div>
+                                    <div class="mt-1 text-lg text-slate-300">${escapeHtml(formatHours(overview.neutral))}</div>
+                                    <div class="text-xs text-slate-500">${overview.logged > 0 ? neutralPct + '% of logged' : '0% of logged'}</div>
                                 </div>
                                 <div class="rounded-lg bg-slate-900/40 border border-slate-800/40 p-3">
                                     <div class="text-[0.65rem] uppercase tracking-wider text-slate-500">Coverage</div>
@@ -472,10 +496,12 @@
                         .slice()
                         .sort((a, b) => (a.start || '').localeCompare(b.start || ''))
                         .map((b) => {
-                            const isWasted = b.category === 'wasted';
-                            const chip = isWasted
+                            const cat = blockCategory(b);
+                            const chip = cat === 'wasted'
                                 ? '<span class="ml-2 inline-flex items-center rounded-full px-2 py-0.5 text-[0.65rem] uppercase tracking-wider bg-rose-500/15 text-rose-300 border border-rose-500/30">Wasted</span>'
-                                : '<span class="ml-2 inline-flex items-center rounded-full px-2 py-0.5 text-[0.65rem] uppercase tracking-wider bg-slate-700/40 text-slate-400 border border-slate-600/40">Productive</span>';
+                                : (cat === 'neutral'
+                                    ? '<span class="ml-2 inline-flex items-center rounded-full px-2 py-0.5 text-[0.65rem] uppercase tracking-wider bg-slate-500/15 text-slate-300 border border-slate-500/40">Neutral</span>'
+                                    : '<span class="ml-2 inline-flex items-center rounded-full px-2 py-0.5 text-[0.65rem] uppercase tracking-wider bg-emerald-500/15 text-emerald-300 border border-emerald-500/40">Productive</span>');
                             return `<li class="flex flex-wrap items-baseline gap-x-2 text-sm py-1">` +
                                 `<span class="text-slate-100 tabular-nums">${escapeHtml(formatTime12(b.start))} – ${escapeHtml(formatTime12(b.end))}</span>` +
                                 `<span class="text-slate-500 tabular-nums">(${escapeHtml(formatDuration(b.durationMs || 0))})</span>` +
@@ -496,10 +522,11 @@
 
                     const totalProductive = agg.productive;
                     const totalWasted = agg.wasted;
+                    const totalNeutral = agg.neutral;
                     const daysLogged = agg.dayMap.size;
 
                     // Top stats
-                    const totalLogged = totalProductive + totalWasted;
+                    const totalLogged = totalProductive + totalWasted + totalNeutral;
                     const calendarHoursMonth = daysInMonth(year, month) * 24;
                     const calendarHoursMs = calendarHoursMonth * 3600 * 1000;
                     const loggedShare = calendarHoursMs > 0
@@ -551,7 +578,7 @@
                         ? Math.min(100, Math.round((totalProductive / denomMs) * 100))
                         : 0;
                     const topStats = `
-                        <div class="grid grid-cols-2 lg:grid-cols-5 gap-3">
+                        <div class="grid grid-cols-2 lg:grid-cols-6 gap-3">
                             <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
                                 <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Calendar</div>
                                 <div class="mt-1 text-lg text-slate-100">${calendarHoursMonth}h</div>
@@ -570,6 +597,11 @@
                                 <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Wasted</div>
                                 <div class="mt-1 text-lg text-rose-300">${escapeHtml(formatHours(totalWasted))}</div>
                             </div>
+                            <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
+                                <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Neutral</div>
+                                <div class="mt-1 text-lg text-slate-300">${escapeHtml(formatHours(totalNeutral))}</div>
+                                <div class="text-[0.6rem] text-slate-500 mt-0.5">logged, score-neutral</div>
+                            </div>
                             <div class="rounded-xl border border-[var(--chrono-blue)]/30 bg-[var(--chrono-blue)]/5 p-3"
                                 title="Productive ÷ (Productive + Wasted + Unlogged). Wasted AND unlogged time both reduce efficiency.">
                                 <div class="text-xs uppercase tracking-[0.2em] text-[var(--chrono-blue)]">Efficiency</div>
@@ -581,24 +613,29 @@
 
                     // Weeks summary
                     const weekSections = weeks.map((w, idx) => {
-                        let weekProductive = 0, weekWasted = 0, weekDays = 0;
+                        let weekProductive = 0, weekWasted = 0, weekNeutral = 0, weekDays = 0;
                         const dayDetails = [];
                         for (const dDate of w.days) {
                             const key = localDateString(dDate);
                             const d = agg.dayMap.get(key);
                             const dProd = d?.productive || 0;
                             const dWaste = d?.wasted || 0;
+                            const dNeutral = d?.neutral || 0;
                             const dBlocks = d?.blocks || [];
                             weekProductive += dProd;
                             weekWasted += dWaste;
+                            weekNeutral += dNeutral;
                             if (dBlocks.length > 0) weekDays++;
 
                             const weekday = dDate.toLocaleDateString('en-US', { weekday: 'short' });
                             const dayLabel = `${MONTH_SHORT[dDate.getMonth()]} ${dDate.getDate()}, ${weekday}`;
-                            const summary = (dProd + dWaste) > 0
+                            const summary = (dProd + dWaste + dNeutral) > 0
                                 ? `<span class="text-emerald-300">${escapeHtml(formatDuration(dProd))}</span>` +
                                   (dWaste > 0
                                       ? ` · <span class="text-rose-300">${escapeHtml(formatDuration(dWaste))} wasted</span>`
+                                      : '') +
+                                  (dNeutral > 0
+                                      ? ` - <span class="text-slate-300">${escapeHtml(formatDuration(dNeutral))} neutral</span>`
                                       : '')
                                 : '<span class="text-slate-600">No blocks</span>';
 
@@ -623,9 +660,10 @@
                         const range = w.startDate.getDate() === w.endDate.getDate()
                             ? `${MONTH_SHORT[w.startDate.getMonth()]} ${w.startDate.getDate()}`
                             : `${MONTH_SHORT[w.startDate.getMonth()]} ${w.startDate.getDate()} – ${MONTH_SHORT[w.endDate.getMonth()]} ${w.endDate.getDate()}`;
-                        const weekTotal = weekProductive + weekWasted;
-                        const weekRatio = weekTotal > 0
-                            ? Math.round((weekProductive / weekTotal) * 100)
+                        const weekLogged = weekProductive + weekWasted + weekNeutral;
+                        const weekScoreTotal = weekProductive + weekWasted;
+                        const weekRatio = weekScoreTotal > 0
+                            ? Math.round((weekProductive / weekScoreTotal) * 100)
                             : 0;
 
                         return `
@@ -633,9 +671,10 @@
                                 <header class="flex flex-wrap items-baseline justify-between gap-2 mb-3">
                                     <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Week ${idx + 1} · ${escapeHtml(range)}</div>
                                     <div class="text-xs text-slate-500">
-                                        ${weekTotal > 0
+                                        ${weekLogged > 0
                                             ? `<span class="text-emerald-300">${escapeHtml(formatHours(weekProductive))}</span> productive` +
                                               (weekWasted > 0 ? ` · <span class="text-rose-300">${escapeHtml(formatHours(weekWasted))}</span> wasted` : '') +
+                                              (weekNeutral > 0 ? ` - <span class="text-slate-300">${escapeHtml(formatHours(weekNeutral))}</span> neutral` : '') +
                                               ` · ${weekDays} ${weekDays === 1 ? 'day' : 'days'} (${weekRatio}%)`
                                             : '<span class="text-slate-600">No blocks this week</span>'}
                                     </div>

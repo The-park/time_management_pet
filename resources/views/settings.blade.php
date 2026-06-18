@@ -146,6 +146,7 @@
             {{-- ─── Motivation ──────────────────────────────────────────── --}}
             @php
                 $flyingEnabled = (bool) old('flying_quotes_enabled', $user?->flying_quotes_enabled ?? true);
+                $lastLogTimerEnabled = (bool) old('last_log_timer_enabled', $user?->last_log_timer_enabled ?? true);
                 $currentSource = old('quote_source', $user?->quoteSource() ?? 'mixed');
             @endphp
             <section class="chrono-panel rounded-2xl p-6 md:p-8" data-motivation-panel>
@@ -165,6 +166,19 @@
                     </span>
                 </label>
                 @error('flying_quotes_enabled')<p class="mt-2 text-xs text-rose-400">{{ $message }}</p>@enderror
+
+                <label class="mt-4 inline-flex items-start gap-2.5 cursor-pointer">
+                    <input type="checkbox" name="last_log_timer_enabled" value="1"
+                        @checked($lastLogTimerEnabled)
+                        class="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-950 text-[var(--chrono-blue)] focus:ring-[var(--chrono-blue)]/40">
+                    <span class="text-sm text-slate-200">
+                        Show time since last log
+                        <span class="block text-xs text-slate-500 mt-0.5">
+                            Shows how long it has been since your latest completed time block, even when motivational quotes are off.
+                        </span>
+                    </span>
+                </label>
+                @error('last_log_timer_enabled')<p class="mt-2 text-xs text-rose-400">{{ $message }}</p>@enderror
 
                 {{-- Source preference: only meaningful when the bubble is
                      on. Hidden via [hidden] (server-side, no JS flash) and

@@ -33,11 +33,12 @@
             $tierBoxLabel = 'text-rose-300';
             $tierBoxValue = 'text-rose-200';
         }
-        // Compute % widths for the segmented bar (productive | wasted | unlogged).
-        $totalForBar = max(1, $productiveMs + $wastedMs + $unloggedMs);
+        // Compute % widths for the segmented bar (productive | wasted | neutral | unlogged).
+        $totalForBar = max(1, $productiveMs + $wastedMs + $neutralMs + $unloggedMs);
         $prodPct = round(($productiveMs / $totalForBar) * 100);
         $wastedBarPct = round(($wastedMs / $totalForBar) * 100);
-        $unloggedBarPct = max(0, 100 - $prodPct - $wastedBarPct);
+        $neutralBarPct = round(($neutralMs / $totalForBar) * 100);
+        $unloggedBarPct = max(0, 100 - $prodPct - $wastedBarPct - $neutralBarPct);
     @endphp
 
     <div class="relative overflow-hidden rounded-2xl border border-slate-800/60 bg-[radial-gradient(circle_at_top,_rgba(0,224,255,0.15),_transparent_45%)] p-8 mb-6">
@@ -109,7 +110,7 @@
             </div>
         </div>
 
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
             <div class="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">
                 <div class="text-[0.6rem] uppercase tracking-wider text-emerald-300">Productive</div>
                 <div class="mt-1 font-digital text-xl text-emerald-200">{{ $fmt($productiveMs) }}</div>
@@ -117,6 +118,11 @@
             <div class="rounded-xl border border-rose-500/30 bg-rose-500/5 p-3">
                 <div class="text-[0.6rem] uppercase tracking-wider text-rose-300">Wasted</div>
                 <div class="mt-1 font-digital text-xl text-rose-200">{{ $fmt($wastedMs) }}</div>
+            </div>
+            <div class="rounded-xl border border-slate-500/30 bg-slate-500/5 p-3">
+                <div class="text-[0.6rem] uppercase tracking-wider text-slate-300">Neutral</div>
+                <div class="mt-1 font-digital text-xl text-slate-200">{{ $fmt($neutralMs) }}</div>
+                <div class="text-[0.6rem] text-slate-500 mt-0.5">logged, score-neutral</div>
             </div>
             <div class="rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-3">
                 <div class="text-[0.6rem] uppercase tracking-wider text-yellow-300">Unlogged (awake)</div>
@@ -139,6 +145,7 @@
             <div class="h-2.5 rounded-full bg-slate-800/80 overflow-hidden flex">
                 <div class="h-full bg-emerald-400 transition-[width]" style="width: {{ $prodPct }}%"></div>
                 <div class="h-full bg-rose-400 transition-[width]" style="width: {{ $wastedBarPct }}%"></div>
+                <div class="h-full bg-slate-400 transition-[width]" style="width: {{ $neutralBarPct }}%"></div>
                 <div class="h-full bg-yellow-400 transition-[width]" style="width: {{ $unloggedBarPct }}%"></div>
             </div>
             <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[0.65rem] uppercase tracking-wider text-slate-500">
@@ -149,6 +156,10 @@
                 <span class="inline-flex items-center gap-1.5">
                     <span class="inline-block h-2 w-2 rounded-full bg-rose-400"></span>
                     Wasted {{ $wastedBarPct }}%
+                </span>
+                <span class="inline-flex items-center gap-1.5">
+                    <span class="inline-block h-2 w-2 rounded-full bg-slate-400"></span>
+                    Neutral {{ $neutralBarPct }}%
                 </span>
                 <span class="inline-flex items-center gap-1.5">
                     <span class="inline-block h-2 w-2 rounded-full bg-yellow-400"></span>
@@ -205,11 +216,20 @@
                         @foreach ($rows as $row)
                             @php
                                 $isWasted = $row['category'] === 'wasted';
-                                $chipClass = $isWasted
-                                    ? 'bg-rose-500/20 text-rose-200 border-rose-500/50'
-                                    : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40';
-                                $chipText = $isWasted ? 'Wasted' : 'Productive';
-                                $dotClass = $isWasted ? 'bg-rose-400' : 'bg-emerald-400';
+                                $isNeutral = $row['category'] === 'neutral';
+                                if ($isWasted) {
+                                    $chipClass = 'bg-rose-500/20 text-rose-200 border-rose-500/50';
+                                    $chipText = 'Wasted';
+                                    $dotClass = 'bg-rose-400';
+                                } elseif ($isNeutral) {
+                                    $chipClass = 'bg-slate-500/15 text-slate-300 border-slate-500/40';
+                                    $chipText = 'Neutral';
+                                    $dotClass = 'bg-slate-400';
+                                } else {
+                                    $chipClass = 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40';
+                                    $chipText = 'Productive';
+                                    $dotClass = 'bg-emerald-400';
+                                }
                             @endphp
                             <tr class="border-t border-slate-800/60">
                                 <td class="py-3 pr-4 text-slate-100">{{ $row['start'] }}</td>
@@ -328,6 +348,7 @@
                 if (!btn) return;
 
                 const rows = @json($rows ?? []);
+                const date = @json($date->toDateString());
                 const dateLabel = @json($dateLabel ?? '');
 
                 const csvEscape = (val) => {
@@ -336,12 +357,13 @@
                 };
 
                 const buildCsv = () => {
-                    const header = ['Start', 'End', 'Duration', 'Reason', 'Category'];
+                    const header = ['Date', 'Start', 'End', 'Duration', 'Reason', 'Category'];
                     const lines = [header.join(',')];
                     for (const r of rows) {
                         const cat = r.category === 'wasted' ? 'Wasted'
                             : (r.category === 'neutral' ? 'Neutral' : 'Productive');
                         lines.push([
+                            date,
                             r.start ?? '',
                             r.end ?? '',
                             r.durationLabel ?? '',

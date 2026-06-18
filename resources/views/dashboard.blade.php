@@ -2510,7 +2510,7 @@
                 const copyBtn = document.getElementById('block_copy_button');
                 const copyLabelEl = copyBtn?.querySelector('[data-copy-label]');
                 const buildCopyPayload = (blocks) => {
-                    const header = ['Date', 'Start', 'End', 'Duration', 'Category', 'Reason'];
+                    const header = ['Date', 'Start', 'End', 'Duration', 'Reason', 'Category'];
                     const escape = (v) => {
                         const s = String(v ?? '');
                         // Replace tabs / newlines so the row stays on one
@@ -2527,8 +2527,8 @@
                             formatTime12(b.start),
                             b.status === 'paused' ? 'paused' : formatTime12(b.end),
                             msToDurationLabel(b.durationMs),
-                            cat,
                             b.label || '',
+                            cat,
                         ].map(escape).join('\t');
                     });
                     return [header.join('\t'), ...rows].join('\n');
@@ -3465,9 +3465,10 @@
                 });
 
                 const buildBlocksCsv = (blocks) => {
-                    const header = ['Start', 'End', 'Duration', 'Reason', 'Category'];
+                    const header = ['Date', 'Start', 'End', 'Duration', 'Reason', 'Category'];
                     const lines = [header.join(',')];
                     for (const b of blocks) {
+                        const date = b.date || localDateString();
                         const start = b.start ? formatTime12(b.start) : '';
                         const end = b.status === 'paused'
                             ? 'paused'
@@ -3478,7 +3479,7 @@
                         const category = b.category === 'wasted'
                             ? 'Wasted'
                             : (b.category === 'neutral' ? 'Neutral' : 'Productive');
-                        lines.push([start, end, dur, reason, category].map(csvEscape).join(','));
+                        lines.push([date, start, end, dur, reason, category].map(csvEscape).join(','));
                     }
                     return lines.join('\n');
                 };

@@ -3610,11 +3610,14 @@
                 // whole-day predictor needs more headroom than the old
                 // rest-of-day loop (wake-7 to end-23 ~ 16 hour-slots),
                 // so this is just a safety belt against runaway loops.
-                const MAX_SLOTS  = 32;
+                const MAX_SLOTS  = 96;
                 const ALPHA      = 0.5;          // Laplace smoothing prior
                 const DECAY_TAU  = 30;           // Days. weight = exp(-daysSince / tau)
                 const RECENCY_TAU = 7;           // Days. Gentler than 1/(1+d) so old patterns aren't crushed.
                 const REPEAT_PENALTY    = 0.6;   // Multiplier when candidate == prev slot (just-did)
+                const MIN_PREDICTED_BLOCK_MIN = 5;
+                const MAX_PREDICTED_BLOCK_MIN = 180;
+                const DEFAULT_PREDICTED_BLOCK_MIN = 60;
                 // Schedule-level diversity. Once an activity has been chosen
                 // earlier in *this* generated schedule, it's heavily demoted
                 // for later slots — prevents the model from collapsing into
@@ -3669,8 +3672,9 @@
                     if (!s || STOPWORDS.has(s)) return null;
                     return s;
                 };
-                // 12 two-hour buckets, 0..11.
-                const bucketOf = (hour) => Math.max(0, Math.min(11, Math.floor(hour / 2)));
+                // One-hour buckets, 0..23. The old two-hour buckets were too
+                // blurry for patterns like "10:00 study, 11:00 short break".
+                const bucketOf = (hour) => Math.max(0, Math.min(23, Math.floor(hour)));
                 // 0 = weekday, 1 = weekend. Cheap but useful split.
                 const dowClassOf = (yyyymmdd) => {
                     if (!yyyymmdd) return 0;
@@ -3702,6 +3706,33 @@
                 const bumpNested = (root, outer, inner, weight = 1) => {
                     if (!root[outer]) root[outer] = {};
                     bump(root[outer], inner, weight);
+                };
+                const bumpDuration = (root, key, minutes, weight = 1) => {
+                    if (!Number.isFinite(minutes) || minutes <= 0) return;
+                    const row = root[key] || (root[key] = { sumMin: 0, n: 0 });
+                    row.sumMin += minutes * weight;
+                    row.n      += weight;
+                };
+                const bumpNestedDuration = (root, outer, inner, minutes, weight = 1) => {
+                    if (!root[outer]) root[outer] = {};
+                    bumpDuration(root[outer], inner, minutes, weight);
+                };
+                const durationMean = (row) =>
+                    (row && row.n) ? (row.sumMin / row.n) : null;
+                const clampPredictedDuration = (minutes) => {
+                    const raw = Number.isFinite(minutes) ? minutes : DEFAULT_PREDICTED_BLOCK_MIN;
+                    const clamped = Math.max(MIN_PREDICTED_BLOCK_MIN, Math.min(MAX_PREDICTED_BLOCK_MIN, raw));
+                    return Math.max(MIN_PREDICTED_BLOCK_MIN, Math.round(clamped / 5) * 5);
+                };
+                const blockDurationMin = (b) => {
+                    const explicit = Number(b?.durationMs || 0) / 60000;
+                    if (Number.isFinite(explicit) && explicit > 0) return Math.max(1, Math.round(explicit));
+                    const s = hhmmToMin(b?.start || '');
+                    const e = hhmmToMin(b?.end || '');
+                    if (Number.isFinite(s) && Number.isFinite(e) && e > s) {
+                        return Math.max(1, e - s);
+                    }
+                    return DEFAULT_PREDICTED_BLOCK_MIN;
                 };
                 // Compute the decay weight for a block whose end (or start)
                 // timestamp is `tsMs`. weight in (0, 1], 1.0 for "now".
@@ -3794,7 +3825,9 @@
                         timeBuckets: {},      // hour-bucket -> { key: count }
                         dowBuckets:  { 0: {}, 1: {} },
                         freq:        {},
-                        durations:   {},      // running mean of block length (minutes)
+                        durations:   {},      // activity -> running mean block length (minutes)
+                        transitionDurations: {}, // prev activity -> next activity -> mean minutes
+                        timeDurations: {},    // hour-bucket -> activity -> mean minutes
                         category:    {},      // modal category vote per key
                         lastUsedTs:  {},      // for recency score
                         labelDisplay:{},      // key -> nicest display label
@@ -3842,26 +3875,28 @@
                             }
                         } catch {}
                         const w = decayWeight(blockTs, nowMs);
+                        const durMin = blockDurationMin(b);
 
                         // Markov transition from the previous block in chronological order.
                         // We deliberately chain across days too (last block of yesterday →
                         // first of today) — sleep → coffee is a useful pattern.
-                        if (prevKey) bumpNested(state.transitions, prevKey, k, w);
+                        if (prevKey) {
+                            bumpNested(state.transitions, prevKey, k, w);
+                            bumpNestedDuration(state.transitionDurations, prevKey, k, durMin, w);
+                        }
 
                         const startMin = hhmmToMin(b.start);
                         if (Number.isFinite(startMin)) {
-                            bumpNested(state.timeBuckets, bucketOf(Math.floor(startMin / 60)), k, w);
+                            const bucket = bucketOf(Math.floor(startMin / 60));
+                            bumpNested(state.timeBuckets, bucket, k, w);
+                            bumpNestedDuration(state.timeDurations, bucket, k, durMin, w);
                         }
                         bumpNested(state.dowBuckets, dowClassOf(b.date), k, w);
                         bump(state.freq, k, w);
 
                         // Duration: weighted running mean. Recent durations
                         // dominate the predicted slot length.
-                        const durMin = Math.max(1, Math.round((b.durationMs || 0) / 60000));
-                        const dPrev = state.durations[k] || { sumMin: 0, n: 0 };
-                        dPrev.sumMin += durMin * w;
-                        dPrev.n      += w;
-                        state.durations[k] = dPrev;
+                        bumpDuration(state.durations, k, durMin, w);
 
                         // Category modal vote — also decay-weighted so a
                         // historical mis-tag fades over time.
@@ -3894,8 +3929,29 @@
                     return best;
                 };
                 const avgDuration = (state, k) => {
-                    const d = state.durations[k];
-                    return (d && d.n) ? d.sumMin / d.n : null;
+                    return durationMean(state.durations[k]);
+                };
+                const predictedDuration = (state, k, prevKey, bucket) => {
+                    const weighted = [];
+                    const add = (minutes, weight) => {
+                        if (Number.isFinite(minutes) && minutes > 0) weighted.push({ minutes, weight });
+                    };
+
+                    // Most specific: how long this next activity usually lasts
+                    // after the immediately previous activity.
+                    if (prevKey) {
+                        add(durationMean(state.transitionDurations?.[prevKey]?.[k]), 3);
+                    }
+                    // Time-specific: "study at 10am" can be longer than
+                    // "study at 8pm", even for the same label.
+                    add(durationMean(state.timeDurations?.[bucket]?.[k]), 2);
+                    // Fallback: this activity's own average duration.
+                    add(avgDuration(state, k), 1);
+
+                    if (!weighted.length) return DEFAULT_PREDICTED_BLOCK_MIN;
+                    const totalWeight = weighted.reduce((sum, row) => sum + row.weight, 0);
+                    const minutes = weighted.reduce((sum, row) => sum + row.minutes * row.weight, 0) / totalWeight;
+                    return clampPredictedDuration(minutes);
                 };
                 // `usedInSchedule` is an optional Map(key -> times-already-
                 // chosen-in-this-schedule). Each subsequent use compounds the
@@ -4007,7 +4063,7 @@
                 // next slot's chaining (so a prediction after a logged block
                 // is informed by what actually happened, not the previous
                 // guess).
-                const HOUR_STEP_MIN = 60;
+                const HOUR_STEP_MIN = DEFAULT_PREDICTED_BLOCK_MIN;
                 const predictWholeDay = (state) => {
                     const cfg = window.ChronoDashboardConfig || {};
                     let wakeMin = hhmmToMin(cfg.wakeTime || '07:00');
@@ -4056,15 +4112,19 @@
                     let safety = MAX_SLOTS;
 
                     while (cursor < endMin && safety-- > 0) {
-                        const slotEnd = Math.min(cursor + HOUR_STEP_MIN, endMin);
-                        if (slotEnd <= cursor) break;
                         const hour = Math.floor(cursor / 60);
                         const bucket = bucketOf(hour);
                         const slotKey = slotKeyFor(dowName, hour);
 
-                        const logged = findLoggedAt(cursor, slotEnd);
                         const ranked = rankCandidates(state, prevKey, bucket, dowClass, usedInSchedule, feedbackIdx, slotKey);
                         const pick = ranked[0] || null;
+                        const predictedMinutes = pick
+                            ? predictedDuration(state, pick.key, prevKey, bucket)
+                            : HOUR_STEP_MIN;
+                        const slotEnd = Math.min(cursor + predictedMinutes, endMin);
+                        if (slotEnd <= cursor) break;
+                        const logged = findLoggedAt(cursor, slotEnd);
+                        let nextCursor = slotEnd;
 
                         let kind;
                         if (logged) kind = 'logged';
@@ -4083,6 +4143,15 @@
                         } : null;
 
                         if (kind === 'logged') {
+                            const loggedStartMin = hhmmToMin(logged.start || '');
+                            const loggedEndMin = hhmmToMin(logged.end || '');
+                            const loggedRowStart = Number.isFinite(loggedStartMin)
+                                ? Math.max(cursor, loggedStartMin)
+                                : cursor;
+                            const loggedRowEnd = Number.isFinite(loggedEndMin) && loggedEndMin > loggedRowStart
+                                ? Math.min(loggedEndMin, endMin)
+                                : slotEnd;
+                            nextCursor = loggedRowEnd;
                             const realLabel = String(logged.label || '').trim() || '—';
                             const realCat = logged.category === 'wasted'  ? 'wasted'
                                           : logged.category === 'neutral' ? 'neutral'
@@ -4090,9 +4159,9 @@
                             slots.push({
                                 kind,
                                 slotKey,
-                                startHHMM:  minToHHMM(cursor),
-                                endHHMM:    minToHHMM(slotEnd),
-                                durationMin: slotEnd - cursor,
+                                startHHMM:  minToHHMM(loggedRowStart),
+                                endHHMM:    minToHHMM(loggedRowEnd),
+                                durationMin: loggedRowEnd - loggedRowStart,
                                 key:        activityKey(realLabel) || pick?.key || 'logged',
                                 label:      realLabel,
                                 category:   realCat,
@@ -4100,8 +4169,8 @@
                                 logged:     {
                                     label: realLabel,
                                     category: realCat,
-                                    start: logged.start,
-                                    end:   logged.end,
+                                    start: minToHHMM(loggedRowStart),
+                                    end:   minToHHMM(loggedRowEnd),
                                 },
                                 predicted,
                             });
@@ -4139,7 +4208,7 @@
                                 predicted: null,
                             });
                         }
-                        cursor = slotEnd;
+                        cursor = nextCursor;
                     }
                     return slots;
                 };
@@ -4225,7 +4294,7 @@
                     tableWrap.classList.remove('hidden');
                     if (countEl) {
                         const futureCount = slots.filter((s) => s.kind === 'future' || s.kind === 'now').length;
-                        countEl.textContent = `${slots.length} hour${slots.length === 1 ? '' : 's'} · ${futureCount} ahead`;
+                        countEl.textContent = `${slots.length} block${slots.length === 1 ? '' : 's'} · ${futureCount} ahead`;
                     }
 
                     const chipStyles = {

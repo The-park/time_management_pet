@@ -10,6 +10,7 @@
         <script>
             window.ChronoAuth = {
                 isAuthenticated: @json(auth()->check()),
+                userId: @json(auth()->id()),
                 loginUrl: @json(route('login')),
                 registerUrl: @json(route('register')),
             };
@@ -59,6 +60,64 @@
                 (() => {
                     const KEY = 'chrono.timeBlocks.v1';
                     const server = @json($serverBlocks);
+                    const USER_ID = @json((string) auth()->id());
+                    const USER_CREATED_AT = @json(auth()->user()?->created_at?->toIso8601String());
+                    const OWNER_KEY = 'chrono.localOwner.v1';
+                    const USER_SCOPED_EXACT_KEYS = [
+                        KEY,
+                        'chrono.predict.v1',
+                        'chrono.predictFeedback.v1',
+                        'chrono.customCountdown.v1',
+                        'chrono.hourlyPrompt.v1',
+                        'chrono.hourlyPromptFocus.v1',
+                        'chrono.longrangePanelOpen.v1',
+                    ];
+                    const USER_SCOPED_PREFIXES = [
+                        'chrono.todayGoal.',
+                        'chrono.todayGoals.v2.',
+                    ];
+
+                    const removeUserScopedLocalData = () => {
+                        for (const key of USER_SCOPED_EXACT_KEYS) {
+                            try { localStorage.removeItem(key); } catch {}
+                        }
+                        try {
+                            for (let i = localStorage.length - 1; i >= 0; i--) {
+                                const key = localStorage.key(i);
+                                if (!key) continue;
+                                if (USER_SCOPED_PREFIXES.some(prefix => key.startsWith(prefix))) {
+                                    localStorage.removeItem(key);
+                                }
+                            }
+                        } catch {}
+                    };
+                    const hasUserScopedLocalData = () => {
+                        try {
+                            if (USER_SCOPED_EXACT_KEYS.some(key => localStorage.getItem(key) !== null)) return true;
+                            for (let i = 0; i < localStorage.length; i++) {
+                                const key = localStorage.key(i);
+                                if (key && USER_SCOPED_PREFIXES.some(prefix => key.startsWith(prefix))) return true;
+                            }
+                        } catch {}
+                        return false;
+                    };
+                    const isNewAccount = (() => {
+                        if (!USER_CREATED_AT) return false;
+                        const created = new Date(USER_CREATED_AT);
+                        if (Number.isNaN(created.getTime())) return false;
+                        return Date.now() - created.getTime() < 7 * 24 * 60 * 60 * 1000;
+                    })();
+
+                    try {
+                        const owner = localStorage.getItem(OWNER_KEY);
+                        if (owner && owner !== USER_ID) {
+                            removeUserScopedLocalData();
+                        } else if (!owner && isNewAccount && server.length === 0 && hasUserScopedLocalData()) {
+                            removeUserScopedLocalData();
+                        }
+                        localStorage.setItem(OWNER_KEY, USER_ID);
+                    } catch {}
+
                     let local = [];
                     try {
                         const raw = localStorage.getItem(KEY);

@@ -151,6 +151,34 @@
                     const m = totalMin % 60;
                     return m === 0 ? `${h}h` : `${h}h ${m}m`;
                 };
+                const csvEscape = (val) => {
+                    const s = String(val ?? '');
+                    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+                };
+                const copyTextToClipboard = async (text) => {
+                    try {
+                        if (navigator.clipboard && window.isSecureContext !== false) {
+                            await navigator.clipboard.writeText(text);
+                            return true;
+                        }
+                    } catch (e) { /* fall through */ }
+                    try {
+                        const ta = document.createElement('textarea');
+                        ta.value = text;
+                        ta.setAttribute('readonly', '');
+                        ta.style.position = 'fixed';
+                        ta.style.top = '0';
+                        ta.style.left = '0';
+                        ta.style.opacity = '0';
+                        document.body.appendChild(ta);
+                        ta.select();
+                        const ok = document.execCommand('copy');
+                        document.body.removeChild(ta);
+                        return ok;
+                    } catch (e) {
+                        return false;
+                    }
+                };
                 const blockCategory = (block) =>
                     block?.category === 'wasted'
                         ? 'wasted'
@@ -225,6 +253,67 @@
                 const isLeapYear = (y) => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
                 const daysInMonth = (year, month) => new Date(year, month, 0).getDate();
                 const totalDaysInYear = (y) => isLeapYear(y) ? 366 : 365;
+                const monthCopyEndDay = (year, month) => {
+                    const now = new Date();
+                    if (year > now.getFullYear() || (year === now.getFullYear() && month > now.getMonth() + 1)) {
+                        return 0;
+                    }
+                    if (year === now.getFullYear() && month === now.getMonth() + 1) {
+                        return now.getDate();
+                    }
+                    return daysInMonth(year, month);
+                };
+                const buildMonthCsv = (year, month) => {
+                    const header = ['Date', 'Start', 'End', 'Duration', 'Reason', 'Category'];
+                    const lines = [header.join(',')];
+                    const blocks = loadBlocks()
+                        .filter((b) => b && b.status === 'completed' && b.date && b.date.startsWith(`${year}-${pad(month)}-`))
+                        .slice()
+                        .sort((a, b) => {
+                            if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+                            return (a.start || '').localeCompare(b.start || '');
+                        });
+                    const byDate = new Map();
+                    for (const b of blocks) {
+                        if (!byDate.has(b.date)) byDate.set(b.date, []);
+                        byDate.get(b.date).push(b);
+                    }
+
+                    let copiedBlockRows = 0;
+                    let emptyDayRows = 0;
+                    const endDay = monthCopyEndDay(year, month);
+                    for (let day = 1; day <= endDay; day++) {
+                        const date = `${year}-${pad(month)}-${pad(day)}`;
+                        const dayBlocks = byDate.get(date) || [];
+                        if (dayBlocks.length === 0) {
+                            lines.push([date, '', '', '', 'No blocks logged', ''].map(csvEscape).join(','));
+                            emptyDayRows += 1;
+                            continue;
+                        }
+                        for (const b of dayBlocks) {
+                            const cat = blockCategory(b);
+                            const category = cat === 'wasted'
+                                ? 'Wasted'
+                                : (cat === 'neutral' ? 'Neutral' : 'Productive');
+                            lines.push([
+                                date,
+                                b.start ? formatTime12(b.start) : '',
+                                b.end ? formatTime12(b.end) : '',
+                                formatDuration(b.durationMs || 0),
+                                b.label || 'Time block',
+                                category,
+                            ].map(csvEscape).join(','));
+                            copiedBlockRows += 1;
+                        }
+                    }
+
+                    return {
+                        csv: lines.join('\n'),
+                        blockRows: copiedBlockRows,
+                        emptyDayRows,
+                        days: endDay,
+                    };
+                };
 
                 const aggregateYearOverview = (blocks, year) => {
                     const totalDays = totalDaysInYear(year);
@@ -577,6 +666,22 @@
                     const ratio = denomMs > 0
                         ? Math.min(100, Math.round((totalProductive / denomMs) * 100))
                         : 0;
+                    const copyDays = monthCopyEndDay(year, month);
+                    const monthActions = `
+                        <div class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800/60 bg-slate-900/30 px-4 py-3">
+                            <div>
+                                <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Month export</div>
+                                <div class="mt-1 text-sm text-slate-300">
+                                    Copies ${copyDays > 0 ? copyDays : 0} ${copyDays === 1 ? 'day' : 'days'} as CSV with Date, Start, End, Duration, Reason, Category.
+                                </div>
+                            </div>
+                            <button type="button" data-copy-month-csv
+                                class="inline-flex items-center gap-2 rounded-md border border-[var(--chrono-blue)]/50 px-3 py-2 text-xs uppercase tracking-[0.2em] text-[var(--chrono-blue)] hover:bg-[var(--chrono-blue)]/10 disabled:cursor-not-allowed disabled:opacity-50"
+                                ${copyDays > 0 ? '' : 'disabled'}>
+                                Copy month
+                            </button>
+                        </div>
+                    `;
                     const topStats = `
                         <div class="grid grid-cols-2 lg:grid-cols-6 gap-3">
                             <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
@@ -684,7 +789,7 @@
                         `;
                     }).join('');
 
-                    contentEl.innerHTML = topStats + '<div class="mt-6 space-y-4">' + weekSections + '</div>';
+                    contentEl.innerHTML = monthActions + topStats + '<div class="mt-6 space-y-4">' + weekSections + '</div>';
                 };
 
                 // ──────────────────────── Search ────────────────────────
@@ -961,6 +1066,35 @@
                 // ──────────────────────── Event wiring ────────────────────────
 
                 contentEl.addEventListener('click', (e) => {
+                    const copyMonthBtn = e.target.closest('[data-copy-month-csv]');
+                    if (copyMonthBtn) {
+                        e.preventDefault();
+                        if (copyMonthBtn.disabled) return;
+                        if (state.view !== 'month' || !state.month) return;
+
+                        const payload = buildMonthCsv(state.year, state.month);
+                        if (payload.days <= 0) {
+                            window.showToast?.('No days to copy for this month yet.', { tone: 'warn' });
+                            return;
+                        }
+                        copyMonthBtn.disabled = true;
+                        copyTextToClipboard(payload.csv).then((ok) => {
+                            if (ok) {
+                                const monthLabel = `${MONTH_NAMES[state.month - 1]} ${state.year}`;
+                                const totalRows = payload.blockRows + payload.emptyDayRows;
+                                window.showToast?.(
+                                    `Copied ${totalRows} ${totalRows === 1 ? 'row' : 'rows'} from ${monthLabel} as CSV.`,
+                                    { tone: 'success' }
+                                );
+                            } else {
+                                window.showToast?.('Copy failed - your browser blocked clipboard access.', { tone: 'error' });
+                            }
+                        }).finally(() => {
+                            copyMonthBtn.disabled = false;
+                        });
+                        return;
+                    }
+
                     const monthBtn = e.target.closest('[data-history-month]');
                     if (monthBtn && !monthBtn.disabled) {
                         const m = Number(monthBtn.dataset.historyMonth);

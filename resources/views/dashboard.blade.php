@@ -5872,6 +5872,8 @@
 
                 const newGoalId = () =>
                     `g_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+                const isSubstantiveGoal = (goal) =>
+                    !!goal && (!!goal.done || String(goal.text || '').trim() !== '');
 
                 const loadGoals = (date = localDateString()) => {
                     try {
@@ -5920,12 +5922,14 @@
                         } else {
                             localStorage.setItem(goalsV2Key(date), JSON.stringify(arr));
                         }
-                        // Keep v1 mirror updated with the *first* goal so any
-                        // legacy display surface keeps working.
-                        if (arr.length > 0) {
+                        // Keep v1 mirror updated with the first real goal so
+                        // legacy display surfaces do not treat a blank input
+                        // placeholder as an actual pending goal.
+                        const firstSubstantive = arr.find(isSubstantiveGoal);
+                        if (firstSubstantive) {
                             localStorage.setItem(goalsV1Key(date), JSON.stringify({
-                                text: arr[0].text || '',
-                                done: !!arr[0].done,
+                                text: firstSubstantive.text || '',
+                                done: !!firstSubstantive.done,
                             }));
                         } else {
                             localStorage.removeItem(goalsV1Key(date));
@@ -6035,19 +6039,13 @@
 
                     const renderGoals = () => {
                         let goals = loadGoals();
-                        // Always keep at least one card visible so the panel
-                        // doesn't collapse to nothing. CRITICAL: persist the
-                        // placeholder immediately so the input handler can
-                        // find it by id when the user types — without this
-                        // line, every keystroke was being silently dropped
-                        // because find() returned undefined for a goal that
-                        // existed only in memory.
+                        // Always keep at least one unsaved card visible so the panel
+                        // does not collapse to nothing.
                         if (goals.length === 0) {
                             goals = [{
                                 id: newGoalId(), text: '', done: false,
                                 completedFrom: null, completedTo: null, completedAt: null,
                             }];
-                            saveGoals(goals);
                         }
                         goalsListEl.innerHTML = '';
                         goals.forEach((goal, idx) => {
@@ -6184,7 +6182,7 @@
                     };
 
                     const refreshStats = () => {
-                        const all = loadGoals();
+                        const all = loadGoals().filter(isSubstantiveGoal);
                         const total = all.length;
                         const done = all.filter((g) => g.done).length;
                         const pending = total - done;
@@ -6209,7 +6207,7 @@
                     };
                     const renderReminder = (pendingCount) => {
                         if (!goalsReminderEl) return;
-                        const all = loadGoals();
+                        const all = loadGoals().filter(isSubstantiveGoal);
                         const total = all.length;
                         if (total === 0) {
                             goalsReminderEl.classList.add('hidden');

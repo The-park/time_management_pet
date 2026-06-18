@@ -277,6 +277,8 @@
                     const h12 = h === 0 ? 12 : (h > 12 ? h - 12 : h);
                     return `${h12}:${String(m).padStart(2, '0')} ${period}`;
                 };
+                const isSubstantiveGoal = (goal) =>
+                    !!goal && (!!goal.done || String(goal.text || '').trim() !== '');
 
                 let goals = [];
                 try {
@@ -298,6 +300,7 @@
                         }
                     } catch {}
                 }
+                goals = goals.filter(isSubstantiveGoal);
                 if (goals.length === 0) return;        // section stays hidden
 
                 const total = goals.length;

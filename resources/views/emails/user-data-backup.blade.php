@@ -110,9 +110,9 @@
                                 Hi {{ $user->name ?? 'there' }},
                             </p>
                             <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#334155;">
-                                Your time blocks and goals from <strong>Time Management Pet</strong> are attached as a JSON
+                                Your time blocks, goals, and rules from <strong>Time Management Pet</strong> are attached as a JSON
                                 file. Open it in any text editor, import it back into the app later, or hand it to a script
-                                of your own — the schema is stable and documented (<code style="background:#f1f5f9;padding:1px 5px;border-radius:4px;font-size:13px;">schema_version: 1</code>).
+                                of your own — the schema is stable and documented (<code style="background:#f1f5f9;padding:1px 5px;border-radius:4px;font-size:13px;">schema_version: 2</code>).
                             </p>
                         </td>
                     </tr>
@@ -168,6 +168,31 @@
                             </table>
                         </td>
                     </tr>
+
+                    @if (! empty($rules))
+                    <tr>
+                        <td style="padding:18px 36px 0;">
+                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+                                style="background-color:#f0fdfa;border:1px solid #99f6e4;border-radius:10px;">
+                                <tr>
+                                    <td style="padding:16px 18px;">
+                                        <p style="margin:0 0 10px;font-size:10px;letter-spacing:2px;text-transform:uppercase;color:#0f766e;font-weight:700;">
+                                            Rules I follow
+                                        </p>
+                                        <p style="margin:0 0 12px;font-size:13px;line-height:1.55;color:#115e59;">
+                                            {{ number_format((int) ($rulesCount ?? count($rules))) }} saved {{ \Illuminate\Support\Str::plural('rule', (int) ($rulesCount ?? count($rules))) }} are included in the attached backup.
+                                        </p>
+                                        <ol style="margin:0;padding-left:20px;color:#0f172a;font-size:13px;line-height:1.65;">
+                                            @foreach ($rules as $rule)
+                                                <li style="margin:0 0 6px;">{{ $rule['text'] ?? '' }}</li>
+                                            @endforeach
+                                        </ol>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    @endif
 
                     @if ($exportType === 'auto_daily')
                     {{-- ── Auto-daily explainer ───────────────────────── --}}

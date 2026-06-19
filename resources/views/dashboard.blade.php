@@ -479,38 +479,38 @@
                 $dashboardRules = \App\Models\Rule::query()
                     ->active()
                     ->ordered()
-                    ->limit(5)
                     ->get(['id', 'text']);
-                $dashboardHasAnyRule = \App\Models\Rule::query()->count() > 0;
                 // Same palette as the /rules page so the visual language is
                 // consistent across surfaces. Keep these as literal class
                 // strings — Tailwind JIT scans for them in this file.
                 $dashRulePalette = [
-                    ['border' => 'border-emerald-400/40', 'soft' => 'bg-emerald-400/10', 'dot' => 'bg-emerald-400', 'text' => 'text-emerald-100', 'glow' => 'shadow-emerald-500/20'],
-                    ['border' => 'border-sky-400/40',     'soft' => 'bg-sky-400/10',     'dot' => 'bg-sky-400',     'text' => 'text-sky-100',     'glow' => 'shadow-sky-500/20'],
-                    ['border' => 'border-violet-400/40',  'soft' => 'bg-violet-400/10',  'dot' => 'bg-violet-400',  'text' => 'text-violet-100',  'glow' => 'shadow-violet-500/20'],
-                    ['border' => 'border-amber-400/40',   'soft' => 'bg-amber-400/10',   'dot' => 'bg-amber-400',   'text' => 'text-amber-100',   'glow' => 'shadow-amber-500/20'],
-                    ['border' => 'border-rose-400/40',    'soft' => 'bg-rose-400/10',    'dot' => 'bg-rose-400',    'text' => 'text-rose-100',    'glow' => 'shadow-rose-500/20'],
-                    ['border' => 'border-teal-400/40',    'soft' => 'bg-teal-400/10',    'dot' => 'bg-teal-400',    'text' => 'text-teal-100',    'glow' => 'shadow-teal-500/20'],
+                    ['border' => 'border-emerald-300/45', 'soft' => 'bg-emerald-300/10', 'dot' => 'bg-emerald-300', 'text' => 'text-emerald-100', 'ring' => 'ring-emerald-300/25'],
+                    ['border' => 'border-sky-300/45',     'soft' => 'bg-sky-300/10',     'dot' => 'bg-sky-300',     'text' => 'text-sky-100',     'ring' => 'ring-sky-300/25'],
+                    ['border' => 'border-violet-300/45',  'soft' => 'bg-violet-300/10',  'dot' => 'bg-violet-300',  'text' => 'text-violet-100',  'ring' => 'ring-violet-300/25'],
+                    ['border' => 'border-amber-300/45',   'soft' => 'bg-amber-300/10',   'dot' => 'bg-amber-300',   'text' => 'text-amber-100',   'ring' => 'ring-amber-300/25'],
+                    ['border' => 'border-rose-300/45',    'soft' => 'bg-rose-300/10',    'dot' => 'bg-rose-300',    'text' => 'text-rose-100',    'ring' => 'ring-rose-300/25'],
+                    ['border' => 'border-teal-300/45',    'soft' => 'bg-teal-300/10',    'dot' => 'bg-teal-300',    'text' => 'text-teal-100',    'ring' => 'ring-teal-300/25'],
                 ];
             @endphp
-            <section class="chrono-panel rounded-2xl p-6 md:p-8 relative overflow-hidden">
+            <section class="chrono-panel rounded-3xl p-5 md:p-7 relative overflow-hidden border border-cyan-400/20">
                 {{-- Soft multi-stop tint in the background so the panel feels alive without being loud. --}}
-                <div class="pointer-events-none absolute inset-0 opacity-60
-                            bg-[radial-gradient(circle_at_10%_0%,_rgba(52,211,153,0.10),_transparent_40%),radial-gradient(circle_at_90%_0%,_rgba(167,139,250,0.10),_transparent_40%)]"></div>
+                <div class="pointer-events-none absolute inset-0 opacity-70 bg-[linear-gradient(135deg,_rgba(14,165,233,0.12),_rgba(15,23,42,0)_34%,_rgba(16,185,129,0.10)_68%,_rgba(250,204,21,0.08))]"></div>
 
                 <div class="relative">
-                    <div class="flex items-center justify-between gap-4 mb-5">
+                    <div class="flex flex-wrap items-center justify-between gap-4 mb-5">
                         <div class="flex items-center gap-2.5">
-                            <span class="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-400/15 text-emerald-300">
+                            <span class="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-emerald-300/30 bg-emerald-300/15 text-emerald-200 shadow-inner">
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" class="h-4 w-4" stroke-width="1.8">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
                                 </svg>
                             </span>
-                            <h2 class="font-display text-sm uppercase tracking-[0.3em] text-slate-200">Rules I follow</h2>
+                            <div>
+                                <h2 class="font-display text-sm uppercase tracking-[0.3em] text-slate-100">Rules I follow</h2>
+                                <p class="mt-1 text-xs text-slate-400">{{ $dashboardRules->count() }} active {{ Str::plural('rule', $dashboardRules->count()) }}</p>
+                            </div>
                         </div>
                         <a href="{{ route('rules.index') }}"
-                           class="inline-flex items-center gap-1 text-xs uppercase tracking-[0.2em] text-slate-400 hover:text-emerald-300 transition-colors">
+                           class="inline-flex items-center gap-1 rounded-full border border-slate-700/70 bg-slate-950/30 px-3 py-1.5 text-xs uppercase tracking-[0.2em] text-slate-300 hover:border-emerald-300/40 hover:text-emerald-200 transition-colors">
                             Manage <span aria-hidden="true">→</span>
                         </a>
                     </div>
@@ -526,21 +526,19 @@
                             </a>
                         </div>
                     @else
-                        <ul class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <ul class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                             @foreach ($dashboardRules as $i => $r)
                                 @php $p = $dashRulePalette[$i % count($dashRulePalette)]; @endphp
-                                <li class="group flex items-start gap-3 rounded-xl border {{ $p['border'] }} {{ $p['soft'] }}
-                                           px-3.5 py-2.5 shadow-sm {{ $p['glow'] }} hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
-                                    <span class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-slate-950/30">
-                                        <span class="h-2 w-2 rounded-full {{ $p['dot'] }}"></span>
+                                <li class="group relative flex min-h-[5.25rem] items-start gap-3 rounded-2xl border {{ $p['border'] }} {{ $p['soft'] }}
+                                           px-4 py-3.5 ring-1 {{ $p['ring'] }} shadow-sm shadow-slate-950/20 hover:-translate-y-0.5 hover:bg-slate-900/40 hover:shadow-lg transition-all duration-200">
+                                    <span class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-slate-950/40 text-[0.65rem] font-semibold tabular-nums {{ $p['text'] }}">
+                                        {{ $i + 1 }}
                                     </span>
-                                    <span class="text-sm leading-snug {{ $p['text'] }} break-words">{{ $r->text }}</span>
+                                    <span class="min-w-0 flex-1 text-sm leading-relaxed {{ $p['text'] }} break-words">{{ $r->text }}</span>
+                                    <span class="absolute right-3 top-3 h-2 w-2 rounded-full {{ $p['dot'] }}"></span>
                                 </li>
                             @endforeach
                         </ul>
-                        @if ($dashboardHasAnyRule && $dashboardRules->count() >= 5)
-                            <p class="mt-4 text-[0.65rem] uppercase tracking-[0.2em] text-slate-500">Showing 5 — view all on the Rules page.</p>
-                        @endif
                     @endif
                 </div>
             </section>
@@ -2872,11 +2870,29 @@
                     display.dispatchEvent(new Event('input', { bubbles: true }));
                 };
 
+                const latestCompletedEndMinutesTodayForForm = () => {
+                    const todayKey = localDateString();
+                    let latest = null;
+                    for (const b of loadBlocks()) {
+                        if (!b || b.date !== todayKey) continue;
+                        if (b.status === 'active' || b.status === 'paused') continue;
+                        if (!b.end) continue;
+                        const mins = hhmmToMinutes(b.end);
+                        if (!Number.isFinite(mins)) continue;
+                        if (latest === null || mins > latest) latest = mins;
+                    }
+                    return latest;
+                };
+
                 const defaultSlots = () => {
                     const now = new Date();
                     const nowMin = now.getHours() * 60 + now.getMinutes();
-                    const startMin = Math.max(0, Math.floor(nowMin / 15) * 15);
-                    const endMin = Math.min(23 * 60 + 45, startMin + 60);
+                    const wakeMin = hhmmToMinutes(window.ChronoDashboardConfig?.wakeTime || '07:00');
+                    const lastEnd = latestCompletedEndMinutesTodayForForm();
+                    const startMin = lastEnd !== null
+                        ? lastEnd
+                        : (Number.isFinite(wakeMin) ? wakeMin : 7 * 60);
+                    const endMin = Math.min(23 * 60 + 59, Math.max(startMin + 15, nowMin));
                     return {
                         start: `${pad(Math.floor(startMin / 60))}:${pad(startMin % 60)}`,
                         end: `${pad(Math.floor(endMin / 60))}:${pad(endMin % 60)}`,

@@ -44,6 +44,8 @@ class UserDataBackupMail extends Mailable
     /** Counts computed in attachments() and reused by content(). */
     private int $cachedBlocksCount = 0;
     private int $cachedGoalsCount = 0;
+    private int $cachedRulesCount = 0;
+    private array $cachedRules = [];
     private string $cachedRangeStart = '';
     private string $cachedRangeEnd = '';
 
@@ -86,6 +88,8 @@ class UserDataBackupMail extends Mailable
                 'rangeEnd'    => $this->cachedRangeEnd,
                 'blocksCount' => $this->cachedBlocksCount,
                 'goalsCount'  => $this->cachedGoalsCount,
+                'rulesCount'  => $this->cachedRulesCount,
+                'rules'       => $this->cachedRules,
             ],
         );
     }
@@ -110,6 +114,13 @@ class UserDataBackupMail extends Mailable
         // email body displays.
         $this->cachedBlocksCount = (int) ($payload['meta']['blocks_count'] ?? 0);
         $this->cachedGoalsCount  = (int) ($payload['meta']['goals_count']  ?? 0);
+        $this->cachedRulesCount  = (int) ($payload['meta']['rules_count']  ?? 0);
+        $this->cachedRules       = collect($payload['rules'] ?? [])
+            ->filter(fn ($rule) => (bool) ($rule['is_active'] ?? false))
+            ->sortBy('sort_order')
+            ->take(12)
+            ->values()
+            ->all();
         $this->cachedRangeStart  = (string) ($payload['meta']['range_start'] ?? '');
         $this->cachedRangeEnd    = (string) ($payload['meta']['range_end']   ?? '');
 

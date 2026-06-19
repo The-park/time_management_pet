@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Goal;
+use App\Models\Rule;
 use App\Models\TimeBlock;
 use App\Models\User;
 use Carbon\CarbonImmutable;
@@ -19,7 +20,7 @@ use Carbon\CarbonImmutable;
  */
 class DataExportService
 {
-    public const SCHEMA_VERSION = 1;
+    public const SCHEMA_VERSION = 2;
 
     /**
      * Build the export payload as a PHP array. JSON-encoding is left
@@ -28,7 +29,7 @@ class DataExportService
      *
      * @param  CarbonImmutable|null  $rangeStart  inclusive; null = signup date
      * @param  CarbonImmutable|null  $rangeEnd    inclusive; null = today end-of-day
-     * @return array{meta:array, user:array, time_blocks:array, goals:array}
+     * @return array{meta:array, user:array, time_blocks:array, goals:array, rules:array}
      */
     public function build(User $user, ?CarbonImmutable $rangeStart = null, ?CarbonImmutable $rangeEnd = null): array
     {
@@ -50,6 +51,11 @@ class DataExportService
         $goals = Goal::withoutGlobalScopes()
             ->where('user_id', $user->id)
             ->orderBy('start_date')
+            ->get();
+
+        $rules = Rule::withoutGlobalScopes()
+            ->where('user_id', $user->id)
+            ->ordered()
             ->get();
 
         $blocksOut = $blocks->map(function (TimeBlock $b) {
@@ -88,6 +94,17 @@ class DataExportService
             ];
         })->all();
 
+        $rulesOut = $rules->map(function (Rule $r) {
+            return [
+                'id'         => $r->id,
+                'text'       => $r->text,
+                'sort_order' => (int) $r->sort_order,
+                'is_active'  => (bool) $r->is_active,
+                'created_at' => optional($r->created_at)->toIso8601String(),
+                'updated_at' => optional($r->updated_at)->toIso8601String(),
+            ];
+        })->all();
+
         return [
             'meta' => [
                 'schema_version' => self::SCHEMA_VERSION,
@@ -97,6 +114,7 @@ class DataExportService
                 'range_end'      => $endDt->toDateString(),
                 'blocks_count'   => count($blocksOut),
                 'goals_count'    => count($goalsOut),
+                'rules_count'    => count($rulesOut),
                 'is_complete'    => $rangeStart->lessThanOrEqualTo($signup),
             ],
             'user' => [
@@ -111,6 +129,7 @@ class DataExportService
             ],
             'time_blocks' => $blocksOut,
             'goals'       => $goalsOut,
+            'rules'       => $rulesOut,
         ];
     }
 

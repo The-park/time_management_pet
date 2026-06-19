@@ -484,22 +484,19 @@
                 // consistent across surfaces. Keep these as literal class
                 // strings — Tailwind JIT scans for them in this file.
                 $dashRulePalette = [
-                    ['border' => 'border-emerald-300/45', 'soft' => 'bg-emerald-300/10', 'dot' => 'bg-emerald-300', 'text' => 'text-emerald-100', 'ring' => 'ring-emerald-300/25'],
-                    ['border' => 'border-sky-300/45',     'soft' => 'bg-sky-300/10',     'dot' => 'bg-sky-300',     'text' => 'text-sky-100',     'ring' => 'ring-sky-300/25'],
-                    ['border' => 'border-violet-300/45',  'soft' => 'bg-violet-300/10',  'dot' => 'bg-violet-300',  'text' => 'text-violet-100',  'ring' => 'ring-violet-300/25'],
-                    ['border' => 'border-amber-300/45',   'soft' => 'bg-amber-300/10',   'dot' => 'bg-amber-300',   'text' => 'text-amber-100',   'ring' => 'ring-amber-300/25'],
-                    ['border' => 'border-rose-300/45',    'soft' => 'bg-rose-300/10',    'dot' => 'bg-rose-300',    'text' => 'text-rose-100',    'ring' => 'ring-rose-300/25'],
-                    ['border' => 'border-teal-300/45',    'soft' => 'bg-teal-300/10',    'dot' => 'bg-teal-300',    'text' => 'text-teal-100',    'ring' => 'ring-teal-300/25'],
+                    ['accent' => 'bg-emerald-300/70', 'number' => 'text-emerald-200'],
+                    ['accent' => 'bg-sky-300/70',     'number' => 'text-sky-200'],
+                    ['accent' => 'bg-violet-300/70',  'number' => 'text-violet-200'],
+                    ['accent' => 'bg-amber-300/75',   'number' => 'text-amber-200'],
+                    ['accent' => 'bg-rose-300/70',    'number' => 'text-rose-200'],
+                    ['accent' => 'bg-teal-300/70',    'number' => 'text-teal-200'],
                 ];
             @endphp
-            <section class="chrono-panel rounded-3xl p-5 md:p-7 relative overflow-hidden border border-cyan-400/20">
-                {{-- Soft multi-stop tint in the background so the panel feels alive without being loud. --}}
-                <div class="pointer-events-none absolute inset-0 opacity-70 bg-[linear-gradient(135deg,_rgba(14,165,233,0.12),_rgba(15,23,42,0)_34%,_rgba(16,185,129,0.10)_68%,_rgba(250,204,21,0.08))]"></div>
-
-                <div class="relative">
+            <section class="chrono-panel rounded-2xl p-5 md:p-6 relative overflow-hidden">
+                <div>
                     <div class="flex flex-wrap items-center justify-between gap-4 mb-5">
                         <div class="flex items-center gap-2.5">
-                            <span class="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-emerald-300/30 bg-emerald-300/15 text-emerald-200 shadow-inner">
+                            <span class="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-700/70 bg-slate-900/60 text-emerald-200 shadow-inner">
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" class="h-4 w-4" stroke-width="1.8">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
                                 </svg>
@@ -510,7 +507,7 @@
                             </div>
                         </div>
                         <a href="{{ route('rules.index') }}"
-                           class="inline-flex items-center gap-1 rounded-full border border-slate-700/70 bg-slate-950/30 px-3 py-1.5 text-xs uppercase tracking-[0.2em] text-slate-300 hover:border-emerald-300/40 hover:text-emerald-200 transition-colors">
+                           class="inline-flex items-center gap-1 rounded-md border border-slate-700/70 bg-slate-900/40 px-3 py-1.5 text-xs uppercase tracking-[0.2em] text-slate-300 hover:border-slate-500 hover:text-slate-100 transition-colors">
                             Manage <span aria-hidden="true">→</span>
                         </a>
                     </div>
@@ -529,13 +526,13 @@
                         <ul class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                             @foreach ($dashboardRules as $i => $r)
                                 @php $p = $dashRulePalette[$i % count($dashRulePalette)]; @endphp
-                                <li class="group relative flex min-h-[5.25rem] items-start gap-3 rounded-2xl border {{ $p['border'] }} {{ $p['soft'] }}
-                                           px-4 py-3.5 ring-1 {{ $p['ring'] }} shadow-sm shadow-slate-950/20 hover:-translate-y-0.5 hover:bg-slate-900/40 hover:shadow-lg transition-all duration-200">
-                                    <span class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-slate-950/40 text-[0.65rem] font-semibold tabular-nums {{ $p['text'] }}">
+                                <li class="group relative flex min-h-[5rem] items-start gap-3 rounded-xl border border-slate-800/70 bg-slate-900/35
+                                           px-4 py-3.5 shadow-sm shadow-slate-950/10 hover:border-slate-700 hover:bg-slate-900/55 transition-colors duration-200">
+                                    <span class="absolute left-0 top-3 bottom-3 w-1 rounded-r-full {{ $p['accent'] }}"></span>
+                                    <span class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-950/45 text-[0.65rem] font-semibold tabular-nums {{ $p['number'] }}">
                                         {{ $i + 1 }}
                                     </span>
-                                    <span class="min-w-0 flex-1 text-sm leading-relaxed {{ $p['text'] }} break-words">{{ $r->text }}</span>
-                                    <span class="absolute right-3 top-3 h-2 w-2 rounded-full {{ $p['dot'] }}"></span>
+                                    <span class="min-w-0 flex-1 text-sm leading-relaxed text-slate-200 break-words">{{ $r->text }}</span>
                                 </li>
                             @endforeach
                         </ul>

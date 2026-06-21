@@ -13,6 +13,7 @@
                 userId: @json(auth()->id()),
                 loginUrl: @json(route('login')),
                 registerUrl: @json(route('register')),
+                sessionLifetimeMs: @json(max(1, (int) config('session.lifetime', 120)) * 60 * 1000),
             };
         </script>
         @auth
@@ -91,6 +92,7 @@
                             }
                         } catch {}
                     };
+                    window.ChronoClearUserLocalData = removeUserScopedLocalData;
                     const hasUserScopedLocalData = () => {
                         try {
                             if (USER_SCOPED_EXACT_KEYS.some(key => localStorage.getItem(key) !== null)) return true;
@@ -143,6 +145,79 @@
                     window.ChronoBlocksHydrated = true;
                 })();
             </script>
+            <script>
+                (() => {
+                    const SESSION_END_KEY = 'chrono.sessionEnded.v1';
+                    const IDLE_TIMEOUT_MS = Math.max(
+                        60 * 1000,
+                        Number(window.ChronoAuth?.sessionLifetimeMs) || 120 * 60 * 1000,
+                    );
+                    let endingSession = false;
+                    let lastActivityAt = Date.now();
+                    let idleTimer = null;
+
+                    const broadcastSessionEnd = () => {
+                        try {
+                            localStorage.setItem(SESSION_END_KEY, JSON.stringify({
+                                userId: String(window.ChronoAuth?.userId || ''),
+                                at: Date.now(),
+                            }));
+                        } catch {}
+                    };
+
+                    const endExpiredSession = ({ broadcast = true } = {}) => {
+                        if (endingSession) return;
+                        endingSession = true;
+                        if (idleTimer) clearTimeout(idleTimer);
+                        if (window.ChronoAuth) window.ChronoAuth.isAuthenticated = false;
+                        window.ChronoBlocksHydrated = false;
+                        if (broadcast) broadcastSessionEnd();
+                        window.ChronoClearUserLocalData?.();
+                        window.dispatchEvent(new CustomEvent('chrono:auth:expired'));
+                        window.location.reload();
+                    };
+                    window.ChronoAuthSessionExpired = endExpiredSession;
+
+                    const scheduleIdleLogout = () => {
+                        if (endingSession) return;
+                        if (idleTimer) clearTimeout(idleTimer);
+                        const remaining = Math.max(0, IDLE_TIMEOUT_MS - (Date.now() - lastActivityAt));
+                        idleTimer = setTimeout(() => endExpiredSession(), remaining);
+                    };
+                    const markActivity = () => {
+                        if (endingSession) return;
+                        lastActivityAt = Date.now();
+                        scheduleIdleLogout();
+                    };
+
+                    for (const eventName of ['pointerdown', 'keydown', 'input', 'change', 'touchstart']) {
+                        document.addEventListener(eventName, markActivity, { passive: true });
+                    }
+                    window.addEventListener('focus', () => {
+                        if (Date.now() - lastActivityAt >= IDLE_TIMEOUT_MS) endExpiredSession();
+                        else scheduleIdleLogout();
+                    });
+                    document.addEventListener('visibilitychange', () => {
+                        if (!document.hidden && Date.now() - lastActivityAt >= IDLE_TIMEOUT_MS) endExpiredSession();
+                    });
+                    window.addEventListener('storage', (event) => {
+                        if (event.key !== SESSION_END_KEY || !event.newValue) return;
+                        try {
+                            const ended = JSON.parse(event.newValue);
+                            if (String(ended.userId || '') === String(window.ChronoAuth?.userId || '')) {
+                                endExpiredSession({ broadcast: false });
+                            }
+                        } catch {}
+                    });
+                    document.addEventListener('submit', (event) => {
+                        if (event.target.matches('[data-chrono-logout]')) {
+                            broadcastSessionEnd();
+                            window.ChronoClearUserLocalData?.();
+                        }
+                    });
+                    scheduleIdleLogout();
+                })();
+            </script>
         @endauth
     </head>
     <body class="scanlines bg-[var(--chrono-bg)] text-slate-100">
@@ -160,7 +235,7 @@
                             <a href="{{ route('history.index') }}" class="hover:text-[var(--chrono-blue)]">History</a>
                             <a href="{{ route('settings.show') }}" class="hover:text-[var(--chrono-blue)]">Settings</a>
                             <a href="{{ route('contact.show') }}" class="hover:text-[var(--chrono-blue)]">Contact</a>
-                            <form method="POST" action="{{ route('logout') }}">
+                            <form method="POST" action="{{ route('logout') }}" data-chrono-logout>
                                 @csrf
                                 <button type="submit" class="hover:text-[var(--chrono-red)]">Log out</button>
                             </form>

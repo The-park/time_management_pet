@@ -2276,7 +2276,7 @@
                     serverSyncInflight = true;
                     try {
                         const token = document.querySelector('meta[name="csrf-token"]')?.content || '';
-                        await fetch('/time-blocks/sync', {
+                        const response = await fetch('/time-blocks/sync', {
                             method: 'POST',
                             credentials: 'same-origin',
                             headers: {
@@ -2287,6 +2287,10 @@
                             },
                             body: JSON.stringify({ blocks }),
                         });
+                        if (response.status === 401 || response.status === 419) {
+                            window.ChronoAuthSessionExpired?.();
+                            return;
+                        }
                     } catch {
                         /* offline or transient — next save will retry */
                     } finally {

@@ -96,12 +96,12 @@
             <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
                 <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Sleep</div>
                 <div class="mt-1 font-digital text-xl text-slate-300">{{ $fmt($sleepMs) }}</div>
-                <div class="text-[0.65rem] text-slate-500 mt-0.5">{{ $sleepWindowLabel }}</div>
+                <div class="text-[0.65rem] text-slate-500 mt-0.5">{{ $sleepLabel }}</div>
             </div>
             <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
-                <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Awake (waking hours)</div>
+                <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Awake</div>
                 <div class="mt-1 font-digital text-xl text-slate-100">{{ $fmt($awakeMs) }}</div>
-                <div class="text-[0.65rem] text-slate-500 mt-0.5">24h − sleep</div>
+                <div class="text-[0.65rem] text-slate-500 mt-0.5">{{ $awakeLabel }}</div>
             </div>
             <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
                 <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Logged</div>

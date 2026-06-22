@@ -151,6 +151,24 @@
                     const m = totalMin % 60;
                     return m === 0 ? `${h}h` : `${h}h ${m}m`;
                 };
+                const scheduledSleepMsInRange = (rangeStart, rangeEnd, wakeMins, endMins) => {
+                    if (rangeEnd.getTime() <= rangeStart.getTime()) return 0;
+                    const cursor = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), rangeStart.getDate() - 1);
+                    const lastDay = new Date(rangeEnd.getFullYear(), rangeEnd.getMonth(), rangeEnd.getDate());
+                    let totalMs = 0;
+                    while (cursor.getTime() <= lastDay.getTime()) {
+                        const sleepStart = new Date(cursor);
+                        sleepStart.setHours(Math.floor(endMins / 60), endMins % 60, 0, 0);
+                        const sleepEnd = new Date(cursor);
+                        sleepEnd.setHours(Math.floor(wakeMins / 60), wakeMins % 60, 0, 0);
+                        if (sleepEnd.getTime() <= sleepStart.getTime()) sleepEnd.setDate(sleepEnd.getDate() + 1);
+                        const overlapStart = Math.max(rangeStart.getTime(), sleepStart.getTime());
+                        const overlapEnd = Math.min(rangeEnd.getTime(), sleepEnd.getTime());
+                        if (overlapEnd > overlapStart) totalMs += overlapEnd - overlapStart;
+                        cursor.setDate(cursor.getDate() + 1);
+                    }
+                    return totalMs;
+                };
                 const csvEscape = (val) => {
                     const s = String(val ?? '');
                     return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
@@ -633,11 +651,6 @@
                     };
                     const wakeMins = hhmmToMin(cfg.wakeTime || '07:00') ?? 420;
                     const endMins = hhmmToMin(cfg.endTime || '22:00') ?? 1320;
-                    const sleepPerNightMin = wakeMins > endMins
-                        ? wakeMins - endMins
-                        : (24 * 60) - endMins + wakeMins;
-                    const awakePerDayMs = (24 * 60 - sleepPerNightMin) * 60 * 1000;
-
                     // Effective elapsed range for this month: clamp to signup
                     // start and current "now", so partial months reflect only
                     // the days we could realistically have logged.
@@ -647,20 +660,9 @@
                     const effStart = signup && signup > monthStart ? signup : monthStart;
                     const now = new Date();
                     const effEnd = now < monthEnd ? now : monthEnd;
-                    let elapsedAwakeMs = 0;
-                    if (effEnd > effStart) {
-                        // Walk calendar days inside the elapsed window and
-                        // count one awake-day per full day, plus a partial
-                        // awake slice for boundary days.
-                        const cursor = new Date(effStart);
-                        cursor.setHours(0, 0, 0, 0);
-                        const finalDay = new Date(effEnd);
-                        finalDay.setHours(0, 0, 0, 0);
-                        while (cursor.getTime() <= finalDay.getTime()) {
-                            elapsedAwakeMs += awakePerDayMs;
-                            cursor.setDate(cursor.getDate() + 1);
-                        }
-                    }
+                    const elapsedMs = Math.max(0, effEnd.getTime() - effStart.getTime());
+                    const sleepElapsedMs = scheduledSleepMsInRange(effStart, effEnd, wakeMins, endMins);
+                    const elapsedAwakeMs = Math.max(0, elapsedMs - sleepElapsedMs);
                     const unloggedMs = Math.max(0, elapsedAwakeMs - totalLogged);
                     const denomMs = totalProductive + totalWasted + unloggedMs;
                     const ratio = denomMs > 0
@@ -683,7 +685,7 @@
                         </div>
                     `;
                     const topStats = `
-                        <div class="grid grid-cols-2 lg:grid-cols-6 gap-3">
+                        <div class="grid grid-cols-2 lg:grid-cols-7 gap-3">
                             <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
                                 <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Calendar</div>
                                 <div class="mt-1 text-lg text-slate-100">${calendarHoursMonth}h</div>
@@ -706,6 +708,11 @@
                                 <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Neutral</div>
                                 <div class="mt-1 text-lg text-slate-300">${escapeHtml(formatHours(totalNeutral))}</div>
                                 <div class="text-[0.6rem] text-slate-500 mt-0.5">logged, score-neutral</div>
+                            </div>
+                            <div class="rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-3">
+                                <div class="text-xs uppercase tracking-[0.2em] text-yellow-300">Unlogged</div>
+                                <div class="mt-1 text-lg text-yellow-200">${escapeHtml(formatHours(unloggedMs))}</div>
+                                <div class="text-[0.6rem] text-slate-500 mt-0.5">awake window only</div>
                             </div>
                             <div class="rounded-xl border border-[var(--chrono-blue)]/30 bg-[var(--chrono-blue)]/5 p-3"
                                 title="Productive ÷ (Productive + Wasted + Unlogged). Wasted AND unlogged time both reduce efficiency.">

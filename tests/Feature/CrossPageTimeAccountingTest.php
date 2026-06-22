@@ -72,6 +72,11 @@ class CrossPageTimeAccountingTest extends TestCase
         $this->assertSame(1.0, $breakdown['neutral_hours']);
         $this->assertSame(0.0, $breakdown['wasted_hours']);
         $this->assertSame(3.0, $breakdown['unlogged_awake_hours']);
+
+        $window = $response->viewData('windowUtilization');
+        $this->assertSame(1.0, $window['neutral_hours']);
+        $this->assertSame(3.0, $window['unlogged_awake_hours']);
+        $this->assertSame(1.0, $window['goal_credited_hours']);
     }
 
     public function test_admin_day_uses_elapsed_sleep_and_neutral_time(): void

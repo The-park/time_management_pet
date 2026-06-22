@@ -156,6 +156,35 @@ class GoalController extends Controller
 
         $timeAnalysis = $this->timeAnalysis->analyze($goal, $request->user());
 
+        // This is intentionally broader than attribution: it shows how the
+        // user spent the elapsed portion of this goal's calendar window,
+        // including work that belongs to another goal and explicit waste.
+        $timezone = $request->user()->timezone ?: config('app.timezone', 'UTC');
+        $goalWindowStart = CarbonImmutable::parse($goal->start_date, $timezone)->startOfDay();
+        $goalWindowEnd = CarbonImmutable::parse($goal->target_date, $timezone)->endOfDay();
+        $nowInTimezone = CarbonImmutable::now($timezone);
+        $elapsedWindowEnd = $nowInTimezone->lt($goalWindowStart)
+            ? $goalWindowStart
+            : ($nowInTimezone->lt($goalWindowEnd) ? $nowInTimezone : $goalWindowEnd);
+        $windowBlocks = TimeBlock::query()
+            ->where('user_id', $goal->user_id)
+            ->where('duration_seconds', '>', 0)
+            ->whereBetween('start_time', [$goalWindowStart, $elapsedWindowEnd])
+            ->get(['duration_seconds', 'category']);
+        $windowProductiveHours = $windowBlocks->whereNotIn('category', ['wasted', 'neutral'])->sum('duration_seconds') / 3600;
+        $windowWastedHours = $windowBlocks->where('category', 'wasted')->sum('duration_seconds') / 3600;
+        $windowNeutralHours = $windowBlocks->where('category', 'neutral')->sum('duration_seconds') / 3600;
+        $windowLoggedHours = $windowProductiveHours + $windowWastedHours + $windowNeutralHours;
+        $windowUnloggedHours = max(0, (float) $timeAnalysis['elapsed']['awake_hours'] - $windowLoggedHours);
+        $windowUtilization = [
+            'productive_hours' => round($windowProductiveHours, 2),
+            'wasted_hours' => round($windowWastedHours, 2),
+            'neutral_hours' => round($windowNeutralHours, 2),
+            'unlogged_awake_hours' => round($windowUnloggedHours, 2),
+            'logged_hours' => round($windowLoggedHours, 2),
+            'goal_credited_hours' => round((float) $timeAnalysis['elapsed']['logged_hours'], 2),
+        ];
+
         // Productive vs wasted split among the blocks attributed to this
         // goal. Each entry in $attribution['blocks'] has its block model and
         // the share allocated to this goal; we apply the same share to the
@@ -225,6 +254,7 @@ class GoalController extends Controller
             'today' => $today->toDateString(),
             'timeAnalysis' => $timeAnalysis,
             'activityBreakdown' => $activityBreakdown,
+            'windowUtilization' => $windowUtilization,
             'lifecycle' => $lifecycle,
         ]);
     }

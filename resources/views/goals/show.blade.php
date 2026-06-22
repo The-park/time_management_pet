@@ -40,6 +40,12 @@
         $wastedPct = (int) round(($activity['wasted_hours'] / $activityTotal) * 100);
         $neutralPct = (int) round(($activity['neutral_hours'] / $activityTotal) * 100);
         $unloggedPct = max(0, 100 - $productivePct - $wastedPct - $neutralPct);
+        $window = $windowUtilization;
+        $windowTotal = max(0.001, $window['productive_hours'] + $window['wasted_hours'] + $window['neutral_hours'] + $window['unlogged_awake_hours']);
+        $windowProductivePct = (int) round(($window['productive_hours'] / $windowTotal) * 100);
+        $windowWastedPct = (int) round(($window['wasted_hours'] / $windowTotal) * 100);
+        $windowNeutralPct = (int) round(($window['neutral_hours'] / $windowTotal) * 100);
+        $windowUnloggedPct = max(0, 100 - $windowProductivePct - $windowWastedPct - $windowNeutralPct);
     @endphp
 
     <div class="mx-auto max-w-7xl space-y-5">
@@ -157,6 +163,54 @@
                     <p class="mt-2 text-sm leading-6 text-slate-400">This goal is archived. Its evidence and change history remain available below.</p>
                 @endif
             </aside>
+        </section>
+
+        <section class="border border-slate-800/70 bg-slate-950/20">
+            <div class="flex flex-col gap-3 border-b border-slate-800/70 px-5 py-4 md:flex-row md:items-end md:justify-between">
+                <div>
+                    <h2 class="text-base font-semibold text-slate-100">Goal-window utilization</h2>
+                    <p class="mt-1 text-xs text-slate-500">Every awake hour from the goal start through now. Scheduled sleep is excluded.</p>
+                </div>
+                <div class="flex gap-5 text-sm">
+                    <div><span class="text-slate-500">Logged</span> <span class="ml-1 font-digital text-slate-200">{{ $window['logged_hours'] }}h</span></div>
+                    <div><span class="text-slate-500">Goal credited</span> <span class="ml-1 font-digital text-sky-200">{{ $window['goal_credited_hours'] }}h</span></div>
+                </div>
+            </div>
+            <div class="px-5 py-5">
+                <div class="flex h-3 overflow-hidden rounded-full bg-slate-800" aria-label="Goal-window time distribution">
+                    <span class="bg-emerald-400" style="width: {{ $windowProductivePct }}%" title="{{ $window['productive_hours'] }}h productive"></span>
+                    <span class="bg-rose-400" style="width: {{ $windowWastedPct }}%" title="{{ $window['wasted_hours'] }}h wasted"></span>
+                    <span class="bg-slate-400" style="width: {{ $windowNeutralPct }}%" title="{{ $window['neutral_hours'] }}h neutral"></span>
+                    <span class="bg-yellow-400" style="width: {{ $windowUnloggedPct }}%" title="{{ $window['unlogged_awake_hours'] }}h unlogged"></span>
+                </div>
+                <div class="mt-5 grid grid-cols-2 gap-x-5 gap-y-5 sm:grid-cols-4 lg:grid-cols-5">
+                    <div>
+                        <p class="text-xs text-slate-500">Productive logged</p>
+                        <p class="mt-1 font-digital text-xl text-emerald-200">{{ $window['productive_hours'] }}h</p>
+                        <p class="mt-1 text-xs text-slate-600">all productive blocks</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-500">Clearly wasted</p>
+                        <p class="mt-1 font-digital text-xl text-rose-200">{{ $window['wasted_hours'] }}h</p>
+                        <p class="mt-1 text-xs text-slate-600">marked wasted</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-500">Neutral logged</p>
+                        <p class="mt-1 font-digital text-xl text-slate-200">{{ $window['neutral_hours'] }}h</p>
+                        <p class="mt-1 text-xs text-slate-600">score-neutral time</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-500">Unlogged awake</p>
+                        <p class="mt-1 font-digital text-xl text-yellow-200">{{ $window['unlogged_awake_hours'] }}h</p>
+                        <p class="mt-1 text-xs text-slate-600">awake time without a block</p>
+                    </div>
+                    <div class="border-l border-slate-800 pl-4 sm:col-span-2 lg:col-span-1">
+                        <p class="text-xs text-slate-500">Credited to this goal</p>
+                        <p class="mt-1 font-digital text-xl text-sky-200">{{ $window['goal_credited_hours'] }}h</p>
+                        <p class="mt-1 text-xs text-slate-600">matched after shared-goal splits</p>
+                    </div>
+                </div>
+            </div>
         </section>
 
         <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_19rem]">
@@ -338,14 +392,14 @@
                         </div>
 
                         <div>
-                            <p class="text-xs font-medium text-slate-300">Activity mix</p>
+                            <p class="text-xs font-medium text-slate-300">Goal-credited activity mix</p>
                             <div class="mt-3 flex h-2 overflow-hidden rounded-full bg-slate-800">
                                 <span class="bg-emerald-400" style="width: {{ $productivePct }}%"></span><span class="bg-rose-400" style="width: {{ $wastedPct }}%"></span><span class="bg-slate-400" style="width: {{ $neutralPct }}%"></span><span class="bg-yellow-400" style="width: {{ $unloggedPct }}%"></span>
                             </div>
                             <dl class="mt-3 space-y-2 text-xs">
-                                <div class="flex justify-between"><dt class="text-emerald-300">Productive</dt><dd class="font-digital text-slate-200">{{ $activity['productive_hours'] }}h</dd></div>
-                                <div class="flex justify-between"><dt class="text-rose-300">Wasted</dt><dd class="font-digital text-slate-200">{{ $activity['wasted_hours'] }}h</dd></div>
-                                <div class="flex justify-between"><dt class="text-slate-300">Neutral</dt><dd class="font-digital text-slate-200">{{ $activity['neutral_hours'] }}h</dd></div>
+                                <div class="flex justify-between"><dt class="text-emerald-300">Productive credited</dt><dd class="font-digital text-slate-200">{{ $activity['productive_hours'] }}h</dd></div>
+                                <div class="flex justify-between"><dt class="text-rose-300">Wasted credited</dt><dd class="font-digital text-slate-200">{{ $activity['wasted_hours'] }}h</dd></div>
+                                <div class="flex justify-between"><dt class="text-slate-300">Neutral credited</dt><dd class="font-digital text-slate-200">{{ $activity['neutral_hours'] }}h</dd></div>
                                 <div class="flex justify-between"><dt class="text-yellow-300">Unlogged awake</dt><dd class="font-digital text-slate-200">{{ $activity['unlogged_awake_hours'] }}h</dd></div>
                             </dl>
                         </div>

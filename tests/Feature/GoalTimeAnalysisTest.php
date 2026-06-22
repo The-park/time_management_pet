@@ -55,7 +55,7 @@ class GoalTimeAnalysisTest extends TestCase
         // [May 6 12:00, May 13 23:59:59] — target is end-of-day, so the
         // last night before the deadline counts.
         $this->assertEquals(8, $r['remaining']['nights']);
-        $this->assertEquals(72.0, $r['remaining']['sleep_hours']);   // 8 × 9
+        $this->assertEquals(65.0, $r['remaining']['sleep_hours']);
         // Wall-clock: noon today → end-of-day(23:59:59) on day+7
         // = 7 days + 11h 59m 59s ≈ 179.99h
         $this->assertGreaterThan(179.0, $r['remaining']['total_hours']);
@@ -102,8 +102,8 @@ class GoalTimeAnalysisTest extends TestCase
         $r = app(GoalTimeAnalysisService::class)->analyze($g, $u, $now);
 
         $this->assertEquals(4.0, $r['elapsed']['logged_hours']);
-        $this->assertEquals(1, $r['elapsed']['nights']);            // one bedtime crossed
-        $this->assertEquals(9.0, $r['elapsed']['sleep_hours']);
+        $this->assertEquals(2, $r['elapsed']['nights']);            // pre-wake and bedtime windows overlap
+        $this->assertEquals(16.0, $r['elapsed']['sleep_hours']);
         // Unlogged awake = elapsed_awake − logged
         $this->assertEqualsWithDelta(
             $r['elapsed']['awake_hours'] - 4.0,
@@ -123,6 +123,19 @@ class GoalTimeAnalysisTest extends TestCase
         $this->assertEquals(7.0, $r['sleep']['per_night_hours']);
         $this->assertEquals('11:00 PM', $r['sleep']['end_of_day']);
         $this->assertEquals('6:00 AM', $r['sleep']['wake_time']);
+    }
+
+    public function test_current_goal_time_before_wake_is_scheduled_sleep_not_unlogged_awake(): void
+    {
+        $u = $this->user('22:00', '06:00');
+        $now = CarbonImmutable::create(2026, 6, 22, 6, 30, 0, 'UTC');
+        $g = $this->goal($u, $now, $now);
+
+        $r = app(GoalTimeAnalysisService::class)->analyze($g, $u, $now);
+
+        $this->assertEquals(6.0, $r['elapsed']['sleep_hours']);
+        $this->assertEquals(0.5, $r['elapsed']['awake_hours']);
+        $this->assertEquals(0.5, $r['elapsed']['unlogged_awake_hours']);
     }
 
     public function test_weeks_label_formats_long_windows_nicely(): void

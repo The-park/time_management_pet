@@ -8,6 +8,7 @@ use App\Models\DailyGoal;
 use App\Models\TimeBlock;
 use App\Models\User;
 use App\Services\AdminAudit;
+use App\Services\SleepScheduleService;
 use Carbon\CarbonImmutable;
 use DateTimeZone;
 use Illuminate\Http\Request;
@@ -18,6 +19,10 @@ use Illuminate\Validation\Rule;
 
 class AdminUserController extends Controller
 {
+    public function __construct(private SleepScheduleService $sleepSchedule)
+    {
+    }
+
     public function index(Request $request)
     {
         $search = trim((string) $request->query('q', ''));
@@ -105,6 +110,7 @@ class AdminUserController extends Controller
             $blocks = $byDate[$key] ?? collect();
             $productiveSec = (int) $blocks->whereNotIn('category', ['wasted', 'neutral'])->sum('duration_seconds');
             $wastedSec = (int) $blocks->where('category', 'wasted')->sum('duration_seconds');
+            $neutralSec = (int) $blocks->where('category', 'neutral')->sum('duration_seconds');
             $cells[] = [
                 'date' => $date->toDateString(),
                 'day' => $d,
@@ -112,6 +118,7 @@ class AdminUserController extends Controller
                 'is_future' => $date->gt($today),
                 'productive_seconds' => $productiveSec,
                 'wasted_seconds' => $wastedSec,
+                'neutral_seconds' => $neutralSec,
                 'block_count' => $blocks->count(),
             ];
         }
@@ -121,6 +128,7 @@ class AdminUserController extends Controller
         $monthTotals = [
             'productive_seconds' => (int) $monthBlocks->whereNotIn('category', ['wasted', 'neutral'])->sum('duration_seconds'),
             'wasted_seconds' => (int) $monthBlocks->where('category', 'wasted')->sum('duration_seconds'),
+            'neutral_seconds' => (int) $monthBlocks->where('category', 'neutral')->sum('duration_seconds'),
             'block_count' => $monthBlocks->count(),
             'days_logged' => $byDate->count(),
         ];
@@ -193,31 +201,33 @@ class AdminUserController extends Controller
 
         $productiveSec = (int) $blocks->whereNotIn('category', ['wasted', 'neutral'])->sum('duration_seconds');
         $wastedSec = (int) $blocks->where('category', 'wasted')->sum('duration_seconds');
-
-        // Sleep math (mirrors GoalTimeAnalysisService approach).
-        $end = $this->parseHM($user->end_of_day_time, '22:00');
-        $wake = $this->parseHM($user->wake_up_time, '07:00');
-        $endMins = $end[0] * 60 + $end[1];
-        $wakeMins = $wake[0] * 60 + $wake[1];
-        $sleepMinsPerNight = $wakeMins > $endMins
-            ? $wakeMins - $endMins
-            : (24 * 60) - $endMins + $wakeMins;
-        $sleepSec = $sleepMinsPerNight * 60;
-        $awakeSec = max(0, 24 * 3600 - $sleepSec);
+        $neutralSec = (int) $blocks->where('category', 'neutral')->sum('duration_seconds');
 
         $isCurrentDay = $target->isSameDay($today);
-        if ($isCurrentDay) {
-            $now = CarbonImmutable::now($tz);
-            $wakeDt = $target->setTime($wake[0], $wake[1]);
-            $awakeForRatioSec = $now->gt($wakeDt) ? max(0, $wakeDt->diffInSeconds($now)) : 1;
-        } else {
-            $awakeForRatioSec = max(1, $awakeSec);
-        }
+        $isFuture = $target->gt($today);
+        $schedule = $this->sleepSchedule->forUser($user);
+        $fullSleepSec = $schedule['per_night_seconds'];
+        $fullAwakeSec = max(0, (24 * 3600) - $fullSleepSec);
+        $dayEnd = $target->addDay();
+        $now = CarbonImmutable::now($tz);
+        $effectiveEnd = $isFuture ? $target : ($now->lt($dayEnd) ? $now : $dayEnd);
+        $elapsedSec = max(0, (int) $target->diffInSeconds($effectiveEnd, false));
+        $elapsedSleepSec = $this->sleepSchedule->overlapSeconds($target, $effectiveEnd, $user);
+        $elapsedAwakeSec = max(0, (int) ($elapsedSec - $elapsedSleepSec));
+        $awakeForRatioSec = max(1, ($isCurrentDay || $isFuture) ? $elapsedAwakeSec : $fullAwakeSec);
 
-        $loggedSec = $productiveSec + $wastedSec;
+        $loggedSec = $productiveSec + $wastedSec + $neutralSec;
         $unloggedSec = max(0, $awakeForRatioSec - $loggedSec);
-        $efficiencyPct = (int) round(($productiveSec / $awakeForRatioSec) * 100);
+        $efficiencyDenominatorSec = $productiveSec + $wastedSec + $unloggedSec;
+        $efficiencyPct = $efficiencyDenominatorSec > 0
+            ? (int) round(($productiveSec / $efficiencyDenominatorSec) * 100)
+            : 0;
         $efficiencyPct = max(0, min(100, $efficiencyPct));
+        $sleepSec = $isCurrentDay || $isFuture ? $elapsedSleepSec : $fullSleepSec;
+        $awakeSec = $isCurrentDay || $isFuture ? $elapsedAwakeSec : $fullAwakeSec;
+        $sleepMinsPerNight = (int) ($fullSleepSec / 60);
+        $end = [$schedule['end_hour'], $schedule['end_minute']];
+        $wake = [$schedule['wake_hour'], $schedule['wake_minute']];
 
         return view('admin.users.day', [
             'user' => $user,
@@ -228,10 +238,14 @@ class AdminUserController extends Controller
             'blocks' => $blocks,
             'productiveSec' => $productiveSec,
             'wastedSec' => $wastedSec,
+            'neutralSec' => $neutralSec,
             'loggedSec' => $loggedSec,
             'unloggedSec' => $unloggedSec,
+            'elapsedSec' => $isCurrentDay || $isFuture ? $elapsedSec : 24 * 3600,
             'sleepSec' => $sleepSec,
             'awakeSec' => $awakeSec,
+            'sleepLabel' => $isCurrentDay ? 'scheduled sleep elapsed' : ($isFuture ? 'not started yet' : $schedule['end_label'].' to '.$schedule['wake_label']),
+            'awakeLabel' => $isCurrentDay ? 'awake elapsed' : ($isFuture ? 'not started yet' : '24h - sleep'),
             'efficiencyPct' => $efficiencyPct,
             'sleepWindowLabel' => $this->display12($end[0], $end[1]).' → '.$this->display12($wake[0], $wake[1]),
             'sleepPerNightHours' => round($sleepMinsPerNight / 60, 2),

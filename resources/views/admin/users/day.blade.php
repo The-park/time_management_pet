@@ -31,11 +31,12 @@
             $tierBoxLabel = 'text-rose-300';
             $tierBoxValue = 'text-rose-200';
         }
-        $totalForBar = max(1, $productiveSec + $wastedSec + $unloggedSec);
+        $totalForBar = max(1, $productiveSec + $wastedSec + $neutralSec + $unloggedSec);
         $prodPct = (int) round(($productiveSec / $totalForBar) * 100);
         $wastedPct = (int) round(($wastedSec / $totalForBar) * 100);
-        $unloggedPct = max(0, 100 - $prodPct - $wastedPct);
-        $totalDaySec = 24 * 3600;
+        $neutralPct = (int) round(($neutralSec / $totalForBar) * 100);
+        $unloggedPct = max(0, 100 - $prodPct - $wastedPct - $neutralPct);
+        $totalDaySec = $elapsedSec;
         $initials = collect(preg_split('/\s+/', trim($user->name ?? '?')))
             ->filter()->take(2)->map(fn($p) => mb_strtoupper(mb_substr($p, 0, 1)))->implode('');
     @endphp
@@ -91,19 +92,19 @@
         <div class="p-5 space-y-5">
             <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div class="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
-                    <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Total in day</div>
+                    <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">{{ $isCurrentDay || $isFuture ? 'Elapsed time' : 'Total in day' }}</div>
                     <div class="mt-1 text-lg tabular-nums text-slate-100">{{ $fmt($totalDaySec) }}</div>
-                    <div class="text-[0.65rem] text-slate-500 mt-0.5">24h calendar</div>
+                    <div class="text-[0.65rem] text-slate-500 mt-0.5">{{ $isFuture ? 'not started yet' : ($isCurrentDay ? 'since day began' : '24h calendar') }}</div>
                 </div>
                 <div class="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
                     <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Sleep</div>
                     <div class="mt-1 text-lg tabular-nums text-slate-300">{{ $fmt($sleepSec) }}</div>
-                    <div class="text-[0.65rem] text-slate-500 mt-0.5">{{ $sleepWindowLabel }}</div>
+                    <div class="text-[0.65rem] text-slate-500 mt-0.5">{{ $sleepLabel }}</div>
                 </div>
                 <div class="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
                     <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Awake</div>
                     <div class="mt-1 text-lg tabular-nums text-slate-100">{{ $fmt($awakeSec) }}</div>
-                    <div class="text-[0.65rem] text-slate-500 mt-0.5">24h − sleep</div>
+                    <div class="text-[0.65rem] text-slate-500 mt-0.5">{{ $awakeLabel }}</div>
                 </div>
                 <div class="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
                     <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Logged</div>
@@ -112,7 +113,7 @@
                 </div>
             </div>
 
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
                 <div class="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3">
                     <div class="text-[0.6rem] uppercase tracking-wider text-emerald-300">Productive</div>
                     <div class="mt-1 text-lg tabular-nums text-emerald-200">{{ $fmt($productiveSec) }}</div>
@@ -120,6 +121,11 @@
                 <div class="rounded-lg border border-rose-500/30 bg-rose-500/5 p-3">
                     <div class="text-[0.6rem] uppercase tracking-wider text-rose-300">Wasted</div>
                     <div class="mt-1 text-lg tabular-nums text-rose-200">{{ $fmt($wastedSec) }}</div>
+                </div>
+                <div class="rounded-lg border border-slate-500/30 bg-slate-500/5 p-3">
+                    <div class="text-[0.6rem] uppercase tracking-wider text-slate-300">Neutral</div>
+                    <div class="mt-1 text-lg tabular-nums text-slate-200">{{ $fmt($neutralSec) }}</div>
+                    <div class="text-[0.6rem] text-slate-500 mt-0.5">logged, score-neutral</div>
                 </div>
                 <div class="rounded-lg border border-yellow-500/30 bg-yellow-500/5 p-3">
                     <div class="text-[0.6rem] uppercase tracking-wider text-yellow-300">Unlogged (awake)</div>
@@ -141,6 +147,7 @@
                 <div class="h-2.5 rounded-full bg-slate-800/80 overflow-hidden flex">
                     <div class="h-full bg-emerald-400" style="width: {{ $prodPct }}%"></div>
                     <div class="h-full bg-rose-400" style="width: {{ $wastedPct }}%"></div>
+                    <div class="h-full bg-slate-400" style="width: {{ $neutralPct }}%"></div>
                     <div class="h-full bg-yellow-400" style="width: {{ $unloggedPct }}%"></div>
                 </div>
                 <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[0.65rem] uppercase tracking-wider text-slate-500">
@@ -151,6 +158,10 @@
                     <span class="inline-flex items-center gap-1.5">
                         <span class="inline-block h-2 w-2 rounded-full bg-rose-400"></span>
                         Wasted {{ $wastedPct }}%
+                    </span>
+                    <span class="inline-flex items-center gap-1.5">
+                        <span class="inline-block h-2 w-2 rounded-full bg-slate-400"></span>
+                        Neutral {{ $neutralPct }}%
                     </span>
                     <span class="inline-flex items-center gap-1.5">
                         <span class="inline-block h-2 w-2 rounded-full bg-yellow-400"></span>
@@ -192,11 +203,14 @@
                         @foreach ($blocks as $b)
                             @php
                                 $isWasted = $b->category === 'wasted';
+                                $isNeutral = $b->category === 'neutral';
                                 $chipClass = $isWasted
                                     ? 'bg-rose-500/15 text-rose-200 border-rose-500/40'
-                                    : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40';
-                                $chipText = $isWasted ? 'Wasted' : 'Productive';
-                                $dotClass = $isWasted ? 'bg-rose-400' : 'bg-emerald-400';
+                                    : ($isNeutral
+                                        ? 'bg-slate-500/15 text-slate-200 border-slate-500/40'
+                                        : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40');
+                                $chipText = $isWasted ? 'Wasted' : ($isNeutral ? 'Neutral' : 'Productive');
+                                $dotClass = $isWasted ? 'bg-rose-400' : ($isNeutral ? 'bg-slate-400' : 'bg-emerald-400');
                             @endphp
                             <tr class="hover:bg-slate-800/30 transition-colors">
                                 <td class="px-5 py-2 text-slate-200 whitespace-nowrap">{{ $b->start_time->format('g:i A') }}</td>

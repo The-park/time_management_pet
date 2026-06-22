@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\TimeBlock;
+use App\Services\SleepScheduleService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 
@@ -14,6 +15,10 @@ use Illuminate\Http\Request;
  */
 class HistoryController extends Controller
 {
+    public function __construct(private SleepScheduleService $sleepSchedule)
+    {
+    }
+
     public function index()
     {
         return view('history.index');
@@ -73,7 +78,10 @@ class HistoryController extends Controller
 
         // Sleep math: same model used elsewhere in the app — count one
         // bedtime per calendar day, multiply by sleep_per_night.
-        [$sleepPerNightMin, $endOfDayLabel, $wakeLabel] = $this->sleepWindow($user);
+        $schedule = $this->sleepSchedule->forUser($user);
+        $sleepPerNightMin = (int) ($schedule['per_night_seconds'] / 60);
+        $endOfDayLabel = $schedule['end_label'];
+        $wakeLabel = $schedule['wake_label'];
         $sleepMs = $sleepPerNightMin * 60 * 1000;
         $awakeMs = max(0, (24 * 60 * 60 * 1000) - $sleepMs);
 
@@ -93,7 +101,7 @@ class HistoryController extends Controller
             $effectiveStart = $signupAt;
         }
         $elapsedMs = max(0, $effectiveStart->diffInMilliseconds($effectiveEnd, false));
-        $sleepElapsedMs = $this->scheduledSleepMsInRange($effectiveStart, $effectiveEnd, $user);
+        $sleepElapsedMs = $this->sleepSchedule->overlapSeconds($effectiveStart, $effectiveEnd, $user) * 1000;
         $awakeElapsedMs = max(0, $elapsedMs - $sleepElapsedMs);
         $awakeForRatio = max(1, ($isCurrentDay || $isFuture) ? $awakeElapsedMs : $awakeMs);
 

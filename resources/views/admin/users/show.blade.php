@@ -116,6 +116,7 @@
         }
         $monthProdLabel = $totalDurationLabel($monthTotals['productive_seconds']);
         $monthWastedLabel = $totalDurationLabel($monthTotals['wasted_seconds']);
+        $monthNeutralLabel = $totalDurationLabel($monthTotals['neutral_seconds']);
     @endphp
     <section class="rounded-xl border border-slate-800/60 bg-slate-900/40 overflow-hidden mb-6">
         <header class="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-b border-slate-800/60">
@@ -143,7 +144,7 @@
         </header>
 
         {{-- Month summary strip --}}
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 px-5 py-4 border-b border-slate-800/60">
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-3 px-5 py-4 border-b border-slate-800/60">
             <div class="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
                 <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Days logged</div>
                 <div class="mt-1 text-lg tabular-nums text-slate-100">{{ $monthTotals['days_logged'] }}<span class="text-sm text-slate-500">/{{ $monthStart->daysInMonth }}</span></div>
@@ -159,6 +160,10 @@
             <div class="rounded-lg border border-rose-500/30 bg-rose-500/5 p-3">
                 <div class="text-[0.6rem] uppercase tracking-wider text-rose-300">Wasted</div>
                 <div class="mt-1 text-lg tabular-nums text-rose-200">{{ $monthWastedLabel }}</div>
+            </div>
+            <div class="rounded-lg border border-slate-500/30 bg-slate-500/5 p-3">
+                <div class="text-[0.6rem] uppercase tracking-wider text-slate-300">Neutral</div>
+                <div class="mt-1 text-lg tabular-nums text-slate-200">{{ $monthNeutralLabel }}</div>
             </div>
         </div>
 
@@ -198,10 +203,12 @@
                             $futureCls = $cell['is_future'] ? 'opacity-40' : '';
                             $prodLabel = $totalDurationLabel($cell['productive_seconds']);
                             $wastedLabel = $totalDurationLabel($cell['wasted_seconds']);
+                            $neutralLabel = $totalDurationLabel($cell['neutral_seconds']);
                             $title = $cell['date']
                                 . ($hasData
                                     ? ' · '.$prodLabel.' productive'
                                       . ($cell['wasted_seconds'] > 0 ? ' · '.$wastedLabel.' wasted' : '')
+                                      . ($cell['neutral_seconds'] > 0 ? ' · '.$neutralLabel.' neutral' : '')
                                       . ' · '.$cell['block_count'].' '.\Illuminate\Support\Str::plural('block', $cell['block_count'])
                                     : ' · no blocks');
                         @endphp
@@ -219,6 +226,9 @@
                                     <div class="text-[0.65rem] tabular-nums text-emerald-200 leading-tight">{{ $prodLabel }}</div>
                                     @if ($cell['wasted_seconds'] > 0)
                                         <div class="text-[0.55rem] tabular-nums text-rose-300 leading-tight">{{ $wastedLabel }} wasted</div>
+                                    @endif
+                                    @if ($cell['neutral_seconds'] > 0)
+                                        <div class="text-[0.55rem] tabular-nums text-slate-300 leading-tight">{{ $neutralLabel }} neutral</div>
                                     @endif
                                 @else
                                     <div class="text-[0.6rem] text-slate-600 leading-tight">—</div>

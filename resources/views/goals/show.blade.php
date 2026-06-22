@@ -222,7 +222,7 @@
                         <dd class="text-slate-200 font-digital">{{ $ta['elapsed']['total_hours'] }}h</dd>
                     </div>
                     <div class="flex justify-between gap-2">
-                        <dt class="text-slate-500">Sleep ({{ $ta['elapsed']['nights'] }} {{ Str::plural('night', $ta['elapsed']['nights']) }} × {{ $ta['sleep']['per_night_label'] }})</dt>
+                        <dt class="text-slate-500">Scheduled sleep elapsed</dt>
                         <dd class="text-slate-400 font-digital">−{{ $ta['elapsed']['sleep_hours'] }}h</dd>
                     </div>
                     <div class="flex justify-between gap-2 border-t border-slate-800/60 pt-1.5">
@@ -258,7 +258,7 @@
                         <dd class="text-slate-200 font-digital">{{ $ta['remaining']['total_hours'] }}h</dd>
                     </div>
                     <div class="flex justify-between gap-2">
-                        <dt class="text-slate-500">Sleep ({{ $ta['remaining']['nights'] }} {{ Str::plural('night', $ta['remaining']['nights']) }} × {{ $ta['sleep']['per_night_label'] }})</dt>
+                        <dt class="text-slate-500">Scheduled sleep remaining</dt>
                         <dd class="text-slate-400 font-digital">−{{ $ta['remaining']['sleep_hours'] }}h</dd>
                     </div>
                     <div class="flex justify-between gap-2 border-t border-slate-800/60 pt-1.5">
@@ -274,17 +274,18 @@
              readable at a glance. --}}
         @php
             $ab = $activityBreakdown;
-            $abTotal = max(0.001, $ab['productive_hours'] + $ab['wasted_hours'] + $ab['unlogged_awake_hours']);
+            $abTotal = max(0.001, $ab['productive_hours'] + $ab['wasted_hours'] + $ab['neutral_hours'] + $ab['unlogged_awake_hours']);
             $abProdPct = (int) round(($ab['productive_hours'] / $abTotal) * 100);
             $abWastedPct = (int) round(($ab['wasted_hours'] / $abTotal) * 100);
-            $abUnloggedPct = max(0, 100 - $abProdPct - $abWastedPct);
+            $abNeutralPct = (int) round(($ab['neutral_hours'] / $abTotal) * 100);
+            $abUnloggedPct = max(0, 100 - $abProdPct - $abWastedPct - $abNeutralPct);
         @endphp
         <div class="mt-5 rounded-xl border border-slate-800/60 bg-slate-900/40 p-4">
             <div class="flex items-baseline justify-between gap-2 mb-3">
                 <h3 class="text-xs uppercase tracking-[0.2em] text-slate-400">Activity breakdown</h3>
                 <span class="text-[0.65rem] uppercase tracking-wider text-slate-500">awake elapsed: {{ $ta['elapsed']['awake_hours'] }}h</span>
             </div>
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
                 <div class="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3">
                     <div class="text-[0.6rem] uppercase tracking-wider text-emerald-300">Productive</div>
                     <div class="mt-1 font-digital text-lg text-emerald-200">{{ $ab['productive_hours'] }}h</div>
@@ -294,6 +295,11 @@
                     <div class="text-[0.6rem] uppercase tracking-wider text-rose-300">Wasted</div>
                     <div class="mt-1 font-digital text-lg text-rose-200">{{ $ab['wasted_hours'] }}h</div>
                     <div class="text-[0.6rem] text-slate-500 mt-0.5">attributed but flagged wasted</div>
+                </div>
+                <div class="rounded-lg border border-slate-500/30 bg-slate-500/5 p-3">
+                    <div class="text-[0.6rem] uppercase tracking-wider text-slate-300">Neutral</div>
+                    <div class="mt-1 font-digital text-lg text-slate-200">{{ $ab['neutral_hours'] }}h</div>
+                    <div class="text-[0.6rem] text-slate-500 mt-0.5">attributed, score-neutral</div>
                 </div>
                 <div class="rounded-lg border border-yellow-500/30 bg-yellow-500/5 p-3">
                     <div class="text-[0.6rem] uppercase tracking-wider text-yellow-300">Unlogged (awake)</div>
@@ -312,11 +318,13 @@
                 <div class="h-2 rounded-full bg-slate-800/80 overflow-hidden flex">
                     <div class="h-full bg-emerald-400 transition-[width] duration-500" style="width: {{ $abProdPct }}%"></div>
                     <div class="h-full bg-rose-400 transition-[width] duration-500" style="width: {{ $abWastedPct }}%"></div>
+                    <div class="h-full bg-slate-400 transition-[width] duration-500" style="width: {{ $abNeutralPct }}%"></div>
                     <div class="h-full bg-yellow-400 transition-[width] duration-500" style="width: {{ $abUnloggedPct }}%"></div>
                 </div>
                 <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[0.6rem] uppercase tracking-wider text-slate-500">
                     <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-emerald-400"></span> Productive {{ $abProdPct }}%</span>
                     <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-rose-400"></span> Wasted {{ $abWastedPct }}%</span>
+                    <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-slate-400"></span> Neutral {{ $abNeutralPct }}%</span>
                     <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-yellow-400"></span> Unlogged {{ $abUnloggedPct }}%</span>
                 </div>
             </div>
@@ -327,8 +335,8 @@
             bedtime <span class="text-slate-300">{{ $ta['sleep']['end_of_day'] }}</span>
             → wake <span class="text-slate-300">{{ $ta['sleep']['wake_time'] }}</span>
             = <span class="text-slate-300">{{ $ta['sleep']['per_night_label'] }}/night</span>.
-            Nights are counted by how many bedtimes fall inside each window
-            ({{ $ta['elapsed']['nights'] }} elapsed, {{ $ta['remaining']['nights'] }} remaining).
+            Sleep is calculated from the scheduled sleep overlap in each window
+            ({{ $ta['elapsed']['nights'] }} overlapping windows elapsed, {{ $ta['remaining']['nights'] }} remaining).
             <strong class="text-slate-400">Awake</strong> = wall-clock − sleep.
             <strong class="text-slate-400">Unlogged on this goal</strong> = awake elapsed − hours attributed to this goal.
             <span class="block mt-1">

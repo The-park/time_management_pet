@@ -163,21 +163,25 @@ class GoalController extends Controller
         // whichever side it lands on.
         $productiveAttributedHours = 0.0;
         $wastedAttributedHours = 0.0;
+        $neutralAttributedHours = 0.0;
         foreach ($attribution['blocks'] as $entry) {
             $hours = (float) ($entry['attributed_hours'] ?? 0);
             $cat = $entry['block']->category ?? 'productive';
             if ($cat === 'wasted') {
                 $wastedAttributedHours += $hours;
+            } elseif ($cat === 'neutral') {
+                $neutralAttributedHours += $hours;
             } else {
                 $productiveAttributedHours += $hours;
             }
         }
         $unloggedAwakeHours = max(0.0, ((float) $timeAnalysis['elapsed']['awake_hours'])
-            - $productiveAttributedHours - $wastedAttributedHours);
+            - $productiveAttributedHours - $wastedAttributedHours - $neutralAttributedHours);
 
         $activityBreakdown = [
             'productive_hours' => round($productiveAttributedHours, 2),
             'wasted_hours' => round($wastedAttributedHours, 2),
+            'neutral_hours' => round($neutralAttributedHours, 2),
             'unlogged_awake_hours' => round($unloggedAwakeHours, 2),
             'non_productive_hours' => round($wastedAttributedHours + $unloggedAwakeHours, 2),
         ];

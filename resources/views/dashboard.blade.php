@@ -20,6 +20,24 @@
         $sleepH = intdiv($sleepMins, 60);
         $sleepM = $sleepMins % 60;
         $sleepLabel = $sleepM === 0 ? "{$sleepH}h" : "{$sleepH}h {$sleepM}m";
+        $scheduledSleepOverlapMs = function ($rangeStart, $rangeEnd) use ($endMinsRef, $wakeMinsRef) {
+            if ($rangeEnd->lte($rangeStart)) return 0;
+            $cursor = $rangeStart->copy()->startOfDay()->subDay();
+            $lastDay = $rangeEnd->copy()->startOfDay();
+            $totalMs = 0;
+            while ($cursor->lte($lastDay)) {
+                $sleepStart = $cursor->copy()->setTime(intdiv($endMinsRef, 60), $endMinsRef % 60);
+                $sleepEnd = $cursor->copy()->setTime(intdiv($wakeMinsRef, 60), $wakeMinsRef % 60);
+                if ($sleepEnd->lte($sleepStart)) $sleepEnd->addDay();
+                $overlapStart = $sleepStart->gt($rangeStart) ? $sleepStart : $rangeStart;
+                $overlapEnd = $sleepEnd->lt($rangeEnd) ? $sleepEnd : $rangeEnd;
+                if ($overlapEnd->gt($overlapStart)) {
+                    $totalMs += (int) $overlapStart->diffInRealMilliseconds($overlapEnd, false);
+                }
+                $cursor->addDay();
+            }
+            return $totalMs;
+        };
         $signupAt = $user?->created_at?->copy()->setTimezone($timezone);
         $signupTimestamp = $signupAt?->toIso8601String();
         $signupDateLabel = $signupAt?->format('M j, Y');
@@ -30,6 +48,7 @@
         $serverLast7 = collect();
         if ($user) {
             $today = \Carbon\Carbon::today($timezone);
+            $nowForTiles = \Carbon\Carbon::now($timezone);
             $signupDay = $signupAt ? $signupAt->copy()->startOfDay() : null;
             $start = $today->copy()->subDays(6);
             $blocksByDate = \App\Models\TimeBlock::query()
@@ -48,6 +67,17 @@
                     ->whereNotIn('category', ['wasted', 'neutral'])
                     ->sum('duration_seconds');
                 $wastedSec = (int) $blocksForDay->where('category', 'wasted')->sum('duration_seconds');
+                $neutralSec = (int) $blocksForDay->where('category', 'neutral')->sum('duration_seconds');
+                $dayStart = $d->copy()->startOfDay();
+                $dayEnd = $d->copy()->endOfDay();
+                $effectiveDayStart = ($signupAt && $signupAt->gt($dayStart) && $signupAt->isSameDay($d))
+                    ? $signupAt
+                    : $dayStart;
+                $effectiveDayEnd = $d->isSameDay($today) ? $nowForTiles : $dayEnd;
+                $elapsedDayMs = max(0, $effectiveDayStart->diffInRealMilliseconds($effectiveDayEnd, false));
+                $sleepDayMs = $scheduledSleepOverlapMs($effectiveDayStart, $effectiveDayEnd);
+                $awakeDayMs = max(0, $elapsedDayMs - $sleepDayMs);
+                $unloggedDayMs = max(0, $awakeDayMs - (($productiveSec + $wastedSec + $neutralSec) * 1000));
                 $serverLast7->push([
                     'date' => $key,
                     'day_short' => $d->format('D'),
@@ -56,6 +86,8 @@
                     'is_pre_signup' => $signupDay && $d->lt($signupDay),
                     'productive_ms' => $productiveSec * 1000,
                     'wasted_ms' => $wastedSec * 1000,
+                    'neutral_ms' => $neutralSec * 1000,
+                    'unlogged_ms' => $unloggedDayMs,
                 ]);
             }
         }
@@ -94,6 +126,29 @@
                     'end' => $nowDt->copy()->startOfYear()->addYear(),
                 ],
             ];
+            $scheduledSleepMsInRange = function ($rangeStart, $rangeEnd) use ($endMinsRef, $wakeMinsRef) {
+                if ($rangeEnd->lte($rangeStart)) return 0;
+
+                // Start one day before the range so sleep already in
+                // progress at midnight is counted instead of becoming
+                // false "awake / unlogged" time.
+                $cursor = $rangeStart->copy()->startOfDay()->subDay();
+                $lastDay = $rangeEnd->copy()->startOfDay();
+                $totalMs = 0;
+                while ($cursor->lte($lastDay)) {
+                    $sleepStart = $cursor->copy()->setTime(intdiv($endMinsRef, 60), $endMinsRef % 60);
+                    $sleepEnd = $cursor->copy()->setTime(intdiv($wakeMinsRef, 60), $wakeMinsRef % 60);
+                    if ($sleepEnd->lte($sleepStart)) $sleepEnd->addDay();
+
+                    $overlapStart = $sleepStart->gt($rangeStart) ? $sleepStart : $rangeStart;
+                    $overlapEnd = $sleepEnd->lt($rangeEnd) ? $sleepEnd : $rangeEnd;
+                    if ($overlapEnd->gt($overlapStart)) {
+                        $totalMs += (int) $overlapStart->diffInRealMilliseconds($overlapEnd, false);
+                    }
+                    $cursor->addDay();
+                }
+                return $totalMs;
+            };
 
             // Pull all blocks in the largest range (year) once, reuse for month.
             $yearStart = $rangesPhp['year']['start'];
@@ -119,22 +174,11 @@
                     ->whereNotIn('category', ['wasted', 'neutral'])
                     ->sum('duration_seconds') * 1000);
                 $wastedMs = (int) ($blocksInRange->where('category', 'wasted')->sum('duration_seconds') * 1000);
+                $neutralMs = (int) ($blocksInRange->where('category', 'neutral')->sum('duration_seconds') * 1000);
 
-                // Sleep math (mirrors JS): one bedtime per calendar day in elapsed window.
-                $endMins = $endH * 60 + $endM;
-                $sleepNights = 0;
-                if ($passedMs > 0) {
-                    $cursor = $effectiveStart->copy()->startOfDay();
-                    $lastDay = $nowDt->copy()->startOfDay();
-                    while ($cursor->lte($lastDay)) {
-                        $bedtime = $cursor->copy()->setTime(intdiv($endMins, 60), $endMins % 60);
-                        if ($bedtime->gte($effectiveStart) && $bedtime->lte($nowDt)) $sleepNights++;
-                        $cursor->addDay();
-                    }
-                }
-                $sleepElapsedMs = $sleepNights * $sleepMins * 60 * 1000;
+                $sleepElapsedMs = $scheduledSleepMsInRange($effectiveStart, $nowDt);
                 $awakeElapsedMs = max(0, $passedMs - $sleepElapsedMs);
-                $unloggedAwakeMs = max(0, $awakeElapsedMs - $productiveMs - $wastedMs);
+                $unloggedAwakeMs = max(0, $awakeElapsedMs - $productiveMs - $wastedMs - $neutralMs);
                 // Efficiency = productive ÷ (productive + wasted + unlogged).
                 // Wasted AND unlogged time both count against the user, so the
                 // only path to 100% is logging productive blocks across the
@@ -149,7 +193,8 @@
                 $awakeForBar = max(1, $awakeElapsedMs);
                 $prodPct = (int) round(($productiveMs / $awakeForBar) * 100);
                 $wastedBarPct = (int) round(($wastedMs / $awakeForBar) * 100);
-                $unloggedBarPct = max(0, 100 - $prodPct - $wastedBarPct);
+                $neutralBarPct = (int) round(($neutralMs / $awakeForBar) * 100);
+                $unloggedBarPct = max(0, 100 - $prodPct - $wastedBarPct - $neutralBarPct);
 
                 // Joined-mid-period detection. When the user signed up
                 // *after* this period started, we display a callout so it's
@@ -185,8 +230,8 @@
                     'total_ms' => (int) $totalMs,
                     'productive_ms' => $productiveMs,
                     'wasted_ms' => $wastedMs,
+                    'neutral_ms' => $neutralMs,
                     'sleep_ms' => (int) $sleepElapsedMs,
-                    'sleep_nights' => $sleepNights,
                     'sleep_per_night_ms' => (int) ($sleepMins * 60 * 1000),
                     'awake_ms' => (int) $awakeElapsedMs,
                     'unlogged_ms' => (int) $unloggedAwakeMs,
@@ -194,6 +239,7 @@
                     'progress_pct' => round($progressPct, 2),
                     'bar_productive_pct' => $prodPct,
                     'bar_wasted_pct' => $wastedBarPct,
+                    'bar_neutral_pct' => $neutralBarPct,
                     'bar_unlogged_pct' => $unloggedBarPct,
                     'range_label' => $effectiveStart->format('M j').' – '.$endDt->copy()->subDay()->format('M j'),
                     'signup_clamped' => $signupClampedHere,
@@ -577,9 +623,9 @@
                 <div class="text-[0.65rem] uppercase tracking-wider text-slate-500 mb-1.5">The week</div>
                 <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
                     <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
-                        <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Total hours</div>
+                        <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Elapsed hours</div>
                         <div class="mt-1 font-digital text-lg text-slate-100" data-period-total>—</div>
-                        <div class="text-[0.65rem] text-slate-500 mt-0.5">since signup, capped at week</div>
+                        <div class="text-[0.65rem] text-slate-500 mt-0.5">since this week began</div>
                     </div>
                     <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
                         <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Sleep</div>
@@ -599,10 +645,10 @@
                 </div>
             </div>
 
-            {{-- Activity row: productive, wasted, unlogged, efficiency --}}
+            {{-- Activity row: productive, wasted, neutral, unlogged, efficiency --}}
             <div class="mt-4">
                 <div class="text-[0.65rem] uppercase tracking-wider text-slate-500 mb-1.5">How you spent it</div>
-                <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <div class="grid grid-cols-2 lg:grid-cols-5 gap-3">
                     <div class="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">
                         <div class="text-[0.6rem] uppercase tracking-wider text-emerald-300">Productive</div>
                         <div class="mt-1 font-digital text-lg text-emerald-200" data-period-productive>—</div>
@@ -610,6 +656,11 @@
                     <div class="rounded-xl border border-rose-500/30 bg-rose-500/5 p-3">
                         <div class="text-[0.6rem] uppercase tracking-wider text-rose-300">Wasted</div>
                         <div class="mt-1 font-digital text-lg text-rose-200" data-period-wasted>—</div>
+                    </div>
+                    <div class="rounded-xl border border-slate-500/30 bg-slate-500/5 p-3">
+                        <div class="text-[0.6rem] uppercase tracking-wider text-slate-300">Neutral</div>
+                        <div class="mt-1 font-digital text-lg text-slate-200" data-period-neutral>—</div>
+                        <div class="text-[0.6rem] text-slate-500 mt-0.5">logged, score-neutral</div>
                     </div>
                     <div class="rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-3">
                         <div class="text-[0.6rem] uppercase tracking-wider text-yellow-300">Unlogged (awake)</div>
@@ -639,11 +690,13 @@
                 <div class="h-2 rounded-full bg-slate-800/80 overflow-hidden flex">
                     <div class="h-full bg-emerald-400 transition-[width] duration-500" data-period-bar-productive style="width: 0%"></div>
                     <div class="h-full bg-rose-400 transition-[width] duration-500" data-period-bar-wasted style="width: 0%"></div>
+                    <div class="h-full bg-slate-400 transition-[width] duration-500" data-period-bar-neutral style="width: 0%"></div>
                     <div class="h-full bg-yellow-400 transition-[width] duration-500" data-period-bar-unlogged style="width: 0%"></div>
                 </div>
                 <div class="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[0.65rem] uppercase tracking-wider text-slate-500">
                     <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-emerald-400"></span> Productive</span>
                     <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-rose-400"></span> Wasted</span>
+                    <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-slate-400"></span> Neutral</span>
                     <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-yellow-400"></span> Unlogged</span>
                 </div>
             </div>
@@ -681,6 +734,12 @@
                                 @if ($tile['wasted_ms'] > 0)
                                     <div class="text-[0.6rem] text-rose-400/80 mt-0.5">{{ $fmtDuration($tile['wasted_ms']) }} wasted</div>
                                 @endif
+                                @if ($tile['neutral_ms'] > 0)
+                                    <div class="text-[0.6rem] text-slate-400 mt-0.5 break-words">{{ $fmtDuration($tile['neutral_ms']) }} neutral</div>
+                                @endif
+                                @if ($tile['unlogged_ms'] > 0)
+                                    <div class="text-[0.6rem] text-yellow-300/80 mt-0.5 break-words">{{ $fmtDuration($tile['unlogged_ms']) }} unlogged</div>
+                                @endif
                             </a>
                         @else
                             <div class="{{ $cls }}"
@@ -698,6 +757,12 @@
                                 </div>
                                 @if (! $tile['is_pre_signup'] && $tile['wasted_ms'] > 0)
                                     <div class="text-[0.6rem] text-rose-400/80 mt-0.5">{{ $fmtDuration($tile['wasted_ms']) }} wasted</div>
+                                @endif
+                                @if (! $tile['is_pre_signup'] && $tile['neutral_ms'] > 0)
+                                    <div class="text-[0.6rem] text-slate-400 mt-0.5 break-words">{{ $fmtDuration($tile['neutral_ms']) }} neutral</div>
+                                @endif
+                                @if (! $tile['is_pre_signup'] && $tile['unlogged_ms'] > 0)
+                                    <div class="text-[0.6rem] text-yellow-300/80 mt-0.5 break-words">{{ $fmtDuration($tile['unlogged_ms']) }} unlogged</div>
                                 @endif
                             </div>
                         @endif
@@ -767,14 +832,14 @@
                 <div class="text-[0.65rem] uppercase tracking-wider text-slate-500 mb-1.5">The month</div>
                 <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
                     <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
-                        <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Total hours</div>
-                        <div class="mt-1 font-digital text-lg text-slate-100" data-period-total>{{ $monthStats ? $fmtHours($monthStats['total_ms']) : '—' }}</div>
-                        <div class="text-[0.65rem] text-slate-500 mt-0.5">since signup, capped at month</div>
+                        <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Elapsed hours</div>
+                        <div class="mt-1 font-digital text-lg text-slate-100" data-period-total>{{ $monthStats ? $fmtHours($monthStats['passed_ms']) : '—' }}</div>
+                        <div class="text-[0.65rem] text-slate-500 mt-0.5">since this month began</div>
                     </div>
                     <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
                         <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Sleep</div>
                         <div class="mt-1 font-digital text-lg text-slate-300" data-period-sleep>{{ $monthStats ? $fmtHours($monthStats['sleep_ms']) : '—' }}</div>
-                        <div class="text-[0.65rem] text-slate-500 mt-0.5" data-period-sleep-note>{{ $monthStats ? $monthStats['sleep_nights'].' '.($monthStats['sleep_nights'] === 1 ? 'night' : 'nights').' × '.$fmtHours($monthStats['sleep_per_night_ms']) : '—' }}</div>
+                        <div class="text-[0.65rem] text-slate-500 mt-0.5" data-period-sleep-note>{{ $monthStats ? 'scheduled sleep elapsed' : '—' }}</div>
                     </div>
                     <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
                         <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Awake hours</div>
@@ -789,10 +854,10 @@
                 </div>
             </div>
 
-            {{-- Activity row: productive, wasted, unlogged, efficiency --}}
+            {{-- Activity row: productive, wasted, neutral, unlogged, efficiency --}}
             <div class="mt-4">
                 <div class="text-[0.65rem] uppercase tracking-wider text-slate-500 mb-1.5">How you spent it</div>
-                <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <div class="grid grid-cols-2 lg:grid-cols-5 gap-3">
                     <div class="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">
                         <div class="text-[0.6rem] uppercase tracking-wider text-emerald-300">Productive</div>
                         <div class="mt-1 font-digital text-lg text-emerald-200" data-period-productive>{{ $monthStats && $monthStats['productive_ms'] > 0 ? $fmtHours($monthStats['productive_ms']) : '—' }}</div>
@@ -800,6 +865,11 @@
                     <div class="rounded-xl border border-rose-500/30 bg-rose-500/5 p-3">
                         <div class="text-[0.6rem] uppercase tracking-wider text-rose-300">Wasted</div>
                         <div class="mt-1 font-digital text-lg text-rose-200" data-period-wasted>{{ $monthStats && $monthStats['wasted_ms'] > 0 ? $fmtHours($monthStats['wasted_ms']) : '—' }}</div>
+                    </div>
+                    <div class="rounded-xl border border-slate-500/30 bg-slate-500/5 p-3">
+                        <div class="text-[0.6rem] uppercase tracking-wider text-slate-300">Neutral</div>
+                        <div class="mt-1 font-digital text-lg text-slate-200" data-period-neutral>{{ $monthStats && $monthStats['neutral_ms'] > 0 ? $fmtHours($monthStats['neutral_ms']) : '—' }}</div>
+                        <div class="text-[0.6rem] text-slate-500 mt-0.5">logged, score-neutral</div>
                     </div>
                     <div class="rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-3">
                         <div class="text-[0.6rem] uppercase tracking-wider text-yellow-300">Unlogged (awake)</div>
@@ -832,11 +902,13 @@
                 <div class="h-2 rounded-full bg-slate-800/80 overflow-hidden flex">
                     <div class="h-full bg-emerald-400 transition-[width] duration-500" data-period-bar-productive style="width: {{ $monthStats['bar_productive_pct'] ?? 0 }}%"></div>
                     <div class="h-full bg-rose-400 transition-[width] duration-500" data-period-bar-wasted style="width: {{ $monthStats['bar_wasted_pct'] ?? 0 }}%"></div>
+                    <div class="h-full bg-slate-400 transition-[width] duration-500" data-period-bar-neutral style="width: {{ $monthStats['bar_neutral_pct'] ?? 0 }}%"></div>
                     <div class="h-full bg-yellow-400 transition-[width] duration-500" data-period-bar-unlogged style="width: {{ $monthStats['bar_unlogged_pct'] ?? 0 }}%"></div>
                 </div>
                 <div class="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[0.65rem] uppercase tracking-wider text-slate-500">
                     <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-emerald-400"></span> Productive</span>
                     <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-rose-400"></span> Wasted</span>
+                    <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-slate-400"></span> Neutral</span>
                     <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-yellow-400"></span> Unlogged</span>
                 </div>
             </div>
@@ -881,14 +953,14 @@
                 <div class="text-[0.65rem] uppercase tracking-wider text-slate-500 mb-1.5">The year</div>
                 <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
                     <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
-                        <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Total hours</div>
-                        <div class="mt-1 font-digital text-lg text-slate-100" data-period-total>{{ $yearStats ? $fmtHours($yearStats['total_ms']) : '—' }}</div>
-                        <div class="text-[0.65rem] text-slate-500 mt-0.5">since signup, capped at year</div>
+                        <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Elapsed hours</div>
+                        <div class="mt-1 font-digital text-lg text-slate-100" data-period-total>{{ $yearStats ? $fmtHours($yearStats['passed_ms']) : '—' }}</div>
+                        <div class="text-[0.65rem] text-slate-500 mt-0.5">since this year began</div>
                     </div>
                     <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
                         <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Sleep</div>
                         <div class="mt-1 font-digital text-lg text-slate-300" data-period-sleep>{{ $yearStats ? $fmtHours($yearStats['sleep_ms']) : '—' }}</div>
-                        <div class="text-[0.65rem] text-slate-500 mt-0.5" data-period-sleep-note>{{ $yearStats ? $yearStats['sleep_nights'].' '.($yearStats['sleep_nights'] === 1 ? 'night' : 'nights').' × '.$fmtHours($yearStats['sleep_per_night_ms']) : '—' }}</div>
+                        <div class="text-[0.65rem] text-slate-500 mt-0.5" data-period-sleep-note>{{ $yearStats ? 'scheduled sleep elapsed' : '—' }}</div>
                     </div>
                     <div class="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3">
                         <div class="text-[0.6rem] uppercase tracking-wider text-slate-500">Awake hours</div>
@@ -903,10 +975,10 @@
                 </div>
             </div>
 
-            {{-- Activity row: productive, wasted, unlogged, efficiency --}}
+            {{-- Activity row: productive, wasted, neutral, unlogged, efficiency --}}
             <div class="mt-4">
                 <div class="text-[0.65rem] uppercase tracking-wider text-slate-500 mb-1.5">How you spent it</div>
-                <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <div class="grid grid-cols-2 lg:grid-cols-5 gap-3">
                     <div class="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">
                         <div class="text-[0.6rem] uppercase tracking-wider text-emerald-300">Productive</div>
                         <div class="mt-1 font-digital text-lg text-emerald-200" data-period-productive>{{ $yearStats && $yearStats['productive_ms'] > 0 ? $fmtHours($yearStats['productive_ms']) : '—' }}</div>
@@ -914,6 +986,11 @@
                     <div class="rounded-xl border border-rose-500/30 bg-rose-500/5 p-3">
                         <div class="text-[0.6rem] uppercase tracking-wider text-rose-300">Wasted</div>
                         <div class="mt-1 font-digital text-lg text-rose-200" data-period-wasted>{{ $yearStats && $yearStats['wasted_ms'] > 0 ? $fmtHours($yearStats['wasted_ms']) : '—' }}</div>
+                    </div>
+                    <div class="rounded-xl border border-slate-500/30 bg-slate-500/5 p-3">
+                        <div class="text-[0.6rem] uppercase tracking-wider text-slate-300">Neutral</div>
+                        <div class="mt-1 font-digital text-lg text-slate-200" data-period-neutral>{{ $yearStats && $yearStats['neutral_ms'] > 0 ? $fmtHours($yearStats['neutral_ms']) : '—' }}</div>
+                        <div class="text-[0.6rem] text-slate-500 mt-0.5">logged, score-neutral</div>
                     </div>
                     <div class="rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-3">
                         <div class="text-[0.6rem] uppercase tracking-wider text-yellow-300">Unlogged (awake)</div>
@@ -946,11 +1023,13 @@
                 <div class="h-2 rounded-full bg-slate-800/80 overflow-hidden flex">
                     <div class="h-full bg-emerald-400 transition-[width] duration-500" data-period-bar-productive style="width: {{ $yearStats['bar_productive_pct'] ?? 0 }}%"></div>
                     <div class="h-full bg-rose-400 transition-[width] duration-500" data-period-bar-wasted style="width: {{ $yearStats['bar_wasted_pct'] ?? 0 }}%"></div>
+                    <div class="h-full bg-slate-400 transition-[width] duration-500" data-period-bar-neutral style="width: {{ $yearStats['bar_neutral_pct'] ?? 0 }}%"></div>
                     <div class="h-full bg-yellow-400 transition-[width] duration-500" data-period-bar-unlogged style="width: {{ $yearStats['bar_unlogged_pct'] ?? 0 }}%"></div>
                 </div>
                 <div class="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[0.65rem] uppercase tracking-wider text-slate-500">
                     <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-emerald-400"></span> Productive</span>
                     <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-rose-400"></span> Wasted</span>
+                    <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-slate-400"></span> Neutral</span>
                     <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-yellow-400"></span> Unlogged</span>
                 </div>
             </div>
@@ -5951,6 +6030,29 @@
                 // v1 is auto-migrated to a single-element v2 array on first
                 // load. v1 keys are NOT deleted (so any other view still
                 // showing them keeps working) — v2 is the source of truth.
+                const scheduledSleepMsInRange = (rangeStart, rangeEnd, wakeMins, endMins) => {
+                    if (rangeEnd.getTime() <= rangeStart.getTime()) return 0;
+
+                    // Include the previous bedtime so a period beginning at
+                    // midnight does not misclassify sleeping hours as awake.
+                    const cursor = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), rangeStart.getDate() - 1);
+                    const lastDay = new Date(rangeEnd.getFullYear(), rangeEnd.getMonth(), rangeEnd.getDate());
+                    let totalMs = 0;
+                    while (cursor.getTime() <= lastDay.getTime()) {
+                        const sleepStart = new Date(cursor);
+                        sleepStart.setHours(Math.floor(endMins / 60), endMins % 60, 0, 0);
+                        const sleepEnd = new Date(cursor);
+                        sleepEnd.setHours(Math.floor(wakeMins / 60), wakeMins % 60, 0, 0);
+                        if (sleepEnd.getTime() <= sleepStart.getTime()) sleepEnd.setDate(sleepEnd.getDate() + 1);
+
+                        const overlapStart = Math.max(rangeStart.getTime(), sleepStart.getTime());
+                        const overlapEnd = Math.min(rangeEnd.getTime(), sleepEnd.getTime());
+                        if (overlapEnd > overlapStart) totalMs += overlapEnd - overlapStart;
+                        cursor.setDate(cursor.getDate() + 1);
+                    }
+                    return totalMs;
+                };
+
                 const GOALS_V1_PREFIX = GOAL_KEY_PREFIX;            // 'chrono.todayGoal.'
                 const GOALS_V2_PREFIX = 'chrono.todayGoals.v2.';
                 const goalsV1Key = (date) => `${GOALS_V1_PREFIX}${date}`;
@@ -6553,6 +6655,9 @@
                     const wastedMs = completedInRange
                         .filter((b) => b.category === 'wasted')
                         .reduce((s, b) => s + (b.durationMs || 0), 0);
+                    const neutralMs = completedInRange
+                        .filter((b) => b.category === 'neutral')
+                        .reduce((s, b) => s + (b.durationMs || 0), 0);
                     const progressPct = totalMs > 0
                         ? Math.min(100, (passedMs / totalMs) * 100)
                         : 0;
@@ -6562,29 +6667,9 @@
                     // window, multiply by sleep_per_night.
                     const wakeMins = hhmmToMins(wakeTime);
                     const endMins = hhmmToMins(endTime);
-                    const sleepPerNightMin = wakeMins > endMins
-                        ? wakeMins - endMins
-                        : (24 * 60) - endMins + wakeMins;
-
-                    let elapsedNights = 0;
-                    if (passedMs > 0) {
-                        const cursor = new Date(effectiveStart);
-                        cursor.setHours(0, 0, 0, 0);
-                        const lastDay = new Date(now);
-                        lastDay.setHours(0, 0, 0, 0);
-                        while (cursor.getTime() <= lastDay.getTime()) {
-                            const bedtime = new Date(cursor);
-                            bedtime.setHours(Math.floor(endMins / 60), endMins % 60, 0, 0);
-                            if (bedtime.getTime() >= effectiveStart.getTime() &&
-                                bedtime.getTime() <= now.getTime()) {
-                                elapsedNights++;
-                            }
-                            cursor.setDate(cursor.getDate() + 1);
-                        }
-                    }
-                    const sleepElapsedMs = elapsedNights * sleepPerNightMin * 60 * 1000;
+                    const sleepElapsedMs = scheduledSleepMsInRange(effectiveStart, now, wakeMins, endMins);
                     const awakeElapsedMs = Math.max(0, passedMs - sleepElapsedMs);
-                    const unloggedAwakeMs = Math.max(0, awakeElapsedMs - productiveMs - wastedMs);
+                    const unloggedAwakeMs = Math.max(0, awakeElapsedMs - productiveMs - wastedMs - neutralMs);
 
                     // Efficiency = productive ÷ (productive + wasted + unlogged).
                     // Wasted AND unlogged time both count against the user — the
@@ -6599,7 +6684,8 @@
                     const awakeForBar = Math.max(1, awakeElapsedMs);
                     const prodPct = Math.round((productiveMs / awakeForBar) * 100);
                     const wastedBarPct = Math.round((wastedMs / awakeForBar) * 100);
-                    const unloggedBarPct = Math.max(0, 100 - prodPct - wastedBarPct);
+                    const neutralBarPct = Math.round((neutralMs / awakeForBar) * 100);
+                    const unloggedBarPct = Math.max(0, 100 - prodPct - wastedBarPct - neutralBarPct);
 
                     const range = section.querySelector('[data-period-range]');
                     const totalEl = section.querySelector('[data-period-total]');
@@ -6610,22 +6696,23 @@
                     const left = section.querySelector('[data-period-left]');
                     const productive = section.querySelector('[data-period-productive]');
                     const wastedEl = section.querySelector('[data-period-wasted]');
+                    const neutralEl = section.querySelector('[data-period-neutral]');
                     const unloggedEl = section.querySelector('[data-period-unlogged]');
                     const nonProductiveEl = section.querySelector('[data-period-nonproductive]');
                     const ratioEl = section.querySelector('[data-period-ratio]');
                     const progressEl = section.querySelector('[data-period-progress]');
                     const barProductive = section.querySelector('[data-period-bar-productive]');
                     const barWasted = section.querySelector('[data-period-bar-wasted]');
+                    const barNeutral = section.querySelector('[data-period-bar-neutral]');
                     const barUnlogged = section.querySelector('[data-period-bar-unlogged]');
                     // Older-style fields (still exposed for month/year sections that
                     // haven't been redesigned yet).
                     const passed = section.querySelector('[data-period-passed]');
 
                     if (range) range.textContent = formatRange(effectiveStart, endDate);
-                    if (totalEl) totalEl.textContent = formatHours(totalMs);
+                    if (totalEl) totalEl.textContent = formatHours(passedMs);
                     if (sleepEl) sleepEl.textContent = formatHours(sleepElapsedMs);
-                    if (sleepNoteEl) sleepNoteEl.textContent =
-                        `${elapsedNights} ${elapsedNights === 1 ? 'night' : 'nights'} × ${formatHours(sleepPerNightMin * 60 * 1000)}`;
+                    if (sleepNoteEl) sleepNoteEl.textContent = 'scheduled sleep elapsed';
                     if (awakeEl) awakeEl.textContent = formatHours(awakeElapsedMs);
                     if (awakeLabelEl) awakeLabelEl.textContent = `${formatHours(awakeElapsedMs)} awake elapsed`;
                     if (passed) passed.textContent = formatHours(passedMs);
@@ -6633,6 +6720,7 @@
                     if (productive) productive.textContent = productiveMs > 0 ? formatHours(productiveMs) : '—';
                     if (wastedEl) wastedEl.textContent = wastedMs > 0 ? formatHours(wastedMs) : '—';
                     if (unloggedEl) unloggedEl.textContent = unloggedAwakeMs > 0 ? formatHours(unloggedAwakeMs) : '—';
+                    if (neutralEl) neutralEl.textContent = neutralMs > 0 ? formatHours(neutralMs) : '—';
                     if (nonProductiveEl) {
                         const np = wastedMs + unloggedAwakeMs;
                         nonProductiveEl.textContent = np > 0 ? formatHours(np) : '0h';
@@ -6641,6 +6729,7 @@
                     if (progressEl) progressEl.style.width = `${progressPct.toFixed(2)}%`;
                     if (barProductive) barProductive.style.width = `${prodPct}%`;
                     if (barWasted) barWasted.style.width = `${wastedBarPct}%`;
+                    if (barNeutral) barNeutral.style.width = `${neutralBarPct}%`;
                     if (barUnlogged) barUnlogged.style.width = `${unloggedBarPct}%`;
                     if (noteEl) {
                         // Legacy text note kept hidden — replaced by the
@@ -6726,10 +6815,23 @@
                         const wastedMs = blocks
                             .filter((b) => b.status === 'completed' && b.date === dateStr && b.category === 'wasted')
                             .reduce((s, b) => s + (b.durationMs || 0), 0);
+                        const neutralMs = blocks
+                            .filter((b) => b.status === 'completed' && b.date === dateStr && b.category === 'neutral')
+                            .reduce((s, b) => s + (b.durationMs || 0), 0);
 
                         const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
                         const isToday = dateStr === todayKey;
                         const isPreSignup = signupKey && dateStr < signupKey;
+                        const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+                        const dayEnd = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
+                        const effectiveDayStart = signupTs && localDateString(signupTs) === dateStr && signupTs > dayStart
+                            ? signupTs
+                            : dayStart;
+                        const effectiveDayEnd = isToday ? now : dayEnd;
+                        const elapsedDayMs = Math.max(0, effectiveDayEnd.getTime() - effectiveDayStart.getTime());
+                        const sleepDayMs = scheduledSleepMsInRange(effectiveDayStart, effectiveDayEnd, hhmmToMins(wakeTime), hhmmToMins(endTime));
+                        const awakeDayMs = Math.max(0, elapsedDayMs - sleepDayMs);
+                        const unloggedMs = Math.max(0, awakeDayMs - productiveMs - wastedMs - neutralMs);
 
                         let cls;
                         if (isPreSignup) {
@@ -6757,12 +6859,18 @@
                         const wastedLine = (!isPreSignup && wastedMs > 0)
                             ? `<div class="text-[0.6rem] text-rose-400/80 mt-0.5">${escapeHtml(formatDuration(wastedMs))} wasted</div>`
                             : '';
+                        const neutralLine = (!isPreSignup && neutralMs > 0)
+                            ? `<div class="text-[0.6rem] text-slate-400 mt-0.5">${escapeHtml(formatDuration(neutralMs))} neutral</div>`
+                            : '';
+                        const unloggedLine = (!isPreSignup && unloggedMs > 0)
+                            ? `<div class="text-[0.6rem] text-yellow-300/80 mt-0.5">${escapeHtml(formatDuration(unloggedMs))} unlogged</div>`
+                            : '';
 
                         const inner =
                             `<div class="text-[0.65rem] uppercase tracking-wider text-slate-400">${escapeHtml(dayName)}</div>` +
                             `<div class="text-[0.65rem] text-slate-500">${d.getDate()}</div>` +
                             `<div class="mt-1 text-sm">${valueHtml}</div>` +
-                            wastedLine;
+                            wastedLine + neutralLine + unloggedLine;
 
                         // Past, post-signup days are clickable links to the
                         // read-only day report. Today and pre-signup tiles

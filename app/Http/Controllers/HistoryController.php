@@ -31,9 +31,10 @@ class HistoryController extends Controller
             return redirect()->route('history.index')
                 ->with('toast', 'That date doesn\'t look right.');
         }
-        $today = CarbonImmutable::today();
-        $target = CarbonImmutable::parse($date)->startOfDay();
         $user = $request->user();
+        $timezone = $user->timezone ?: config('app.timezone', 'UTC');
+        $today = CarbonImmutable::today($timezone);
+        $target = CarbonImmutable::parse($date, $timezone)->startOfDay();
 
         $blocks = TimeBlock::query()
             ->where('user_id', $user->id)
@@ -76,19 +77,25 @@ class HistoryController extends Controller
         $sleepMs = $sleepPerNightMin * 60 * 1000;
         $awakeMs = max(0, (24 * 60 * 60 * 1000) - $sleepMs);
 
-        // For the *current* day we treat awake as elapsed-since-wake; for
-        // past days we use the full awake window.
+        // Current-day stats use only elapsed time. Sleep intervals that
+        // started before midnight are included, so pre-wake hours never
+        // become false "unlogged" time.
         $isCurrentDay = $target->isSameDay($today);
-        if ($isCurrentDay) {
-            $now = CarbonImmutable::now();
-            $wake = $target->setTimeFromTimeString($this->timeStr($user->wake_up_time, '07:00'));
-            $effectiveAwakeMs = $now->gt($wake)
-                ? max(0, $wake->diffInMilliseconds($now))
-                : 0;
-            $awakeForRatio = max(1, $effectiveAwakeMs);
-        } else {
-            $awakeForRatio = max(1, $awakeMs);
+        $isFuture = $target->gt($today);
+        $dayEnd = $target->addDay();
+        $now = CarbonImmutable::now($timezone);
+        $effectiveEnd = $isFuture
+            ? $target
+            : ($isCurrentDay && $now->lt($dayEnd) ? $now : $dayEnd);
+        $effectiveStart = $target;
+        $signupAt = $user->created_at?->copy()->setTimezone($timezone);
+        if ($isCurrentDay && $signupAt && $signupAt->gt($effectiveStart)) {
+            $effectiveStart = $signupAt;
         }
+        $elapsedMs = max(0, $effectiveStart->diffInMilliseconds($effectiveEnd, false));
+        $sleepElapsedMs = $this->scheduledSleepMsInRange($effectiveStart, $effectiveEnd, $user);
+        $awakeElapsedMs = max(0, $elapsedMs - $sleepElapsedMs);
+        $awakeForRatio = max(1, ($isCurrentDay || $isFuture) ? $awakeElapsedMs : $awakeMs);
 
         $loggedMs = $productiveMs + $wastedMs + $neutralMs;
         $unloggedMs = max(0, $awakeForRatio - $loggedMs);
@@ -105,15 +112,17 @@ class HistoryController extends Controller
             'date' => $target,
             'dateLabel' => $target->format('l, F j, Y'),
             'isCurrentDay' => $isCurrentDay,
-            'isFuture' => $target->gt($today),
+            'isFuture' => $isFuture,
             'rows' => $rows,
             'productiveMs' => $productiveMs,
             'wastedMs' => $wastedMs,
             'neutralMs' => $neutralMs,
             'loggedMs' => $loggedMs,
             'unloggedMs' => $unloggedMs,
-            'sleepMs' => $sleepMs,
-            'awakeMs' => $awakeMs,
+            'sleepMs' => $isCurrentDay || $isFuture ? $sleepElapsedMs : $sleepMs,
+            'awakeMs' => $isCurrentDay || $isFuture ? $awakeElapsedMs : $awakeMs,
+            'awakeLabel' => $isCurrentDay ? 'awake elapsed' : ($isFuture ? 'not started yet' : '24h - sleep'),
+            'sleepLabel' => $isCurrentDay ? 'scheduled sleep elapsed' : $sleepWindowLabel,
             'efficiencyPct' => $efficiencyPct,
             'sleepPerNightLabel' => $this->formatHourMinute($sleepPerNightMin),
             'sleepWindowLabel' => $endOfDayLabel.' → '.$wakeLabel,
@@ -133,6 +142,34 @@ class HistoryController extends Controller
     private function isNeutral(TimeBlock $b): bool
     {
         return $b->category === 'neutral';
+    }
+
+    private function scheduledSleepMsInRange(CarbonImmutable $rangeStart, CarbonImmutable $rangeEnd, $user): int
+    {
+        if ($rangeEnd->lte($rangeStart)) return 0;
+
+        $end = $this->timeStr($user->end_of_day_time ?? null, '22:00');
+        $wake = $this->timeStr($user->wake_up_time ?? null, '07:00');
+        [$endH, $endM] = array_map('intval', explode(':', $end));
+        [$wakeH, $wakeM] = array_map('intval', explode(':', $wake));
+
+        $cursor = $rangeStart->startOfDay()->subDay();
+        $lastDay = $rangeEnd->startOfDay();
+        $totalMs = 0;
+        while ($cursor->lte($lastDay)) {
+            $sleepStart = $cursor->setTime($endH, $endM);
+            $sleepEnd = $cursor->setTime($wakeH, $wakeM);
+            if ($sleepEnd->lte($sleepStart)) $sleepEnd = $sleepEnd->addDay();
+
+            $overlapStart = $sleepStart->gt($rangeStart) ? $sleepStart : $rangeStart;
+            $overlapEnd = $sleepEnd->lt($rangeEnd) ? $sleepEnd : $rangeEnd;
+            if ($overlapEnd->gt($overlapStart)) {
+                $totalMs += (int) $overlapStart->diffInMilliseconds($overlapEnd);
+            }
+            $cursor = $cursor->addDay();
+        }
+
+        return $totalMs;
     }
 
     private function scoreReason(string $reason): int

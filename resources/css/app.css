@@ -122,6 +122,78 @@
     }
 
     /* Respect users who prefer reduced motion — silence the bob, pulse and slides. */
+    /* Goal report: a denser operational layout with its own visual grammar. */
+    .goal-report { --goal-accent: var(--chrono-blue); }
+    .goal-command-deck {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 18rem;
+        overflow: hidden;
+        border: 1px solid #263449;
+        border-radius: 8px;
+        background: #0d1420;
+        box-shadow: 0 18px 34px -28px rgba(0, 0, 0, 0.95);
+    }
+    .goal-command-main { min-width: 0; padding: 1.5rem; border-left: 4px solid var(--goal-accent); }
+    .goal-outlook-rail {
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 1.25rem;
+        padding: 1.5rem;
+        background: #121d2d;
+        border-left: 1px solid #263449;
+    }
+    .goal-rail-progress, .goal-runway-track, .goal-ledger-bar { overflow: hidden; background: #233147; }
+    .goal-rail-progress { height: 5px; border-radius: 999px; }
+    .goal-rail-progress > span { display: block; height: 100%; border-radius: inherit; background: var(--goal-accent); }
+    .goal-runway {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 19rem;
+        overflow: hidden;
+        border: 1px solid #263449;
+        border-radius: 8px;
+        background: #101925;
+    }
+    .goal-runway-main { padding: 1.5rem; }
+    .goal-runway-track-wrap { margin-top: 1.75rem; }
+    .goal-runway-track { position: relative; height: 10px; border-radius: 999px; }
+    .goal-runway-track > span { display: block; height: 100%; border-radius: inherit; background: var(--goal-accent); }
+    .goal-runway-marker { position: absolute; top: -5px; height: 20px; width: 2px; background: #dbeafe; box-shadow: 0 0 0 3px #101925; }
+    .goal-runway-marker > small { position: absolute; top: 1.6rem; white-space: nowrap; font-size: 0.7rem; color: #94a3b8; }
+    .goal-runway-marker.is-start > small { left: 0; }
+    .goal-runway-marker.is-now > small { left: 50%; transform: translateX(-50%); color: #e2e8f0; }
+    .goal-runway-marker.is-target > small { right: 0; }
+    .goal-runway-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; margin-top: 3.5rem; border-top: 1px solid #263449; }
+    .goal-runway-stat { min-width: 0; padding: 1rem 1rem 0 0; }
+    .goal-runway-stat + .goal-runway-stat { padding-left: 1rem; border-left: 1px solid #263449; }
+    .goal-next-move { padding: 1.5rem; background: #172230; border-left: 1px solid #263449; }
+    .goal-ledger { overflow: hidden; border: 1px solid #263449; border-radius: 8px; background: #0d1420; }
+    .goal-ledger-head { display: flex; align-items: end; justify-content: space-between; gap: 1rem; padding: 1rem 1.5rem; border-bottom: 1px solid #263449; background: #121d2d; }
+    .goal-ledger-body { padding: 1.5rem; }
+    .goal-ledger-bar { height: 12px; border-radius: 2px; }
+    .goal-ledger-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); margin-top: 1.5rem; border-top: 1px solid #263449; border-bottom: 1px solid #263449; }
+    .goal-ledger-cell { min-width: 0; padding: 1rem; background: #101925; }
+    .goal-ledger-cell + .goal-ledger-cell { border-left: 1px solid #263449; }
+    .goal-ledger-cell.is-credited { background: #112237; }
+    .goal-report-grid { display: grid; grid-template-columns: minmax(0, 1fr) 19rem; gap: 1.25rem; }
+    .goal-report-band { overflow: hidden; border: 1px solid #263449; border-radius: 8px; background: #0f1723; }
+    .goal-report-band-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 1.25rem; border-bottom: 1px solid #263449; background: #121d2d; }
+    .goal-report-band-body { padding: 1.25rem; }
+    .goal-report-side > * { border-color: #263449 !important; border-radius: 8px !important; background: #0f1723 !important; }
+    @media (max-width: 1023px) {
+        .goal-command-deck, .goal-runway, .goal-report-grid { grid-template-columns: 1fr; }
+        .goal-outlook-rail, .goal-next-move { border-left: 0; border-top: 1px solid #263449; }
+    }
+    @media (max-width: 639px) {
+        .goal-command-main, .goal-outlook-rail, .goal-runway-main, .goal-next-move, .goal-ledger-body { padding: 1rem; }
+        .goal-ledger-head { align-items: flex-start; flex-direction: column; padding: 1rem; }
+        .goal-runway-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .goal-runway-stat:nth-child(3) { padding-left: 0; border-left: 0; }
+        .goal-ledger-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .goal-ledger-cell:nth-child(3), .goal-ledger-cell:nth-child(5) { border-left: 0; }
+        .goal-ledger-cell { border-top: 1px solid #263449; }
+    }
+
     @media (prefers-reduced-motion: reduce) {
         .chrono-panel, .chrono-fade-in, .chrono-pulse, .chrono-bob, .chrono-toast {
             animation: none !important;

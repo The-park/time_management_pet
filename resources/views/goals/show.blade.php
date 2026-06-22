@@ -46,29 +46,49 @@
         $windowWastedPct = (int) round(($window['wasted_hours'] / $windowTotal) * 100);
         $windowNeutralPct = (int) round(($window['neutral_hours'] / $windowTotal) * 100);
         $windowUnloggedPct = max(0, 100 - $windowProductivePct - $windowWastedPct - $windowNeutralPct);
+        $goalSpanDays = max(1, $goal->start_date->diffInDays($goal->target_date));
+        $elapsedGoalDays = min($goalSpanDays, max(0, $goal->start_date->diffInDays(now()->startOfDay())));
+        $timelinePct = max(0, min(100, ($elapsedGoalDays / $goalSpanDays) * 100));
     @endphp
 
-    <div class="mx-auto max-w-7xl space-y-5">
-        <header class="border-b border-slate-800/70 pb-5">
-            <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+    <div class="goal-report mx-auto max-w-7xl space-y-5" style="--goal-accent: {{ $tier['hex'] }}">
+        <header class="goal-command-deck">
+            <div class="goal-command-main">
                 <div class="min-w-0">
                     <a href="{{ route('goals.index') }}" class="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-200">
                         <span aria-hidden="true">&larr;</span>
                         All goals
                     </a>
-                    <div class="mt-3 flex flex-wrap items-center gap-2">
+                    <div class="mt-4 flex flex-wrap items-center gap-2">
                         <h1 class="min-w-0 break-words text-2xl font-semibold text-slate-100 md:text-3xl">{{ $goal->title }}</h1>
                         <span class="inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-1 text-xs {{ $statusInfo['class'] }}">
                             <span class="h-1.5 w-1.5 rounded-full {{ $statusInfo['dot'] }}"></span>
                             {{ $statusInfo['label'] }}
                         </span>
-                        <span class="rounded-full border border-slate-700 bg-slate-900/60 px-2 py-1 text-xs capitalize text-slate-400">{{ $goal->category }}</span>
+                        <span class="rounded-full border border-slate-700 bg-slate-950/60 px-2 py-1 text-xs capitalize text-slate-400">{{ $goal->category }}</span>
                     </div>
                     @if ($goal->description)
                         <p class="mt-2 max-w-3xl whitespace-pre-line text-sm leading-6 text-slate-400">{{ $goal->description }}</p>
                     @endif
                 </div>
 
+                <div class="mt-5 flex flex-wrap gap-2 text-xs text-slate-500">
+                    <span>Started {{ $goal->start_date->format('M j, Y') }}</span>
+                    <span class="text-slate-700">|</span>
+                    <span>Target {{ $goal->target_date->format('M j, Y') }}</span>
+                    <span class="text-slate-700">|</span>
+                    <span>{{ $logCount }} {{ Str::plural('record', $logCount) }}</span>
+                </div>
+            </div>
+            <aside class="goal-outlook-rail">
+                <div>
+                    <p class="text-xs text-slate-500">On-time confidence</p>
+                    <div class="mt-1 flex items-end justify-between gap-3">
+                        <span class="font-digital text-4xl text-slate-100">{{ $probDisplay }}%</span>
+                        <span class="pb-1 text-xs" style="color: {{ $tier['hex'] }}">{{ $tier['label'] }}</span>
+                    </div>
+                    <div class="goal-rail-progress mt-3"><span style="width: {{ max(2, $progress) }}%"></span></div>
+                </div>
                 <div class="flex shrink-0 flex-wrap items-center gap-2">
                     @if ($goal->status === 'active')
                         <a href="{{ route('goals.edit', $goal) }}" class="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-200 transition-colors hover:border-slate-500 hover:bg-slate-800/50">
@@ -86,7 +106,7 @@
                         </a>
                     @endif
                 </div>
-            </div>
+            </aside>
         </header>
 
         @if ($alertLevel)
@@ -113,42 +133,32 @@
             </section>
         @endif
 
-        <section class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_19rem]">
-            <div class="border border-slate-800/70 bg-slate-950/20 p-5">
-                <div class="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+        <section class="goal-runway">
+            <div class="goal-runway-main">
+                <div class="flex flex-wrap items-end justify-between gap-3">
                     <div>
-                        <p class="text-xs text-slate-500">Completion outlook</p>
-                        <div class="mt-1 flex items-baseline gap-3">
-                            <span class="font-digital text-5xl" style="color: {{ $tier['hex'] }}">{{ $probDisplay }}%</span>
-                            <span class="text-sm" style="color: {{ $tier['hex'] }}">{{ $tier['label'] }}</span>
-                        </div>
+                        <p class="text-xs text-slate-500">Goal runway</p>
+                        <h2 class="mt-1 text-lg font-semibold text-slate-100">Progress through the calendar window</h2>
                     </div>
                     <p class="max-w-md text-sm leading-6 text-slate-400">{{ $narrative }}</p>
                 </div>
-                <div class="mt-5 h-2 overflow-hidden rounded-full bg-slate-800">
-                    <div class="h-full rounded-full transition-[width] duration-700" style="width: {{ max(2, $progress) }}%; background-color: {{ $tier['hex'] }}"></div>
+                <div class="goal-runway-track-wrap">
+                    <div class="goal-runway-track">
+                        <span style="width: {{ $timelinePct }}%"></span>
+                        <i class="goal-runway-marker is-start left-0"><small>Start</small></i>
+                        <i class="goal-runway-marker is-now" style="left: {{ $timelinePct }}%"><small>Today</small></i>
+                        <i class="goal-runway-marker is-target right-0"><small>Target</small></i>
+                    </div>
                 </div>
-                <div class="mt-5 grid grid-cols-2 gap-x-5 gap-y-4 sm:grid-cols-4">
-                    <div>
-                        <p class="text-xs text-slate-500">Target</p>
-                        <p class="mt-1 text-sm font-medium text-slate-100">{{ $goal->target_date->format('M j, Y') }}</p>
-                    </div>
-                    <div>
-                        <p class="text-xs text-slate-500">Time left</p>
-                        <p class="mt-1 font-digital text-lg {{ $isPast ? 'text-rose-300' : 'text-slate-100' }}" data-goal-countdown data-deadline="{{ $deadlineIso }}">--</p>
-                    </div>
-                    <div>
-                        <p class="text-xs text-slate-500">Logged</p>
-                        <p class="mt-1 font-digital text-lg text-slate-100">{{ $details['hours_done'] ?? 0 }}h</p>
-                    </div>
-                    <div>
-                        <p class="text-xs text-slate-500">Recent pace</p>
-                        <p class="mt-1 font-digital text-lg text-slate-100">{{ $details['avg_recent_hours_per_day'] ?? '--' }}<span class="text-xs text-slate-500">h/day</span></p>
-                    </div>
+                <div class="goal-runway-stats">
+                    <div class="goal-runway-stat"><p class="text-xs text-slate-500">Elapsed</p><p class="mt-1 font-digital text-lg text-slate-100">{{ $elapsedGoalDays }}d</p></div>
+                    <div class="goal-runway-stat"><p class="text-xs text-slate-500">Time left</p><p class="mt-1 font-digital text-lg {{ $isPast ? 'text-rose-300' : 'text-slate-100' }}" data-goal-countdown data-deadline="{{ $deadlineIso }}">--</p></div>
+                    <div class="goal-runway-stat"><p class="text-xs text-slate-500">Goal credited</p><p class="mt-1 font-digital text-lg text-sky-200">{{ $details['hours_done'] ?? 0 }}h</p></div>
+                    <div class="goal-runway-stat"><p class="text-xs text-slate-500">Recent pace</p><p class="mt-1 font-digital text-lg text-slate-100">{{ $details['avg_recent_hours_per_day'] ?? '--' }}<span class="text-xs text-slate-500">h/day</span></p></div>
                 </div>
             </div>
 
-            <aside class="border border-slate-800/70 bg-slate-950/20 p-5">
+            <aside class="goal-next-move">
                 <p class="text-xs font-medium text-slate-300">Next step</p>
                 @if (! $hasKeywords)
                     <p class="mt-2 text-sm leading-6 text-slate-400">Add matching words so dashboard logs can be credited to this goal.</p>
@@ -165,8 +175,8 @@
             </aside>
         </section>
 
-        <section class="border border-slate-800/70 bg-slate-950/20">
-            <div class="flex flex-col gap-3 border-b border-slate-800/70 px-5 py-4 md:flex-row md:items-end md:justify-between">
+        <section class="goal-ledger">
+            <div class="goal-ledger-head">
                 <div>
                     <h2 class="text-base font-semibold text-slate-100">Goal-window utilization</h2>
                     <p class="mt-1 text-xs text-slate-500">Every awake hour from the goal start through now. Scheduled sleep is excluded.</p>
@@ -176,35 +186,35 @@
                     <div><span class="text-slate-500">Goal credited</span> <span class="ml-1 font-digital text-sky-200">{{ $window['goal_credited_hours'] }}h</span></div>
                 </div>
             </div>
-            <div class="px-5 py-5">
-                <div class="flex h-3 overflow-hidden rounded-full bg-slate-800" aria-label="Goal-window time distribution">
+            <div class="goal-ledger-body">
+                <div class="goal-ledger-bar flex" aria-label="Goal-window time distribution">
                     <span class="bg-emerald-400" style="width: {{ $windowProductivePct }}%" title="{{ $window['productive_hours'] }}h productive"></span>
                     <span class="bg-rose-400" style="width: {{ $windowWastedPct }}%" title="{{ $window['wasted_hours'] }}h wasted"></span>
                     <span class="bg-slate-400" style="width: {{ $windowNeutralPct }}%" title="{{ $window['neutral_hours'] }}h neutral"></span>
                     <span class="bg-yellow-400" style="width: {{ $windowUnloggedPct }}%" title="{{ $window['unlogged_awake_hours'] }}h unlogged"></span>
                 </div>
-                <div class="mt-5 grid grid-cols-2 gap-x-5 gap-y-5 sm:grid-cols-4 lg:grid-cols-5">
-                    <div>
+                <div class="goal-ledger-grid">
+                    <div class="goal-ledger-cell">
                         <p class="text-xs text-slate-500">Productive logged</p>
                         <p class="mt-1 font-digital text-xl text-emerald-200">{{ $window['productive_hours'] }}h</p>
                         <p class="mt-1 text-xs text-slate-600">all productive blocks</p>
                     </div>
-                    <div>
+                    <div class="goal-ledger-cell">
                         <p class="text-xs text-slate-500">Clearly wasted</p>
                         <p class="mt-1 font-digital text-xl text-rose-200">{{ $window['wasted_hours'] }}h</p>
                         <p class="mt-1 text-xs text-slate-600">marked wasted</p>
                     </div>
-                    <div>
+                    <div class="goal-ledger-cell">
                         <p class="text-xs text-slate-500">Neutral logged</p>
                         <p class="mt-1 font-digital text-xl text-slate-200">{{ $window['neutral_hours'] }}h</p>
                         <p class="mt-1 text-xs text-slate-600">score-neutral time</p>
                     </div>
-                    <div>
+                    <div class="goal-ledger-cell">
                         <p class="text-xs text-slate-500">Unlogged awake</p>
                         <p class="mt-1 font-digital text-xl text-yellow-200">{{ $window['unlogged_awake_hours'] }}h</p>
                         <p class="mt-1 text-xs text-slate-600">awake time without a block</p>
                     </div>
-                    <div class="border-l border-slate-800 pl-4 sm:col-span-2 lg:col-span-1">
+                    <div class="goal-ledger-cell is-credited">
                         <p class="text-xs text-slate-500">Credited to this goal</p>
                         <p class="mt-1 font-digital text-xl text-sky-200">{{ $window['goal_credited_hours'] }}h</p>
                         <p class="mt-1 text-xs text-slate-600">matched after shared-goal splits</p>
@@ -213,9 +223,9 @@
             </div>
         </section>
 
-        <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_19rem]">
+        <div class="goal-report-grid">
             <main class="min-w-0 space-y-5">
-                <section class="border border-slate-800/70 bg-slate-950/20 p-5">
+                <section class="goal-report-band p-5">
                     <div class="flex flex-wrap items-end justify-between gap-3">
                         <div>
                             <h2 class="text-base font-semibold text-slate-100">Momentum</h2>
@@ -251,7 +261,7 @@
                     @endif
                 </section>
 
-                <section class="border border-slate-800/70 bg-slate-950/20 p-5">
+                <section class="goal-report-band p-5">
                     <div class="flex flex-wrap items-start justify-between gap-3">
                         <div>
                             <h2 class="text-base font-semibold text-slate-100">Match your logs</h2>
@@ -298,7 +308,7 @@
                     @endif
                 </section>
 
-                <section class="border border-slate-800/70 bg-slate-950/20">
+                <section class="goal-report-band">
                     <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/70 px-5 py-4">
                         <div>
                             <h2 class="text-base font-semibold text-slate-100">Recent credited activity</h2>
@@ -343,7 +353,7 @@
                 </section>
             </main>
 
-            <aside class="space-y-5">
+            <aside class="goal-report-side space-y-5">
                 <section class="border border-slate-800/70 bg-slate-950/20 p-5">
                     <h2 class="text-base font-semibold text-slate-100">Goal details</h2>
                     <dl class="mt-4 space-y-3 text-sm">

@@ -248,6 +248,91 @@
                 ];
             }
         }
+
+        // Historical efficiency trends use only completed calendar periods so
+        // every comparison is like-for-like. Neutral time is logged but does
+        // not change the efficiency score; it does reduce unlogged awake time.
+        $improvementTrendData = ['day' => [], 'week' => [], 'month' => []];
+        if ($user) {
+            $trendNow = \Carbon\Carbon::now($timezone);
+            $completedDayEnd = $trendNow->copy()->startOfDay();
+            $completedWeekEnd = $completedDayEnd->copy()->startOfWeek();
+            $completedMonthEnd = $completedDayEnd->copy()->startOfMonth();
+            $dayHistoryStart = $completedDayEnd->copy()->subDays(8);
+            $weekHistoryStart = $completedWeekEnd->copy()->subWeeks(8);
+            $monthHistoryStart = $completedMonthEnd->copy()->subMonths(8);
+            $trendHistoryStart = $monthHistoryStart;
+
+            $trendBlocks = \App\Models\TimeBlock::query()
+                ->where('user_id', $user->id)
+                ->where('duration_seconds', '>', 0)
+                ->where('start_time', '>=', $trendHistoryStart)
+                ->where('start_time', '<', $completedDayEnd)
+                ->get(['start_time', 'duration_seconds', 'category']);
+
+            $makeTrendEntry = function ($rangeStart, $rangeEnd, string $label, string $rangeLabel) use ($signupAt, $scheduledSleepOverlapMs, $trendBlocks) {
+                $effectiveStart = ($signupAt && $signupAt->gt($rangeStart)) ? $signupAt : $rangeStart;
+                if ($effectiveStart->gte($rangeEnd)) {
+                    return [
+                        'label' => $label,
+                        'range_label' => $rangeLabel,
+                        'efficiency_pct' => null,
+                        'productive_ms' => 0,
+                        'wasted_ms' => 0,
+                        'neutral_ms' => 0,
+                        'unlogged_ms' => 0,
+                    ];
+                }
+
+                $blocksInRange = $trendBlocks->filter(fn ($block) => $block->start_time->gte($effectiveStart) && $block->start_time->lt($rangeEnd));
+                $productiveMs = (int) ($blocksInRange->whereNotIn('category', ['wasted', 'neutral'])->sum('duration_seconds') * 1000);
+                $wastedMs = (int) ($blocksInRange->where('category', 'wasted')->sum('duration_seconds') * 1000);
+                $neutralMs = (int) ($blocksInRange->where('category', 'neutral')->sum('duration_seconds') * 1000);
+                $elapsedMs = max(0, $effectiveStart->diffInRealMilliseconds($rangeEnd, false));
+                $awakeMs = max(0, $elapsedMs - $scheduledSleepOverlapMs($effectiveStart, $rangeEnd));
+                $unloggedMs = max(0, $awakeMs - $productiveMs - $wastedMs - $neutralMs);
+                $denominatorMs = $productiveMs + $wastedMs + $unloggedMs;
+
+                return [
+                    'label' => $label,
+                    'range_label' => $rangeLabel,
+                    'efficiency_pct' => $denominatorMs > 0 ? min(100, (int) round(($productiveMs / $denominatorMs) * 100)) : 0,
+                    'productive_ms' => $productiveMs,
+                    'wasted_ms' => $wastedMs,
+                    'neutral_ms' => $neutralMs,
+                    'unlogged_ms' => $unloggedMs,
+                ];
+            };
+
+            for ($i = 0; $i < 8; $i++) {
+                $dayStart = $dayHistoryStart->copy()->addDays($i);
+                $improvementTrendData['day'][] = $makeTrendEntry(
+                    $dayStart,
+                    $dayStart->copy()->addDay(),
+                    $dayStart->format('D'),
+                    $dayStart->format('M j'),
+                );
+            }
+            for ($i = 0; $i < 8; $i++) {
+                $weekStart = $weekHistoryStart->copy()->addWeeks($i);
+                $weekEnd = $weekStart->copy()->addWeek();
+                $improvementTrendData['week'][] = $makeTrendEntry(
+                    $weekStart,
+                    $weekEnd,
+                    $weekStart->format('M j'),
+                    $weekStart->format('M j').' - '.$weekEnd->copy()->subDay()->format('M j'),
+                );
+            }
+            for ($i = 0; $i < 8; $i++) {
+                $monthStart = $monthHistoryStart->copy()->addMonths($i);
+                $improvementTrendData['month'][] = $makeTrendEntry(
+                    $monthStart,
+                    $monthStart->copy()->addMonth(),
+                    $monthStart->format('M'),
+                    $monthStart->format('F Y'),
+                );
+            }
+        }
     @endphp
     @auth
         <div class="relative overflow-hidden rounded-2xl border border-slate-800/60 bg-[radial-gradient(circle_at_top,_rgba(0,224,255,0.15),_transparent_45%)] p-8 mb-10">
@@ -583,6 +668,80 @@
                             @endforeach
                         </ul>
                     @endif
+                </div>
+            </section>
+
+            @php
+                $trendMeta = [
+                    'day' => ['title' => 'Day by day', 'caption' => 'latest completed day'],
+                    'week' => ['title' => 'Week by week', 'caption' => 'latest completed week'],
+                    'month' => ['title' => 'Month by month', 'caption' => 'latest completed month'],
+                ];
+            @endphp
+            <section class="chrono-panel rounded-2xl p-5 md:p-6" data-improvement-trends>
+                <div class="flex flex-col gap-2 border-b border-slate-800/60 pb-4 md:flex-row md:items-end md:justify-between">
+                    <div class="flex items-start gap-3">
+                        <span class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-sky-400/30 bg-sky-400/10 text-sky-200">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" class="h-4 w-4" aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M3 17l6-6 4 4 8-9M14 6h7v7"/>
+                            </svg>
+                        </span>
+                        <div>
+                            <h2 class="font-display text-sm uppercase tracking-[0.3em] text-slate-100">Improvement trends</h2>
+                            <p class="mt-1 text-xs text-slate-400">Efficiency compares productive time with wasted and unlogged awake time. Neutral time is logged but score-neutral.</p>
+                        </div>
+                    </div>
+                    <p class="text-xs text-slate-500">Completed periods only</p>
+                </div>
+
+                <div class="mt-5 grid grid-cols-1 divide-y divide-slate-800/60 md:grid-cols-3 md:divide-x md:divide-y-0">
+                    @foreach ($trendMeta as $trendKey => $trendInfo)
+                        @php
+                            $entries = $improvementTrendData[$trendKey] ?? [];
+                            $latest = count($entries) >= 1 ? $entries[count($entries) - 1] : null;
+                            $previous = count($entries) >= 2 ? $entries[count($entries) - 2] : null;
+                            $currentPct = $latest['efficiency_pct'] ?? null;
+                            $previousPct = $previous['efficiency_pct'] ?? null;
+                            $delta = (! is_null($currentPct) && ! is_null($previousPct)) ? $currentPct - $previousPct : null;
+                            $deltaClass = is_null($delta) ? 'text-slate-500' : ($delta > 0 ? 'text-emerald-300' : ($delta < 0 ? 'text-rose-300' : 'text-slate-400'));
+                            $deltaLabel = is_null($delta) ? 'Need one more period' : ($delta > 0 ? '+'.$delta.' pts' : ($delta < 0 ? $delta.' pts' : 'No change'));
+                            $barEntries = array_slice($entries, -7);
+                        @endphp
+                        <article class="py-5 first:pt-0 md:px-5 md:first:pl-0 md:last:pr-0 md:py-0" data-improvement-card="{{ $trendKey }}">
+                            <div class="flex items-start justify-between gap-3">
+                                <div>
+                                    <h3 class="text-sm font-semibold text-slate-200">{{ $trendInfo['title'] }}</h3>
+                                    <p class="mt-1 text-xs text-slate-500" data-improvement-range>{{ $latest['range_label'] ?? 'No completed history' }}</p>
+                                </div>
+                                <span class="text-xs {{ $deltaClass }}" data-improvement-change>{{ $deltaLabel }}</span>
+                            </div>
+                            <div class="mt-4 flex items-end justify-between gap-3">
+                                <div>
+                                    <span class="font-digital text-3xl text-slate-100" data-improvement-current>{{ is_null($currentPct) ? '—' : $currentPct.'%' }}</span>
+                                    <span class="ml-1 text-xs text-slate-500">efficiency</span>
+                                </div>
+                                <span class="text-xs text-slate-500" data-improvement-context>
+                                    @if ($latest && ! is_null($currentPct))
+                                        {{ $fmtHours($latest['productive_ms']) }} productive
+                                    @else
+                                        collecting history
+                                    @endif
+                                </span>
+                            </div>
+                            <div class="mt-4 flex h-16 items-end gap-1.5" data-improvement-bars>
+                                @foreach ($barEntries as $entry)
+                                    @php $barPct = $entry['efficiency_pct']; @endphp
+                                    <div class="group relative flex h-full flex-1 items-end" title="{{ $entry['range_label'] }}: {{ is_null($barPct) ? 'not available' : $barPct.'%' }}">
+                                        <span class="w-full rounded-sm {{ is_null($barPct) ? 'bg-slate-800/70' : ($barPct >= 70 ? 'bg-emerald-400/80' : ($barPct >= 40 ? 'bg-sky-400/75' : 'bg-rose-400/75')) }}" style="height: {{ is_null($barPct) ? 8 : max(8, $barPct) }}%"></span>
+                                    </div>
+                                @endforeach
+                            </div>
+                            <div class="mt-2 flex justify-between text-[0.6rem] uppercase tracking-wider text-slate-600">
+                                <span>{{ $barEntries[0]['label'] ?? '' }}</span>
+                                <span>{{ $barEntries[count($barEntries) - 1]['label'] ?? '' }}</span>
+                            </div>
+                        </article>
+                    @endforeach
                 </div>
             </section>
         @endauth
@@ -6569,6 +6728,7 @@
                 const unloggedContextEl = document.querySelector('[data-unlogged-context]');
                 const topBlocksEl = document.querySelector('[data-top-blocks]');
                 const last7DaysEl = document.querySelector('[data-last-7-days]');
+                const improvementTrendSection = document.querySelector('[data-improvement-trends]');
                 const periodSections = {
                     week: document.querySelector('[data-period-section="week"]'),
                     month: document.querySelector('[data-period-section="month"]'),
@@ -6896,6 +7056,145 @@
                     last7DaysEl.innerHTML = tiles.join('');
                 };
 
+                const startOfTrendDay = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+                const startOfTrendWeek = (date) => {
+                    const start = startOfTrendDay(date);
+                    const mondayOffset = (start.getDay() + 6) % 7;
+                    start.setDate(start.getDate() - mondayOffset);
+                    return start;
+                };
+                const startOfTrendMonth = (date) => new Date(date.getFullYear(), date.getMonth(), 1);
+                const addTrendDays = (date, days) => {
+                    const next = new Date(date);
+                    next.setDate(next.getDate() + days);
+                    return next;
+                };
+                const addTrendMonths = (date, months) => new Date(date.getFullYear(), date.getMonth() + months, 1);
+                const trendRangeStats = (rangeStart, rangeEnd, label, rangeLabel, blocks) => {
+                    const effectiveStart = signupTs && signupTs > rangeStart ? signupTs : rangeStart;
+                    if (effectiveStart.getTime() >= rangeEnd.getTime()) {
+                        return { label, rangeLabel, efficiencyPct: null, productiveMs: 0, wastedMs: 0, neutralMs: 0, unloggedMs: 0 };
+                    }
+
+                    const startKey = localDateString(effectiveStart);
+                    const endKey = localDateString(rangeEnd);
+                    const completed = blocks.filter((block) =>
+                        block.status === 'completed' && block.date && block.date >= startKey && block.date < endKey
+                    );
+                    const productiveMs = completed
+                        .filter((block) => block.category !== 'wasted' && block.category !== 'neutral')
+                        .reduce((sum, block) => sum + (block.durationMs || 0), 0);
+                    const wastedMs = completed
+                        .filter((block) => block.category === 'wasted')
+                        .reduce((sum, block) => sum + (block.durationMs || 0), 0);
+                    const neutralMs = completed
+                        .filter((block) => block.category === 'neutral')
+                        .reduce((sum, block) => sum + (block.durationMs || 0), 0);
+                    const elapsedMs = Math.max(0, rangeEnd.getTime() - effectiveStart.getTime());
+                    const sleepMs = scheduledSleepMsInRange(effectiveStart, rangeEnd, hhmmToMins(wakeTime), hhmmToMins(endTime));
+                    const awakeMs = Math.max(0, elapsedMs - sleepMs);
+                    const unloggedMs = Math.max(0, awakeMs - productiveMs - wastedMs - neutralMs);
+                    const denominator = productiveMs + wastedMs + unloggedMs;
+
+                    return {
+                        label,
+                        rangeLabel,
+                        efficiencyPct: denominator > 0 ? Math.min(100, Math.round((productiveMs / denominator) * 100)) : 0,
+                        productiveMs,
+                        wastedMs,
+                        neutralMs,
+                        unloggedMs,
+                    };
+                };
+                const trendBarClass = (efficiencyPct) => {
+                    if (efficiencyPct === null) return 'bg-slate-800/70';
+                    if (efficiencyPct >= 70) return 'bg-emerald-400/80';
+                    if (efficiencyPct >= 40) return 'bg-sky-400/75';
+                    return 'bg-rose-400/75';
+                };
+                const renderImprovementTrends = (blocks, now) => {
+                    if (!improvementTrendSection) return;
+
+                    const completedDayEnd = startOfTrendDay(now);
+                    const completedWeekEnd = startOfTrendWeek(now);
+                    const completedMonthEnd = startOfTrendMonth(now);
+                    const configs = {
+                        day: {
+                            end: completedDayEnd,
+                            start: addTrendDays(completedDayEnd, -8),
+                            next: (date) => addTrendDays(date, 1),
+                            label: (date) => date.toLocaleDateString('en-US', { weekday: 'short' }),
+                            range: (date) => date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                        },
+                        week: {
+                            end: completedWeekEnd,
+                            start: addTrendDays(completedWeekEnd, -56),
+                            next: (date) => addTrendDays(date, 7),
+                            label: (date) => date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                            range: (date) => {
+                                const end = addTrendDays(date, 6);
+                                return `${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+                            },
+                        },
+                        month: {
+                            end: completedMonthEnd,
+                            start: addTrendMonths(completedMonthEnd, -8),
+                            next: (date) => addTrendMonths(date, 1),
+                            label: (date) => date.toLocaleDateString('en-US', { month: 'short' }),
+                            range: (date) => date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+                        },
+                    };
+
+                    Object.entries(configs).forEach(([key, config]) => {
+                        const card = improvementTrendSection.querySelector(`[data-improvement-card="${key}"]`);
+                        if (!card) return;
+                        const entries = [];
+                        for (let cursor = new Date(config.start); cursor < config.end; cursor = config.next(cursor)) {
+                            const rangeEnd = config.next(cursor);
+                            entries.push(trendRangeStats(cursor, rangeEnd, config.label(cursor), config.range(cursor), blocks));
+                        }
+                        const latest = entries[entries.length - 1];
+                        const previous = entries[entries.length - 2];
+                        const delta = latest && previous && latest.efficiencyPct !== null && previous.efficiencyPct !== null
+                            ? latest.efficiencyPct - previous.efficiencyPct
+                            : null;
+                        const currentEl = card.querySelector('[data-improvement-current]');
+                        const changeEl = card.querySelector('[data-improvement-change]');
+                        const rangeEl = card.querySelector('[data-improvement-range]');
+                        const contextEl = card.querySelector('[data-improvement-context]');
+                        const barsEl = card.querySelector('[data-improvement-bars]');
+                        if (currentEl) currentEl.textContent = latest && latest.efficiencyPct !== null ? `${latest.efficiencyPct}%` : '—';
+                        if (rangeEl) rangeEl.textContent = latest?.rangeLabel || 'No completed history';
+                        if (contextEl) contextEl.textContent = latest && latest.efficiencyPct !== null
+                            ? `${formatHours(latest.productiveMs)} productive`
+                            : 'collecting history';
+                        if (changeEl) {
+                            changeEl.className = 'text-xs';
+                            if (delta === null) {
+                                changeEl.textContent = 'Need one more period';
+                                changeEl.classList.add('text-slate-500');
+                            } else if (delta > 0) {
+                                changeEl.textContent = `+${delta} pts`;
+                                changeEl.classList.add('text-emerald-300');
+                            } else if (delta < 0) {
+                                changeEl.textContent = `${delta} pts`;
+                                changeEl.classList.add('text-rose-300');
+                            } else {
+                                changeEl.textContent = 'No change';
+                                changeEl.classList.add('text-slate-400');
+                            }
+                        }
+                        if (barsEl) {
+                            barsEl.innerHTML = entries.slice(-7).map((entry) => {
+                                const pct = entry.efficiencyPct;
+                                const height = pct === null ? 8 : Math.max(8, pct);
+                                const label = pct === null ? 'not available' : `${pct}%`;
+                                return `<div class="group relative flex h-full flex-1 items-end" title="${escapeHtml(entry.rangeLabel)}: ${label}"><span class="w-full rounded-sm ${trendBarClass(pct)}" style="height:${height}%"></span></div>`;
+                            }).join('');
+                        }
+                    });
+                };
+
                 const updateAll = () => {
                     const now = new Date();
                     const todayStr = localDateString(now);
@@ -7040,6 +7339,7 @@
                     updatePeriod(periodSections.year, 'year', startOfYear(now), endOfYear(now), now, blocks);
 
                     renderLast7Days(blocks, now);
+                    renderImprovementTrends(blocks, now);
                 };
 
                 window.addEventListener('chrono:blocks:changed', updateAll);

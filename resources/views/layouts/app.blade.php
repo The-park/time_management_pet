@@ -222,13 +222,13 @@
     </head>
     <body class="scanlines bg-[var(--chrono-bg)] text-slate-100">
         <div class="min-h-screen relative">
-            <header class="border-b border-slate-800/60">
-                <div class="mx-auto max-w-6xl px-6 py-4 flex items-center justify-between">
+            <header class="sticky top-0 z-40 border-b border-slate-800/70 bg-[var(--chrono-bg)]/88 backdrop-blur-xl shadow-[0_10px_30px_-24px_rgba(0,224,255,0.55)]">
+                <div class="mx-auto max-w-6xl px-6 py-3.5 flex flex-wrap items-center justify-between gap-4">
                     <div class="flex items-center gap-3">
                         <div class="h-3 w-3 rounded-full bg-[var(--chrono-blue)] shadow-[0_0_12px_var(--chrono-blue)]"></div>
                         <a href="{{ route('dashboard') }}" class="font-display text-lg tracking-[0.2em] hover:text-[var(--chrono-blue)] transition-colors">Time Management Pet</a>
                     </div>
-                    <nav class="text-sm uppercase tracking-[0.2em] flex items-center gap-6">
+                    <nav class="text-sm uppercase tracking-[0.2em] flex flex-wrap items-center justify-end gap-x-6 gap-y-2">
                         <a href="{{ route('dashboard') }}" class="hover:text-[var(--chrono-blue)]">Dashboard</a>
                         @auth
                             <a href="{{ route('goals.index') }}" class="hover:text-[var(--chrono-blue)]">Goals</a>

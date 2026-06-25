@@ -82,6 +82,7 @@ class HistoryController extends Controller
         $sleepPerNightMin = (int) ($schedule['per_night_seconds'] / 60);
         $endOfDayLabel = $schedule['end_label'];
         $wakeLabel = $schedule['wake_label'];
+        $sleepWindowLabel = $endOfDayLabel.' → '.$wakeLabel;
         $sleepMs = $sleepPerNightMin * 60 * 1000;
         $awakeMs = max(0, (24 * 60 * 60 * 1000) - $sleepMs);
 
@@ -133,7 +134,7 @@ class HistoryController extends Controller
             'sleepLabel' => $isCurrentDay ? 'scheduled sleep elapsed' : $sleepWindowLabel,
             'efficiencyPct' => $efficiencyPct,
             'sleepPerNightLabel' => $this->formatHourMinute($sleepPerNightMin),
-            'sleepWindowLabel' => $endOfDayLabel.' → '.$wakeLabel,
+            'sleepWindowLabel' => $sleepWindowLabel,
             'totalDayMs' => 24 * 60 * 60 * 1000,
         ]);
     }
